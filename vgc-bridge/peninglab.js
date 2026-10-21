@@ -63,6 +63,69 @@
       clearTimeout(t._hide);
       t._hide = setTimeout(() => { t.style.opacity = '0'; }, 3500);
     };
+    // PeningLab's colours: the vault's own stylesheets are recoloured in place — its lime / greens become
+    // PeningLab purple, its blue-grey darks the dashboard's purple-black (greys, reds, yellows stay). The style
+    // previews (concept-demos, .sample-*) keep their real colours. Hues land outside the ranges they come from,
+    // so running it again changes nothing.
+    const recolor = () => {
+      const hex2 = (n) => Math.round(n).toString(16).padStart(2, '0');
+      const parse = (c) => {
+        let m = /^#([0-9a-f]{3,8})$/i.exec(c);
+        if (m) {
+          let h = m[1];
+          if (h.length <= 4) h = h.split('').map((x) => x + x).join('');
+          if (h.length !== 6 && h.length !== 8) return null;
+          return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1];
+        }
+        m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+%?))?\s*\)$/i.exec(c);
+        if (!m) return null;
+        const a = m[4] === undefined ? 1 : m[4].endsWith('%') ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+        return [Number(m[1]), Number(m[2]), Number(m[3]), a];
+      };
+      const shift = (c) => {
+        const p = parse(c);
+        if (!p) return c;
+        const [r, g, b, a] = [p[0] / 255, p[1] / 255, p[2] / 255, p[3]];
+        const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+        if (d < 0.02) return c;
+        let s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        let h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) * 60 : max === g ? ((b - r) / d + 2) * 60 : ((r - g) / d + 4) * 60;
+        if (s < 0.08) return c;
+        if (h >= 65 && h <= 170 && s >= 0.15) { h = 271; if (l > 0.45) s = Math.max(s, 0.85); }
+        else if (h > 170 && h <= 260 && (l < 0.3 || s < 0.25)) { h = 268; s = Math.min(s, 0.32); }
+        else return c;
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s, pp = 2 * l - q;
+        const ch = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? pp + (q - pp) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? pp + (q - pp) * (2 / 3 - t) * 6 : pp; };
+        const R = ch(h / 360 + 1 / 3) * 255, G = ch(h / 360) * 255, B = ch(h / 360 - 1 / 3) * 255;
+        return a < 1 ? `rgba(${Math.round(R)}, ${Math.round(G)}, ${Math.round(B)}, ${a})` : `#${hex2(R)}${hex2(G)}${hex2(B)}`;
+      };
+      const fix = (v) => v.replace(/#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b|rgba?\([^)]*\)/gi, shift);
+      const walk = (rules) => {
+        for (const rule of rules) {
+          if (rule.cssRules) walk(rule.cssRules);
+          const st = rule.style;
+          if (!st || /sample|concept|demo/i.test(rule.selectorText || '')) continue;
+          for (let i = 0; i < st.length; i++) {
+            const prop = st[i];
+            const v = st.getPropertyValue(prop);
+            if (!/#|rgb/i.test(v)) continue;
+            const nv = fix(v);
+            if (nv !== v) st.setProperty(prop, nv, st.getPropertyPriority(prop));
+          }
+        }
+      };
+      for (const sh of Array.from(document.styleSheets)) {
+        const node = sh.ownerNode;
+        const src = (node && node.dataset && node.dataset.src) || sh.href || '';
+        if (!/\/vgc\/|\.css$/.test(src) || /concept-demos|peninglab\.css/.test(src)) continue;
+        let rules;
+        try { rules = sh.cssRules; } catch { continue; }
+        walk(rules);
+      }
+    };
+    recolor();
+    document.addEventListener('DOMContentLoaded', recolor);
+    window.addEventListener('load', recolor);
     // the vault's dialogs (style details) open in the visible part of the frame
     const place = (d) => {
       if (!d.open) return;
@@ -93,6 +156,8 @@
   const say = (m) => (typeof notify === 'function' ? notify(m) : alert(m));
   // `current` is app.js's top-level let (same global scope, not a window property)
   const cur = () => { try { return current; } catch { return null; } };
+  // Edit Footage Sendiri: the voice is the footage's own — no AI voice-over there (100% Motion Ad only)
+  const footage = () => { try { return ideaSource === 'footage'; } catch { return false; } };
   const flowOf = (id) => (id === 'fast-track' ? 'fast' : /^step-\d$/.test(id) ? 'guided' : /^reference-\d$/.test(id) ? 'reference' : '');
   const rendersVideo = (c) => !!c && (c.id === 'fast-track' || /\b(bina\s*(v1|preview)|improve\s*v2)\b/i.test(c.title || ''));
   const isFirstStep = (c) => !!c && (c.id === 'fast-track' || c.id === 'step-1' || c.id === 'reference-1');
@@ -149,6 +214,8 @@
   }
 
   function renderVoices() {
+    const box = document.querySelector('.pl-voice');
+    if (box) box.hidden = footage();
     const list = document.getElementById('pl-voice-list');
     if (!list) return;
     const opts = [{ key: '', label: 'Tiada', gender: '' }, ...voices];
@@ -213,7 +280,7 @@
     const parts = [];
     parts.push(video ? 'AI bina, render & semak (AI pengkritik) preview MP4 terus dalam PeningLab (~20–40 min).' : 'AI jawab langkah ini terus dalam PeningLab — baca jawapan dalam kad History.');
     if (price !== null) parts.push(price > 0 ? `Caj RM${price.toFixed(2)}.` : 'Percuma.');
-    const vo = voices.find((v) => v.key === voice);
+    const vo = footage() ? null : voices.find((v) => v.key === voice);
     if (vo) parts.push(`Voice-over AI: <b>${esc(vo.label)}</b>.`);
     if (card) parts.push(`Sambung projek: <b>${esc(card.title || 'projek semasa')}</b> · <a href="#" id="pl-new-project">Mula projek baru</a>`);
     else if (flow && flow !== 'fast' && !isFirstStep(c)) parts.push('Projek baru (tiada langkah sebelum ini dalam sesi ini).');
@@ -242,7 +309,7 @@
           prompt: text, step_id: c.id, title: c.title, project_id: projectId || undefined,
           materials: mats.filter((m) => m.url).map((m) => ({ url: m.url, name: m.name })),
           card_id: card?.id,
-          voice: voice || undefined,
+          voice: (!footage() && voice) || undefined,
         }),
       });
       const d = await r.json().catch(() => ({}));
@@ -281,6 +348,7 @@
       const out = vaultRender.apply(this, args);
       mount();
       relabel();
+      renderVoices();
       refreshAction();
       return out;
     };

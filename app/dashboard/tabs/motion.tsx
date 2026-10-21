@@ -136,26 +136,18 @@ const readDuration = (url: string) =>
     v.load();
   });
 
-const LOOK_KEY = "motion-look";
 // "Saya nak pilih sendiri": the last picks, remembered per browser
 const LOCKS_KEY = "motion-locks";
 type Engine = "laju";
 
 export default function MotionTab({ projectId }: { projectId?: string }) {
-  // Default = PeningLab's own Edit Video / Buat Iklan; Custom Style = the VGC
-  // vault (Coach Am) at /vgc, generated directly (remembered per browser)
-  const [look, setLookState] = useState<"default" | "custom">("default");
+  // Default = PeningLab's own Edit Video / Buat Iklan; Custom Style = the VGC vault (Coach Am) at /vgc, generated
+  // directly. Motion always opens on Default (the owner's call, 2026-10-21 — no longer remembered per browser).
+  const [look, setLook] = useState<"default" | "custom">("default");
+  // the vault page is loading (Custom Style shows a placeholder until its frame has drawn)
+  const [vgcLoading, setVgcLoading] = useState(true);
   // Default renders on HyperFrames ("Padat" was retired 2026-10-21)
   const engine: Engine = "laju";
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(LOOK_KEY) === "custom") setLookState("custom");
-    } catch { /* private mode */ }
-  }, []);
-  const setLook = (v: "default" | "custom") => {
-    setLookState(v);
-    try { localStorage.setItem(LOOK_KEY, v); } catch { /* private mode */ }
-  };
   const [mode, setMode] = useState<Mode>("edit");
   const [rate, setRate] = useState<number | null>(null);
 
@@ -426,7 +418,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const lookSwitch = (
     <div className="grid grid-cols-2 gap-2 mb-4">
       <Chip active={look === "default"} onClick={() => setLook("default")}><Wand2 className="inline w-3.5 h-3.5 mr-1" />Default</Chip>
-      <Chip active={look === "custom"} onClick={() => setLook("custom")}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Custom Style</Chip>
+      <Chip active={look === "custom"} onClick={() => { if (look !== "custom") setVgcLoading(true); setLook("custom"); }}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Custom Style</Chip>
     </div>
   );
   const header = (
@@ -448,13 +440,20 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           {lookSwitch}
           {/* the VGC vault (private, served from /vgc) sits in the page: its bridge script sizes the frame to the
               vault's content (no box, no inner scrollbar) and hides the vault's own header / copy-the-prompt chrome */}
+          {vgcLoading && (
+            <div className="flex items-center justify-center gap-2 rounded-2xl text-xs font-bold text-[var(--color-text-secondary)]"
+              style={{ height: 240, border: `1px dashed ${THEME.soft}`, background: THEME.faint }}>
+              <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME.primary }} /> Memuatkan Custom Style…
+            </div>
+          )}
           <iframe
             src={`/vgc${projectId ? `?p=${encodeURIComponent(projectId)}` : ""}`}
             title="VGC Custom Style"
+            onLoad={() => setVgcLoading(false)}
             scrolling="no"
             data-pl-embed="1"
             className="w-full block"
-            style={{ height: 900, border: 0, background: "transparent", colorScheme: "dark" }}
+            style={{ height: 900, border: 0, background: "transparent", colorScheme: "dark", ...(vgcLoading ? { position: "absolute", visibility: "hidden" } : {}) }}
           />
         </div>
       </div>

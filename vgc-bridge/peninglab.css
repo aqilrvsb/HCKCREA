@@ -43,3 +43,30 @@ html.pl-embed #handoff, html.pl-embed .bottom-note, html.pl-embed #step-strip, h
 html.pl-embed .work-area, html.pl-embed .idea-source-picker { border-radius: 16px !important; }
 html.pl-embed .toast { display: none !important; }
 html.pl-embed .idea-code-choice, html.pl-embed #idea-route-note { display: none !important; }
+
+/* Embedded: PeningLab's look (the colours of the vault's own rules are recoloured by peninglab.js) */
+html.pl-embed footer, html.pl-embed .platform-credit { display: none !important; }
+html.pl-embed .primary-button, html.pl-embed .pl-generate {
+  background: linear-gradient(135deg, #a855f7, #ec4899) !important; border-color: transparent !important; color: #fff !important;
+  box-shadow: 0 6px 18px rgba(168, 85, 247, 0.35) !important; }
+html.pl-embed #vault-view .input-panel {
+  background: #15111d !important; color: #ece6f7 !important; border: 1px solid rgba(168, 85, 247, 0.35) !important; border-top: 4px solid #a855f7 !important; }
+html.pl-embed #vault-view .input-panel h3, html.pl-embed #vault-view .input-panel .field label { color: #f3eefb !important; }
+html.pl-embed #vault-view .input-panel .helper, html.pl-embed #vault-view .input-panel .asset-note,
+html.pl-embed #vault-view .input-panel .asset-note strong, html.pl-embed #vault-view .input-panel .panel-heading > span,
+html.pl-embed #vault-view .input-panel .empty-fields { color: #b7acc9 !important; }
+html.pl-embed #vault-view .input-panel .asset-note { border-color: #a855f7 !important; }
+html.pl-embed #vault-view .input-panel .workspace-zone-label { color: #c084fc !important; }
+html.pl-embed #vault-view .input-panel input, html.pl-embed #vault-view .input-panel select, html.pl-embed #vault-view .input-panel textarea {
+  background: #0c0a12 !important; color: #f3eefb !important; border-color: rgba(168, 85, 247, 0.45) !important; box-shadow: none !important; }
+html.pl-embed #vault-view .input-panel input::placeholder, html.pl-embed #vault-view .input-panel textarea::placeholder { color: #8f84a6 !important; }
+html.pl-embed #vault-view .input-panel select option { background: #15111d; color: #f3eefb; }
+
+/* Embedded: the form writes the prompt by itself — the prompt text is hidden (it is still what runs); the
+   "x bahagian perlu diisi" status, 📎 Bahan, the voice-over and 🎬 Jana Video stay, under the form */
+html.pl-embed .prompt-grid { display: block !important; }
+html.pl-embed #vault-view .input-panel { margin-bottom: 14px; }
+html.pl-embed .editor-panel > .panel-heading, html.pl-embed .edit-guidance, html.pl-embed #prompt-preview,
+html.pl-embed .preview-controls, html.pl-embed #prompt-editor, html.pl-embed #char-count, html.pl-embed #reset { display: none !important; }
+html.pl-embed .editor-panel { background: transparent !important; }
+html.pl-embed #edit-status { border-radius: 10px; border: 1px solid; margin: 0 0 10px; }
