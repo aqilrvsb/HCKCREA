@@ -24,6 +24,9 @@
   // pops up (its toast, the style dialog) shows where the client is looking in the page, not at the
   // bottom of a tall frame. The full-screen /vgc page is unchanged.
   let host = null;
+  // the page toast that replaces the vault's own (set below when embedded; re-applied once the vault's scripts —
+  // which declare their own notify() — have run, or theirs would win and stay hidden)
+  let pageNotify = null;
   // only when the Motion tab asks for it (data-pl-embed) — an older page keeps the framed vault as it was
   try { host = window.frameElement && window.frameElement.dataset.plEmbed === "1" && window.parent.document ? window.frameElement : null; } catch { host = null; }
   if (host) {
@@ -47,7 +50,7 @@
       return { top: Math.max(0, -r.top), height: Math.max(200, Math.min(vh, r.bottom) - Math.max(0, r.top)), vh };
     };
     // the vault's toast → a toast in the page
-    window.notify = (message) => {
+    pageNotify = (message) => {
       const pd = window.parent.document;
       let t = pd.getElementById('pl-vgc-toast');
       if (!t) {
@@ -63,6 +66,7 @@
       clearTimeout(t._hide);
       t._hide = setTimeout(() => { t.style.opacity = '0'; }, 3500);
     };
+    window.notify = pageNotify;
     // PeningLab's colours: the vault's own stylesheets are recoloured in place — its lime / greens become
     // PeningLab purple, its blue-grey darks the dashboard's purple-black (greys, reds, yellows stay). The style
     // previews (concept-demos, .sample-*) keep their real colours. Hues land outside the ranges they come from,
@@ -435,6 +439,12 @@
     set('.editor-panel .panel-heading h3', 'Prompt untuk copy', 'Prompt untuk AI');
     set('#asset-note strong', 'Sebelum paste', 'Sebelum jana');
     set('#input-help', 'Attach fail sebenar dalam chat AI.', 'Fail sebenar: tambah di Bahan / Folder di bawah.');
+    set('#edit-status', 'Semak, kemudian copy.', 'Sedia untuk dijana.');
+    const st = document.getElementById('edit-status');
+    if (st && !st.dataset.plWatch) {
+      st.dataset.plWatch = '1';
+      new MutationObserver(() => { if (st.textContent.includes('kemudian copy')) st.textContent = st.textContent.replace('Semak, kemudian copy.', 'Sedia untuk dijana.'); }).observe(st, { childList: true, characterData: true, subtree: true });
+    }
     // PeningLab always runs Claude Code: the prompt is written for it, never for Codex
     const claude = document.querySelector('[data-idea-destination="claude"]');
     if (claude && claude.getAttribute('aria-pressed') !== 'true') claude.click();
@@ -459,6 +469,7 @@
   };
   hook();
   const boot = () => {
+    if (pageNotify) window.notify = pageNotify;
     hook();
     mount();
     relabel();

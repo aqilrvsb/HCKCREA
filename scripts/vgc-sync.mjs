@@ -64,4 +64,6 @@ for (const f of [...files, ...bridge]) {
   if (error) console.log(`✗ ${f.rel}: ${error.message}`);
   else ok++;
 }
+// the /vgc route keeps one assembled page (__bundle.html); drop it so the next visit rebuilds it from these files
+await sb.storage.from("vgc-vault").remove(["__bundle.html"]);
 console.log(`vgc-vault: ${ok}/${files.length + bridge.length} files uploaded (bridge v=${version})`);

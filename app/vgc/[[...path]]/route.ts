@@ -28,6 +28,7 @@ const TYPES: Record<string, string> = {
 const cache = new Map<string, { body: ArrayBuffer; at: number }>();
 const TTL_MS = 5 * 60_000;
 let page: { html: string; at: number } | null = null;
+const BUNDLE = "__bundle.html";
 
 async function file(rel: string): Promise<ArrayBuffer | null> {
   const hit = cache.get(rel);
@@ -44,6 +45,13 @@ const text = async (rel: string) => { const b = await file(rel); return b ? new 
  *  deferred scripts run) and content.json answered from memory. null when a piece is missing → the plain page. */
 async function bundled(): Promise<string | null> {
   if (page && Date.now() - page.at < TTL_MS) return page.html;
+  // the assembled page is stored too, so a cold instance reads one file instead of ~36 (scripts/vgc-sync.mjs and
+  // scripts/vgc-bridge.mjs delete it whenever a vault or bridge file changes; the next visit rebuilds it)
+  const stored = await text(BUNDLE);
+  if (stored) {
+    page = { html: stored, at: Date.now() };
+    return stored;
+  }
   let html = await text("index.html");
   if (!html) return null;
   const links = [...html.matchAll(/<link rel="stylesheet" href="\/vgc\/([A-Za-z0-9._-]+\.css)(?:\?[^"]*)?">/g)];
@@ -66,6 +74,9 @@ async function bundled(): Promise<string | null> {
     : "";
   html = html.replace("</body>", () => `${preload}\n${inline}\n</body>`);
   page = { html, at: Date.now() };
+  await createAdminClient().storage.from("vgc-vault")
+    .upload(BUNDLE, new Blob([html], { type: "text/html" }), { contentType: "text/html", upsert: true })
+    .catch(() => undefined);
   return html;
 }
 
