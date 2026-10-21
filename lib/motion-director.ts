@@ -344,7 +344,7 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
     BG = "dark" (charcoal, warm glow, faint grid) | "red" | "accent" | "paper" | "cork" | "yellow" | "blue" | "notebook" (lined school paper, red margin — tips, tutorials) | "chalk" (green chalkboard in a wooden frame — teacher, lessons) | "grid" (graph paper — numbers, plans) | "gradient" (deep night with drifting colour light — premium, emotional) | "burst" (a sunburst turning behind a slammed word or price); TONE = "white" | "yellow" | "green" | "red" | "blue" | "accent";
     any scene may set "speaker": "left" | "right" (the speaker stays on screen as a die-cut sticker in that bottom corner while the scene plays — keeps the face and trust on screen during a long scene; at most 2 scenes per video), "enter": "cut" (default — the hard explainer cut) | "push" | "zoom" | "whip" | "wipe" | "rise" | "iris" | "tear" (torn paper rises — paper / notebook scenes), and "rain": one emoji that rains over it (💸 money talk, 💧 water, 🔥 hot deal, 😭 pain…),
     a scene lasts 1.5–14 s, never during the hook (a float card may) or the CTA; stickers and B-roll pause under it; keep the speaker on screen for the hook, the personal / emotional moments and the CTA,
-  "behind": [{"at": CUE, "to"?: CUE, "text": ≤14 (1–2 spoken words), "tone"?: TONE}] — ONE HUGE WORD standing behind the speaker's head (the speaker is cut out and drawn over it — the viral "text behind the person" look): 0–2 per video, on the speaker's strongest word while THEY are on screen (the speaker shot between scenes, never inside a scene's time where it can't show; the product name, the result, "PALSU", "RM39"); never together with side words or a banner,
+  "behind": [{"at": CUE, "to"?: CUE, "text": ≤14 (1–2 spoken words), "tone"?: TONE}] — ONE HUGE WORD standing behind the speaker's head (the speaker is cut out and drawn over it — the viral "text behind the person" look): 0–2 per video, on the speaker's strongest word while THEY are on screen (the speaker shot between scenes, never inside a scene's time where it can't show; the product name, the result, "PALSU", "RM39"); never together with side words, a banner or a sticker (a sticker on the same moment is dropped — never also plan the same word as a bigword),
   "banner": [{"at": CUE, "to"?: CUE, "tag": ≤12 ("TERKINI", "PENTING", "INFO", "AMARAN", "FAKTA"), "text": ≤48 (the headline in the speaker's words), "ticker"?: ≤90 (a running line of the key facts said)}] — a news strip over the speaker (a blinking tag, the headline wiping open, a ticker): 0–2 per video, for a fact, a rule, news or a warning while the speaker is on screen; never together with side words,
   "side": [{"at": CUE, "to"?: CUE, "align": "left" | "right" | "center", "words": [{"at": CUE, "text": ≤16, "tone"?: TONE, "size"?: "sm" | "md" | "lg"}] (1–3, stacked)}] — big words beside the speaker's head on the line that deserves them; mix sizes like an editor ("KEPUTUSAN" sm → "RHB" lg → "SENDIRI" md yellow), or "center" for ONE huge embossed word over the head on a punchline ("PALSU"). Only words that carry meaning (a claim, a number, a key noun / verb) — never fillers or interjections ("haa", "okey", "eh", "korang", "kan").
 Every scene / side word shows ONLY words, numbers and facts the speaker actually says — short, punchy, in their language.
@@ -694,7 +694,7 @@ CUE: "w12" = when transcript word #12 starts, "w12$" = when it ends, "w12+0.3" o
 
 RULES
 - Hook covers 0–2.5 s: the video's promise in ≤5 punchy words. null if the video is under 5 s.
-- Every overlay sits on the word it illustrates. Max 2 overlays on screen at once. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly (don't cover the face for long).
+- Every overlay sits on the word it illustrates. Max 2 overlays on screen at once — one at a time reads best. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly. The renderer keeps every sticker clear of the eyes, the captions and the other stickers (shrinking it a little if needed); a sticker with no room left is DROPPED — so never stack stickers on the same moment, and keep sticker text short (a big word = 1–2 short words).
 - B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
 - Mix the tools — a pro edit uses variety: circle / underline the key words, a point toward the product or the beg kuning, 0–2 gif reactions, 0–2 confetti, not the same sticker type twice in a row. The STYLE line wins over these defaults (a style that says "no emoji" / "no confetti" means none).
 - SPREAD the edit over the WHOLE runtime: the middle and the last third get as many overlays as the opening — never more than ${maxGap} without a new overlay or B-roll (zooms alone don't count). Viewers drop off in the middle; that's where a callout, circle, check or re-hook keeps them.
@@ -1260,7 +1260,7 @@ async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: st
 }
 
 // ── visual QA ─────────────────────────────────────────────────────────────────
-export type QaPatch = { drop_overlays: number[]; move: { idx: number; zone: "top" | "middle" | "bottom" }[]; drop_broll: number[]; pip_broll: number[]; notes?: string };
+export type QaPatch = { drop_overlays: number[]; move: { idx: number; zone: "top" | "middle" | "bottom" }[]; drop_broll: number[]; pip_broll: number[]; notes?: string; via?: string };
 
 export async function qaPatch(opts: {
   stills: { frame: number; t: number; active: string[]; image: string }[];
@@ -1297,5 +1297,7 @@ export async function qaPatch(opts: {
     drop_broll: ints(j?.drop_broll, nB),
     pip_broll: ints(j?.pip_broll, nB),
     notes: clean(j?.notes, 160),
+    // which model judged the stills ("provider/model"), like plan.director
+    via: (() => { const m = r as { provider?: string; model?: string }; return m.provider && m.model ? `${m.provider}/${m.model}` : undefined; })(),
   };
 }
