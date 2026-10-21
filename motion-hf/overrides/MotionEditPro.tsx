@@ -41,7 +41,9 @@ import type { EditProps, Face, Item, ItemType } from '../../motion/src/types';
 /** Extra props the Pro edit reads (all optional: older jobs render without them). */
 type ProProps = EditProps & { lookSeed?: number; musicBpm?: number; direction?: Direction | null;
   /** the speaker cut out (alpha WebM) over windows of the edit, seconds — for text behind the speaker, spotlight, sticker */
-  cutouts?: { src: string; s: number; e: number; top?: number }[] };
+  cutouts?: { src: string; s: number; e: number; top?: number }[];
+  /** QA stills only (made before the matte returns): the planned cut-out windows, seconds */
+  cutoutsPlanned?: { s: number; e: number }[] };
 
 const DEFAULT_DUR = 2.6;
 const BROLL_DUR = 2.4;
@@ -357,6 +359,11 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     // ── the speaker cut-out (props.cutouts): text behind the speaker, spotlight, speaker sticker over a scene ──
     const cuts = (p.cutouts ?? []).map((c) => ({ src: c.src, s: Math.round(c.s * fps), e: Math.round(c.e * fps), top: c.top })).filter((c) => c.src && c.e > c.s + 2);
     const covered = (s: number, e: number) => cuts.some((c) => c.s <= s && c.e >= e);
+    // QA stills are made before the matte returns: there the planned windows stand in for the cut-outs, so the
+    // stills carry the same text behind the speaker — and drop the same stickers — as the final render
+    const behindWins: { s: number; e: number; top?: number }[] = cuts.length ? cuts
+      : (p.cutoutsPlanned ?? []).map((c) => ({ s: Math.round(c.s * fps), e: Math.round(c.e * fps) })).filter((c) => c.e > c.s + 2);
+    const behindCovered = (s: number, e: number) => behindWins.some((c) => c.s <= s && c.e >= e);
     for (const sc of scenes) if (sc.speaker && !covered(sc.s, sc.e)) sc.speaker = undefined;
     const behinds: { s: number; e: number; text: string; tone?: Tone; headTop: number; fitW?: number }[] = [];
     for (const raw of arr((p.direction as Record<string, unknown> | null | undefined)?.behind).slice(0, 3)) {
@@ -367,14 +374,14 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       e = Math.min(Math.max(e, s + fr(1.2)), s + fr(4), ctaStart >= 0 ? ctaStart : last);
       const nextScene = scenes.find((x) => x.s > s);
       if (nextScene && e > nextScene.s) e = nextScene.s;
-      const holder = cuts.find((c) => c.s <= s && c.e > s);
+      const holder = behindWins.find((c) => c.s <= s && c.e > s);
       if (holder && holder.e < e && holder.e - s >= fr(1)) e = holder.e;
-      if (e - s < fr(1) || !covered(s, e) || behinds.some((x) => s < x.e && e > x.s) || sides.some((x) => s < x.e && e > x.s)
+      if (e - s < fr(1) || !behindCovered(s, e) || behinds.some((x) => s < x.e && e > x.s) || sides.some((x) => s < x.e && e > x.s)
         || banners.some((x) => s < x.e && e > x.s) || broll.some((x) => s < x.e + 4 && e > x.s - 4)) continue;
       const fc = faceAt(p.faces, s / fps);
       if (!fc) continue;
       // the word stands on the top of the head: the head covers its lower part, the rest reads above and around it
-      const cut = cuts.find((c) => c.s <= s && c.e >= e);
+      const cut = behindWins.find((c) => c.s <= s && c.e >= e);
       const headTop = typeof cut?.top === 'number' ? cut.top : (fc.y - fc.h * 0.35) * 1920;
       behinds.push({ s, e, text, tone: tone(raw.tone), headTop: Math.max(300, headTop) });
     }

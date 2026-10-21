@@ -2311,11 +2311,16 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     qa = {"qa": "off"}
     if p.get("qa_url") and not plan_fallback:
         _progress("qa", 46)
+        # the matte is still running: QA's stills use the planned cut-out windows, so they show the same text
+        # behind the speaker (and drop the same stickers) as the final render — no waiting for the GPU
+        if matte_win:
+            props["cutoutsPlanned"] = [{"s": round(f0 / 30, 4), "e": round(f1 / 30, 4)} for f0, f1 in matte_win]
         try:
             props, qa = _qa(props, d, p)
         except Exception as e:  # noqa: BLE001
             qa = {"qa": f"error {str(e)[:160]}"}
             print("qa failed:", e)
+        props.pop("cutoutsPlanned", None)
 
     if matte_call is not None:
         try:
