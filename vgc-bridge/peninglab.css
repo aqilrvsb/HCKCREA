@@ -30,3 +30,16 @@
 .flow-footer, #next, .setup-workflows, a[href="#start"], a[href="#script-ready"], a[href="#step-1"],
 a[href="#reference-1"], a[href="#video-review"], a[href="#model-guide"], a[href="#style-library"],
 a[href="#broll-assets"], a[href="#setup"], [data-path="guided"], [data-path="reference"] { display: none !important; }
+
+/* Embedded in the Motion tab (peninglab.js adds html.pl-embed): the vault reads as part of the page —
+   no own background, header or hero, no "copy the prompt" chrome (PeningLab runs the prompt itself),
+   and its height is the content's (the frame grows with it; the page scrolls, not the vault). */
+html.pl-embed, html.pl-embed body { background: transparent !important; overflow: hidden !important; }
+html.pl-embed .app { min-height: 0 !important; }
+html.pl-embed main { max-width: none !important; margin: 0 !important; padding: 0 0 6px !important; }
+html.pl-embed .topbar, html.pl-embed .page-heading, html.pl-embed #route-summary,
+html.pl-embed #destination-picker, html.pl-embed #tool-badge, html.pl-embed #copy, html.pl-embed #after-copy,
+html.pl-embed #handoff, html.pl-embed .bottom-note, html.pl-embed #step-strip, html.pl-embed #workflow-nav-label { display: none !important; }
+html.pl-embed .work-area, html.pl-embed .idea-source-picker { border-radius: 16px !important; }
+html.pl-embed .toast { display: none !important; }
+html.pl-embed .idea-code-choice, html.pl-embed #idea-route-note { display: none !important; }

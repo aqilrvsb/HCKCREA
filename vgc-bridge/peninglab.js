@@ -17,6 +17,65 @@
   const lockRoute = () => { if (location.hash.slice(1) !== ONLY) location.replace('#' + ONLY); };
   lockRoute();
   window.addEventListener('hashchange', lockRoute);
+
+  // ── Embedded in the Motion tab (Custom Style): the vault sits in the page like the rest of the form ──
+  // The frame takes the vault's own height (no box, no inner scrollbar — the page scrolls), the vault's
+  // header / hero / "copy the prompt" chrome is hidden (peninglab.css, html.pl-embed), and what the vault
+  // pops up (its toast, the style dialog) shows where the client is looking in the page, not at the
+  // bottom of a tall frame. The full-screen /vgc page is unchanged.
+  let host = null;
+  // only when the Motion tab asks for it (data-pl-embed) — an older page keeps the framed vault as it was
+  try { host = window.frameElement && window.frameElement.dataset.plEmbed === "1" && window.parent.document ? window.frameElement : null; } catch { host = null; }
+  if (host) {
+    document.documentElement.classList.add('pl-embed');
+    let lastH = 0;
+    const fit = () => {
+      const h = Math.ceil(document.body ? document.body.getBoundingClientRect().height : 0);
+      if (h > 0 && Math.abs(h - lastH) > 1) { lastH = h; host.style.height = h + 'px'; }
+    };
+    const watch = () => {
+      if (!document.body) return;
+      new ResizeObserver(fit).observe(document.body);
+      fit();
+    };
+    if (document.body) watch(); else document.addEventListener('DOMContentLoaded', watch);
+    window.addEventListener('load', fit);
+    // the part of the frame the client can see right now (frame px)
+    const view = () => {
+      const r = host.getBoundingClientRect();
+      const vh = window.parent.innerHeight;
+      return { top: Math.max(0, -r.top), height: Math.max(200, Math.min(vh, r.bottom) - Math.max(0, r.top)), vh };
+    };
+    // the vault's toast → a toast in the page
+    window.notify = (message) => {
+      const pd = window.parent.document;
+      let t = pd.getElementById('pl-vgc-toast');
+      if (!t) {
+        t = pd.createElement('div');
+        t.id = 'pl-vgc-toast';
+        t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;max-width:calc(100vw - 32px);'
+          + 'padding:11px 18px;border-radius:12px;font:700 13px/1.4 system-ui,sans-serif;color:#fff;'
+          + 'background:linear-gradient(135deg,#a855f7,#ec4899);box-shadow:0 10px 40px rgba(0,0,0,.45);transition:opacity .2s;opacity:0;pointer-events:none';
+        pd.body.appendChild(t);
+      }
+      t.textContent = String(message);
+      t.style.opacity = '1';
+      clearTimeout(t._hide);
+      t._hide = setTimeout(() => { t.style.opacity = '0'; }, 3500);
+    };
+    // the vault's dialogs (style details) open in the visible part of the frame
+    const place = (d) => {
+      if (!d.open) return;
+      const v = view();
+      d.style.position = 'absolute';
+      d.style.margin = '0 auto';
+      d.style.maxHeight = (v.vh - 32) + 'px';
+      d.style.top = (v.top + 16) + 'px';
+    };
+    new MutationObserver((list) => {
+      for (const m of list) if (m.target.tagName === 'DIALOG') place(m.target);
+    }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
+  }
   const params = new URLSearchParams(location.search);
   const projectId = params.get('p') || '';
   const CARD_KEY = 'pl-vgc-cards:' + projectId;
@@ -199,17 +258,43 @@
     }
   }
 
-  // re-sync after every vault render (step change, platform switch, style change)
-  const vaultRender = window.render;
-  if (typeof vaultRender === 'function') {
+  // The vault's own text still speaks of copying the prompt into an AI chat — PeningLab runs it from here.
+  function relabel() {
+    const set = (sel, from, to) => { const el = document.querySelector(sel); if (el && el.textContent.includes(from)) el.textContent = el.textContent.replace(from, to); };
+    set('.editor-panel .panel-heading h3', 'Prompt untuk copy', 'Prompt untuk AI');
+    set('#asset-note strong', 'Sebelum paste', 'Sebelum jana');
+    set('#input-help', 'Attach fail sebenar dalam chat AI.', 'Fail sebenar: tambah di 📎 Bahan untuk AI (bawah).');
+    // PeningLab always runs Claude Code: the prompt is written for it, never for Codex
+    const claude = document.querySelector('[data-idea-destination="claude"]');
+    if (claude && claude.getAttribute('aria-pressed') !== 'true') claude.click();
+  }
+
+  // Re-sync after every vault render (step change, video type, style change). The vault's scripts are
+  // deferred and run after this one, so its render() only exists once the document has been parsed —
+  // hook it then (hooking it here missed it: the button stayed blank unless the pricing call came late).
+  let hooked = false;
+  const hook = () => {
+    if (hooked || typeof window.render !== 'function') return;
+    hooked = true;
+    const vaultRender = window.render;
     window.render = function (...args) {
       const out = vaultRender.apply(this, args);
       mount();
+      relabel();
       refreshAction();
       return out;
     };
-  }
-  const boot = () => { mount(); refreshAction(); };
+  };
+  hook();
+  const boot = () => {
+    hook();
+    mount();
+    relabel();
+    refreshAction();
+    // the vault picks its step once content.json has loaded: label the button as soon as it has
+    let n = 0;
+    const t = setInterval(() => { n++; if (cur() || n > 50) { clearInterval(t); mount(); relabel(); refreshAction(); } }, 200);
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
   window.addEventListener('hashchange', () => setTimeout(refreshAction, 0));
