@@ -7,6 +7,7 @@ import { MOTION_EDIT_MAX_SEC, allowedEngine, costFor, motionStart, newPlanToken,
 import { isMotionStyle, styleEnergy } from "@/lib/motion-styles";
 import { cleanLocks } from "@/lib/motion-manual";
 import { padatMin } from "@/lib/motion-padat";
+import { vgcStyle } from "@/lib/vgc-styles";
 
 // POST /api/motion/edit — Motion "Edit Video": animate the client's own video
 // (captions, word-synced stickers, zooms, optional music). The video was
@@ -58,6 +59,12 @@ export async function POST(req: Request) {
   // every pick is a rule it must follow (lib/motion-manual.ts) — unset picks stay the AI's call.
   const locks = cleanLocks(b?.locks);
   const manual = !!locks;
+  // one of the 40 styles: its brief directs the edit (the director reads it from the library — lib/vgc-styles.ts)
+  if (locks?.styleId) {
+    const st = await vgcStyle(locks.styleId);
+    if (!st) return NextResponse.json({ error: "Style tidak dijumpai — pilih semula." }, { status: 400 });
+    locks.styleName = st.name;
+  }
   const auto = b?.auto === true || manual;
   // 2-step flow (mandatory): stop after the script + captions so the client
   // reviews them ("Jana Video" on the History card renders — /api/motion/render)

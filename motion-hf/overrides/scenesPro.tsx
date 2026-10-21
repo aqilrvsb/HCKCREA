@@ -31,7 +31,15 @@ import { AnnotateBody, ChatBody, SplitBody, SwapText, type ChatMsg, type ChatSty
 import { MapBody, ReceiptBody, type MapPlace, type ReceiptItem } from './scenesMap';
 
 export type Tone = 'white' | 'yellow' | 'green' | 'red' | 'blue' | 'accent' | 'black';
-export type Bg = 'dark' | 'red' | 'accent' | 'paper' | 'cork' | 'yellow' | 'blue' | KitBg | 'burst';
+export type Bg = 'dark' | 'red' | 'accent' | 'paper' | 'cork' | 'yellow' | 'blue' | KitBg | 'burst' | 'style';
+
+/** This video's style colours and surface (MotionEditPro sets them from the look before drawing a frame). */
+let PAL = { bg: '#121517', ink: '#ffffff', light: false };
+let TEX = 'none';
+export const setStyleSurface = (p: { bg: string; ink: string; light: boolean } | null | undefined, texture: string | undefined) => {
+  PAL = p ?? { bg: '#121517', ink: '#ffffff', light: false };
+  TEX = texture ?? 'none';
+};
 export type LineFx = 'strike' | 'marker' | 'count' | Mark | 'sparkle' | 'roll' | 'extrude' | 'shine';
 export type LineEnter = 'slam' | 'slide' | 'swap' | TextEnter;
 export type PlacedLine = { f: number; text: string; tone?: Tone; box?: 'yellow' | 'black' | 'white' | 'accent' | 'none'; size?: 'sm' | 'md' | 'lg' | 'xl'; enter?: LineEnter; fx?: LineFx; emoji?: string;
@@ -86,16 +94,41 @@ export const toneColor = (t: Tone | undefined, look: Look, accent: string): stri
 
 const BG_COLOR: Record<Bg, string> = {
   dark: '#121517', red: '#EF4B4F', accent: '#222', paper: '#E9E0CC', cork: '#8C6B4B', yellow: '#FFD93B', blue: '#2F7BFF',
-  notebook: '#FBF8EF', chalk: '#1E3A2F', grid: '#F5F6F1', gradient: '#160F2E', burst: '#E23B3B',
+  notebook: '#FBF8EF', chalk: '#1E3A2F', grid: '#F5F6F1', gradient: '#160F2E', burst: '#E23B3B', style: '#121517',
 };
+const bgColor = (bg: Bg, accent: string) => (bg === 'accent' ? accent : bg === 'style' ? PAL.bg : BG_COLOR[bg]);
 const KIT_BGS = new Set<string>(['notebook', 'chalk', 'grid', 'gradient']);
 /** Text on a light background reads dark. */
-const lightBg = (bg: Bg) => bg === 'paper' || bg === 'yellow' || kitBgLight(bg);
+const lightBg = (bg: Bg) => (bg === 'style' ? PAL.light : bg === 'paper' || bg === 'yellow' || kitBgLight(bg));
+/** Scenes on a light background (the captions turn dark over them). */
+export const sceneOnLight = (bg: string) => lightBg(bg as Bg);
+
+/** The style's surface over a full-screen scene (film / crt are drawn over the whole video instead). */
+const SceneTexture: React.FC<{ f: number; light: boolean; accent: string }> = ({ f, light, accent }) => {
+  const ink = light ? '0,0,0' : '255,255,255';
+  if (TEX === 'paper') {
+    return <AbsoluteFill style={{ pointerEvents: 'none', backgroundImage: `radial-gradient(rgba(${light ? '0,0,0' : '255,255,255'},0.07) 1px, transparent 1.6px), radial-gradient(rgba(${light ? '0,0,0' : '255,255,255'},0.05) 1px, transparent 1.4px)`,
+      backgroundSize: '9px 9px, 13px 13px', backgroundPosition: '0 0, 4px 6px', boxShadow: 'inset 0 0 160px rgba(0,0,0,0.18)' }} />;
+  }
+  if (TEX === 'halftone') {
+    return <AbsoluteFill style={{ pointerEvents: 'none', backgroundImage: `radial-gradient(circle, rgba(${ink},0.16) 2.4px, transparent 3px)`, backgroundSize: '16px 16px',
+      WebkitMaskImage: 'linear-gradient(160deg, #000 0%, rgba(0,0,0,0.15) 55%, #000 100%)', maskImage: 'linear-gradient(160deg, #000 0%, rgba(0,0,0,0.15) 55%, #000 100%)' }} />;
+  }
+  if (TEX === 'grid') {
+    return <AbsoluteFill style={{ pointerEvents: 'none', backgroundImage: `linear-gradient(rgba(${ink},0.16) 2px, transparent 2px), linear-gradient(90deg, rgba(${ink},0.16) 2px, transparent 2px), linear-gradient(rgba(${ink},0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(${ink},0.07) 1px, transparent 1px)`,
+      backgroundSize: '120px 120px, 120px 120px, 24px 24px, 24px 24px', backgroundPosition: `0 ${(f * 0.4) % 120}px, 0 0, 0 ${(f * 0.4) % 24}px, 0 0` }} />;
+  }
+  if (TEX === 'glow') {
+    const drift = Math.sin(f / 50) * 60;
+    return <AbsoluteFill style={{ pointerEvents: 'none', background: `radial-gradient(circle 520px at ${300 + drift}px 260px, ${accent}55 0%, transparent 70%), radial-gradient(circle 600px at ${800 - drift}px 1500px, ${accent}3a 0%, transparent 70%)`, mixBlendMode: 'screen' }} />;
+  }
+  return null;
+};
 
 export const SceneBg: React.FC<{ bg: Bg; f: number; accent: string }> = ({ bg, f, accent }) => {
-  if (KIT_BGS.has(bg)) return <KitBackground bg={bg as KitBg} f={f} accent={accent} />;
-  if (bg === 'burst') return <BurstBackground f={f} color={accent} />;
-  const base = bg === 'accent' ? accent : BG_COLOR[bg];
+  if (KIT_BGS.has(bg)) return <><KitBackground bg={bg as KitBg} f={f} accent={accent} /><SceneTexture f={f} light={lightBg(bg)} accent={accent} /></>;
+  if (bg === 'burst') return <><BurstBackground f={f} color={accent} /><SceneTexture f={f} light={false} accent={accent} /></>;
+  const base = bgColor(bg, accent);
   const drift = Math.sin(f / 70) * 30;
   return (
     <AbsoluteFill style={{ background: base }}>
@@ -117,6 +150,8 @@ export const SceneBg: React.FC<{ bg: Bg; f: number; accent: string }> = ({ bg, f
           backgroundSize: '9px 9px, 13px 13px', backgroundPosition: '0 0, 4px 6px',
         }} />
       )}
+      {bg === 'style' && TEX === 'none' && <AbsoluteFill style={{ background: 'radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.16) 100%)' }} />}
+      <SceneTexture f={f} light={lightBg(bg)} accent={accent} />
     </AbsoluteFill>
   );
 };
@@ -231,6 +266,7 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
   if (box === 'yellow' || box === 'white' || (box === 'accent' && look.hi !== '#111111')) color = '#111';
   if (box === 'black') color = l.tone && l.tone !== 'white' && l.tone !== 'black' ? color : '#fff';
   if (!box && lightBg(bg) && (!l.tone || l.tone === 'white')) color = '#111';
+  if (!box && bg === 'style' && (!l.tone || l.tone === 'white')) color = PAL.ink;
   // a boxed line already carries its emphasis: a marker sweep under the box would only turn its text dark
   const mk = l.fx === 'marker' && !box ? interpolate(d, [3, 11], [0, 1], { ...clamp, easing: Easing.out(Easing.quad) }) : 0;
   const st = l.fx === 'strike' ? interpolate(d, [7, 13], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) }) : 0;
@@ -242,6 +278,8 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
     background: boxBg, padding: box ? `${size * 0.04}px ${size * 0.18}px` : 0, borderRadius: box ? 6 : 0, opacity: st > 0 ? 1 - 0.3 * st : 1,
     transform: box ? 'rotate(-1.2deg)' : undefined, whiteSpace: 'nowrap', display: 'inline-block',
     ...(l.fx === 'extrude' && !box ? { textShadow: extrudeShadow(d, lightBg(bg) ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.6)') } : {}),
+    // the glow surface: lines shine in the accent (neon, dark tech)
+    ...(TEX === 'glow' && !box && l.fx !== 'extrude' ? { textShadow: `0 0 ${Math.round(size * 0.12)}px ${look.hi}, 0 0 ${Math.round(size * 0.32)}px ${look.hi}88` } : {}),
   };
   const roll = l.fx === 'roll' && /\d/.test(text) && !(l.enter && TEXT_ENTERS.has(l.enter)) && !swap;
   // the block the hand marks / sparkles frame: the measured text (+ the box padding)
@@ -434,7 +472,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
   const f = frame - sc.s;
   const face = look.display;
   const dark = !lightBg(sc.bg);
-  const ink = dark ? '#fff' : '#111';
+  const ink = sc.bg === 'style' ? PAL.ink : dark ? '#fff' : '#111';
   let body: React.ReactNode = null;
   if (sc.kind === 'build') {
     body = (
@@ -530,7 +568,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 30 }}>
           {heading}
           <div style={{ position: 'relative', width: 860, background: '#fff', padding: '54px 56px 46px', borderRadius: 14, boxShadow: '0 30px 60px rgba(0,0,0,0.45)', transform: lift }}>
-            {article && <div style={{ position: 'absolute', top: 0, right: 0, width: 64, height: 64, borderTopRightRadius: 14, background: `linear-gradient(225deg, ${sc.bg === 'accent' ? accent : BG_COLOR[sc.bg]} 50%, #d4d4d4 50%)` }} />}
+            {article && <div style={{ position: 'absolute', top: 0, right: 0, width: 64, height: 64, borderTopRightRadius: 14, background: `linear-gradient(225deg, ${bgColor(sc.bg, accent)} 50%, #d4d4d4 50%)` }} />}
             {!article && <div style={{ position: 'absolute', left: 36, top: -34, fontFamily: 'Georgia, serif', fontSize: 170, lineHeight: 1, color: look.hi === '#FFD93B' ? '#F2443F' : look.hi }}>“</div>}
             <div style={{ fontFamily: article ? "'Inter', sans-serif" : face.family, fontWeight: article ? 800 : face.weight, color: '#141414', lineHeight: 1.16,
               fontSize: article ? fitSize(cap, 76, 790, 4, 0.56, 40) : fitFace(face.upper ? cap.toUpperCase() : cap, cap.length < 44 ? 112 : 92, 750, 4, face, 44) }}>
@@ -551,7 +589,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, marginTop: -40 }}>
           {heading}
           <div style={{ position: 'relative', width: 900, background: '#fff', padding: '36px 40px 32px', borderRadius: 14, boxShadow: '0 30px 60px rgba(0,0,0,0.45)', transform: lift }}>
-            <div style={{ position: 'absolute', top: 0, right: 0, width: 64, height: 64, borderTopRightRadius: 14, background: `linear-gradient(225deg, ${sc.bg === 'accent' ? accent : BG_COLOR[sc.bg]} 50%, #d4d4d4 50%)` }} />
+            <div style={{ position: 'absolute', top: 0, right: 0, width: 64, height: 64, borderTopRightRadius: 14, background: `linear-gradient(225deg, ${bgColor(sc.bg, accent)} 50%, #d4d4d4 50%)` }} />
             <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 800, fontSize: fitSize(cap, 52, 800, 3, 0.56, 32), color: '#141414', lineHeight: 1.2, paddingRight: 30 }}>
               <Highlighted text={cap} words={sc.highlight} p={sweep} />
             </div>

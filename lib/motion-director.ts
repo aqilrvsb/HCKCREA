@@ -22,6 +22,7 @@ import { MOTION_EDIT_PRESETS, MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompt
 import { MOTION_STYLES, motionStyle, type MotionEnergy, type MotionStyleId } from "@/lib/motion-styles";
 import type { MotionLocks } from "@/lib/motion-manual";
 import { HOOK_SOUNDS } from "@/lib/motion-hook-sounds";
+import { vgcStyle, type VaultStyle } from "@/lib/vgc-styles";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
 
@@ -72,6 +73,8 @@ export type ProDirection = {
   hook_style?: string; font?: string; caption_font?: string; caption_fx?: string; caption_look?: string; marker?: boolean; emoji?: "above" | "beside";
   grade?: string; grain?: boolean; camera?: string; transitions?: string[]; break_fx?: string; end_card?: string; progress?: string;
   second?: string; moves?: { at: Cue; move: string; power?: number }[];
+  /** a picked style's own scene colours (bg "style") and the surface over the video */
+  palette?: { bg: string; ink: string }; texture?: string;
   /** HyperFrames registry blocks (motion-hf/overrides/blocks.ts) with their own fields. */
   graphics?: ({ block: string; at: Cue; to?: Cue } & Record<string, unknown>)[];
   /** "subtle" = explainer captions (small words building), "big" = TikTok captions. */
@@ -232,9 +235,28 @@ ${footage
   head stays inside the frame at the camera's zoom.`;
 }
 
-function autoBrief(input?: EditInput): string {
+/** The client's style (one of the 40 of the style library): its whole brief directs the edit, translated onto the kit. */
+function styleBlock(vs: VaultStyle): string {
+  const pal = vs.colors?.length === 3 ? ` Its palette: background ${vs.colors[0]}, text ${vs.colors[1]}, accent ${vs.colors[2]}.` : "";
+  return `CLIENT-PICKED STYLE — "${vs.name}" (${vs.group}). The client chose this style for this video from PeningLab's style library.${pal} Its full brief (below, verbatim) is the CREATIVE DIRECTION of this edit: a viewer must recognise this style at first glance, from the first frame to the last. You build it with THIS engine — PeningLab's HyperFrames kit on the speaker's own footage — so translate EVERY part of the brief into the kit's choices, and use the kit's full range to get as close to the style as it can:
+- Look & layout, colour → "accent", "second", every scene's "bg" and tones, "grade", "grain", sticker / side-word tones, how much of the frame graphics take;
+- Typography → "font", "caption_font", "caption_look" (or captions "subtle"), "hook_style", scene line sizes, "box" and "enter" styles;
+- Motion → "camera", "moves" (which ones, how often, how hard), "transitions", "fx" (full / light), scene "enter" styles and how lines land;
+- Pacing → the "look" whose pace rules fit it, the share of the runtime in scenes, how fast scene items build, the gap between stickers;
+- Audio direction → "music", "mood", the hook sound, how loud the hits are;
+- Assets & Avoid → hard limits: whatever the brief says to avoid is not used anywhere in the plan.
+The brief was written for a video built in code: skip its lines about tools, skills, installs, approvals, writing code, rendering, exporting or synthesising audio — PeningLab's engine does those. The footage and the voice stay the speaker's own (never a new person, never fake speech). Where the style and the FYP playbook below disagree on the LOOK (palette, type, texture, motion feel, pace), the style wins; on the hook in the first 2.5 s, honesty, facts and selling, the playbook wins.
+--- STYLE BRIEF: ${vs.name} ---
+${vs.brief}
+--- END OF STYLE BRIEF ---
+
+`;
+}
+
+function autoBrief(input?: EditInput, vs?: VaultStyle | null): string {
   const locks = input?.locks;
-  const lookOpts = locks?.look ? [motionStyle(locks.look)] : shuffle(MOTION_STYLES).slice(0, 2);
+  // a picked style: every look is on the menu (the one whose pace fits the style wins), not a random 2
+  const lookOpts = locks?.look ? [motionStyle(locks.look)] : vs ? MOTION_STYLES : shuffle(MOTION_STYLES).slice(0, 2);
   const looks = lookOpts.map((l) =>
     `- ${l.id} (${l.label}: ${l.desc}) — ${l.edit} Palette: ${l.palette}. Max gap ${l.maxGap} s. Music mood: ${l.mood}.`).join("\n");
   const anglePool = [
@@ -245,15 +267,15 @@ function autoBrief(input?: EditInput): string {
     .map((a) => `- ${a.label}: ${a.desc}`).join("\n");
   const sounds = shuffle(HOOK_SOUNDS.map((s, i) => `${i} = ${s}`)).slice(0, 5).join("\n");
   const formulas = shuffle(HOOK_FORMULAS).slice(0, 3).map((f) => `- ${f}`).join("\n");
-  const caps = shuffle(CAPTION_CHOICES).slice(0, 2).map((c) => `"${c}"`).join(" or ");
+  const caps = (vs ? [...CAPTION_CHOICES] : shuffle(CAPTION_CHOICES).slice(0, 2)).map((c) => `"${c}"`).join(" or ");
   const spark = SPARKS[Math.floor(Math.random() * SPARKS.length)];
-  const colour = input?.accent || ACCENTS[Math.floor(Math.random() * ACCENTS.length)];
-  return `${locks ? clientChoices(input!) : ""}AI AUTO — YOU ARE THE CREATIVE DIRECTOR AND THE EDITOR. The client chose nothing: read the WHOLE transcript first, understand the product, the speaker's energy and what actually happens in the video, then decide EVERYTHING yourself. Goal: stop the scroll, keep people watching to the end, push the beg kuning — and beat what a skilled human TikTok editor would make of this footage, so it has its best shot at the For You Page.
+  const colour = input?.accent || (vs?.colors?.[2] ?? ACCENTS[Math.floor(Math.random() * ACCENTS.length)]);
+  return `${locks ? clientChoices(input!) : ""}${vs ? styleBlock(vs) : ""}AI AUTO — YOU ARE THE CREATIVE DIRECTOR AND THE EDITOR. ${vs ? "The client chose the STYLE above; everything else is your call" : "The client chose nothing"}: read the WHOLE transcript first, understand the product, the speaker's energy and what actually happens in the video, then decide EVERYTHING yourself. Goal: stop the scroll, keep people watching to the end, push the beg kuning — and beat what a skilled human TikTok editor would make of this footage, so it has its best shot at the For You Page.
 Decide, in this order:
 This generation's options were drawn at random — choose ONLY from them, the best fit for this footage (another generation of the same video gets different options on purpose):
 1. "angle": ONE of the 4 ANGLES below — frame this footage through it honestly (a tutorial video can still be told as a POV, a soft-sell story, a myth-buster…); name it in ≤6 words.
-2. "look": the id of ONE of the 2 LOOKS below. Follow its pace rules.
-   "accent": this generation's colour is ${colour} — use it (or a close shade) unless it truly clashes with the chosen look; then take the nearest colour from the look's palette.
+2. "look": the id of ONE of the ${lookOpts.length} LOOKS below${vs ? " — the one whose pace and energy fit the client's style best (the style decides colour and type; the look sets the sticker rhythm and the render energy)" : ""}. Follow its pace rules.
+   "accent": ${vs?.colors && !input?.accent ? `the style's accent ${colour} — use it (or a close shade that stays readable on this footage)` : `this generation's colour is ${colour} — use it (or a close shade) unless it truly clashes with the chosen look; then take the nearest colour from the look's palette`}.
 3. "captions": {"style": ${caps}, "pos": "low" | "mid"} — "mid" only when hands / the product fill the bottom of the frame (ignored when the client switched captions off).
 4. "hook": write it with ONE of the HOOK FORMULAS below, from what is really said.
 5. "hook_sound": the index of ONE of the 5 HOOK SOUNDS below, the one whose feel matches your hook (it plays as the hook text lands).
@@ -261,9 +283,9 @@ This generation's options were drawn at random — choose ONLY from them, the be
 7. Then the edit itself — stickers, B-roll, zooms, keywords, re-hook, CTA — built around the angle and the look.
 FYP PLAYBOOK (TikTok Shop Academy 2026 + TikTok Creative Center):
 ${FYP_PLAYBOOK}
-THINK IT UP FRESH: treat this video as a brand-new creative brief — no default template, no safe go-to look, no stock hook line. Find the idea that is special about THIS footage and build the whole edit around it. Creative spark for this edit: "${spark}" — use it for one signature move only if it fits the content honestly; ignore it if it doesn't.
+${vs ? `THINK IT UP FRESH INSIDE THE STYLE: no stock hook line, no template — find the idea that is special about THIS footage and build the whole edit around it, in "${vs.name}" from start to end.` : `THINK IT UP FRESH: treat this video as a brand-new creative brief — no default template, no safe go-to look, no stock hook line. Find the idea that is special about THIS footage and build the whole edit around it. Creative spark for this edit: "${spark}" — use it for one signature move only if it fits the content honestly; ignore it if it doesn't.`}
 
-LOOKS — pick ${lookOpts.length === 1 ? "this one (the client chose it)" : "one of these 2"} (id — feel — pace rules — palette — max gap — music mood):
+LOOKS — pick ${lookOpts.length === 1 ? "this one (the client chose it)" : `one of these ${lookOpts.length}`} (id — feel — pace rules — palette — max gap — music mood):
 ${looks}
 
 ANGLES — pick ${locks?.angle ? "this one (the client chose it)" : "one of these 4"}:
@@ -308,8 +330,9 @@ function clientChoices(input: EditInput): string {
 // as a rule — the model weighs footage, speaker, product and angle itself.
 const PRO_SETS = {
   hook_style: ["slam", "rise", "blocks", "marker", "stack", "headline"],
-  font: ["montserrat", "archivo", "anton", "bebas", "poppins", "inter"],
+  font: ["montserrat", "archivo", "anton", "bebas", "poppins", "inter", "playfair", "mono", "marker", "pixel", "comic", "rounded"],
   caption_fx: ["pop", "color", "box", "underline"],
+  texture: ["none", "paper", "film", "crt", "halftone", "grid", "glow"],
   caption_look: ["hormozi", "beast", "karaoke", "popline", "deep", "pill", "fill", "pod", "sticker", "sweep", "neon"],
   grade: ["warm", "punchy", "clean", "cool", "matte", "vivid"],
   camera: ["calm", "handheld", "energetic"],
@@ -326,7 +349,18 @@ const PRO_FEEL: Record<string, Record<string, string>> = {
     marker: "the line lands, a highlighter sweeps the key word and an underline draws — explainer", stack: "one big word per line — poster feel (hook ≤ 4 words)",
     headline: "news-explainer title: white stroked line, then its last part (or the hook \"sub\") wiped in on a colour box — calm authority",
   },
-  font: { montserrat: "round, friendly, heavy", archivo: "wide and heavy", anton: "condensed, tall, loud", bebas: "condensed caps, clean and tall", poppins: "geometric, friendly", inter: "clean, modern" },
+  font: {
+    montserrat: "round, friendly, heavy", archivo: "wide and heavy", anton: "condensed, tall, loud", bebas: "condensed caps, clean and tall", poppins: "geometric, friendly", inter: "clean, modern",
+    playfair: "high-contrast serif, sentence case — editorial, magazine, luxury, documentary, archive", mono: "monospace caps — technical, data, blueprint, dossier, retro computer",
+    marker: "hand-drawn marker caps — scrapbook, notes, DIY, annotations", pixel: "8-bit pixel caps — retro game, pixel art (very wide: short words)",
+    comic: "comic-book caps — comic, pop art, sports impact, loud fun", rounded: "soft rounded — friendly, playful vector, clay, cute, kids",
+  },
+  texture: {
+    none: "no surface — clean", paper: "paper fibre + soft edges on the scenes — scrapbook, paper, stop-motion, archive",
+    film: "old film over the whole video: flicker, scratches, dust, warm vignette — retro film, nostalgia", crt: "CRT over the whole video: scanlines, RGB mask, a rolling band — retro desktop, pixel, VHS",
+    halftone: "halftone dots on the scenes — comic, pop art, print, poster", grid: "blueprint grid lines drifting on the scenes — blueprint, data, technical, plans",
+    glow: "accent glow light on the scenes, glowing scene text — dark tech, neon noir, premium night",
+  },
   caption_fx: { pop: "the spoken word scales up", color: "it turns the accent colour", box: "an accent box behind it", underline: "an accent bar under it" },
   caption_look: {
     hormozi: "caps, thick stroke, 2–3 short lines, one emphasis word per page in green / yellow — hard sell",
@@ -354,22 +388,32 @@ type Shortlists = Record<string, string[]>;
 let LISTS: Shortlists | null = null;
 /** The client's PRO picks for this call (field → value): its shortlist is that value alone. */
 let LOCKED: Record<string, string> | null = null;
+/** The faces added for the 40 styles: offered only when a style is picked (AI Auto keeps its six). */
+const STYLE_FACES = new Set(["playfair", "mono", "marker", "pixel", "comic", "rounded"]);
+/** A picked style: every option of the kit is offered (the style's brief decides), no random draw. */
+let STYLED: string | null = null;
 const shortlist = (key: string, n: number, keep?: string, field: string = key) => {
   const lock = LOCKED?.[field];
   if (lock && PRO_FEEL[key][lock]) {
     if (LISTS) LISTS[field] = [lock];
     return `"${lock}" (${PRO_FEEL[key][lock]}) — the client chose it`;
   }
-  const rest = shuffle(Object.keys(PRO_FEEL[key]).filter((k) => k !== keep)).slice(0, keep ? n - 1 : n);
+  if (STYLED) {
+    const every = Object.keys(PRO_FEEL[key]);
+    if (LISTS) LISTS[field] = every;
+    return every.map((k) => `"${k}" (${PRO_FEEL[key][k]})`).join(" | ");
+  }
+  const rest = shuffle(Object.keys(PRO_FEEL[key]).filter((k) => k !== keep && !(key === "font" && STYLE_FACES.has(k)))).slice(0, keep ? n - 1 : n);
   const picked = shuffle(keep ? [keep, ...rest] : rest);
   if (LISTS) LISTS[field] = picked;
   return picked.map((k) => `"${k}" (${PRO_FEEL[key][k]})`).join(" | ");
 };
 /** PRO_DIRECTION plus the shortlists it drew. */
-export const proDirectionWithLists = (recent: string[], locks?: MotionLocks): { text: string; lists: Shortlists } => {
+export const proDirectionWithLists = (recent: string[], locks?: MotionLocks, style?: string | null): { text: string; lists: Shortlists } => {
   LISTS = {};
   LOCKED = proLocked(locks);
-  try { return { text: PRO_DIRECTION(recent) + proLockText(locks), lists: LISTS }; } finally { LISTS = null; LOCKED = null; }
+  STYLED = style ?? null;
+  try { return { text: PRO_DIRECTION(recent) + proLockText(locks), lists: LISTS }; } finally { LISTS = null; LOCKED = null; STYLED = null; }
 };
 
 /** The PRO fields a manual pick decides. Gaya edit sets the pace (its rules are in the brief); effects / camera stay the AI's
@@ -441,7 +485,7 @@ function enforceShortlists(d: ProDirection, lists: Shortlists): void {
   }
 }
 
-export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also the MASTER DIRECTING EDITOR of this video's finish. The render engine (HyperFrames) gives you the craft below; nothing is preset. Decide the treatment that serves THIS footage, speaker, product and angle — the way a top human TikTok editor would — and return it in "direction". This generation's options were drawn at random (another generation of the same video gets different ones on purpose): choose the best of them for this footage.
+export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also the MASTER DIRECTING EDITOR of this video's finish. The render engine (HyperFrames) gives you the craft below; nothing is preset. Decide the treatment that serves THIS footage, speaker, product and angle — the way a top human TikTok editor would — and return it in "direction". ${STYLED ? `The client picked the style "${STYLED}" (its brief is above): every option of the kit is offered — choose the ones that make this video read as that style, for this footage.` : "This generation's options were drawn at random (another generation of the same video gets different ones on purpose): choose the best of them for this footage."}
 "direction": {
   "strategy": [{"at": CUE, "beat": "hook" | "pain" | "myth" | "benefits" | "how" | "proof" | "number" | "price" | "place" | "question" | "product" | "rehook" | "emotion" | "close" | "cta", "tool": ≤40 (the device you give it, e.g. "split MITOS|FAKTA", "behind PALSU", "checklist")}] (4–12) — WRITE THIS FIRST: the video's beat sheet in time order, each beat with the tool from the TOOL PLAYBOOK below that tells it best; everything after follows this plan,
   "hook_style": ${shortlist("hook_style", 3, "headline")},
@@ -457,7 +501,9 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
   "break_fx": light at section breaks — ${shortlist("break_fx", 2)},
   "end_card": ${shortlist("end_card", 2, "none")},
   "progress": ${shortlist("progress", 2)},
-  "second": "#RRGGBB" (a second colour that pairs with the accent),
+  "second": "#RRGGBB" (a second colour that pairs with the accent),${STYLED ? `
+  "palette": {"bg": "#RRGGBB", "ink": "#RRGGBB"} — the style's own scene colours: every scene with "bg": "style" is drawn on "bg" with its text in "ink" (start from the style's palette; keep them readable),
+  "texture": the surface of the whole video — ${shortlist("texture", 7)},` : ""}
   "moves": [{"at": CUE, "move": "crash" | "punch" | "whip" | "shake" | "bump" | "lines" | "tilt" | "smash" | "spotlight", "power"?: 0.6–1.4, "text"?: ≤14 (smash only)}] — signature camera moves on the words that earn them (e.g. a crash zoom on the reveal, a punch-in on the price, a whip at a topic turn, a shake on a shock line, "lines" = manga focus lines burst around the face with a punch-in — a shock, a "WAJIB", a twist; "tilt" = a quick dutch-angle lean — a playful or "wait, what?" beat; "smash" = a smash cut: 0.4 s of black with ONE huge spoken word ("text"), then a hard cut back with a punch-in — the single biggest beat of the video, at most once; "spotlight" = for ~2.4 s the room behind the speaker dims and blurs while the speaker stays lit — a confession, a secret, a serious warning); a few per video, at least 2 s apart, none in the last 3 s,
   "graphics": [GRAPHIC] — optional motion-design moments in the band above the face (0–2 per video, each block type once, never during a B-roll card, the hook or the end card; a graphic replaces a sticker at that moment — never repeat a sticker's words or put both on the same beat):
     {"block": "count-up", "at": CUE, "to"?: CUE, "end": number, "start"?: number, "prefix"?: string (≤4, e.g. "RM"), "suffix"?: string (≤4, e.g. "%", " jam")} — a number counts up and lands: ONLY a number the speaker says,
@@ -480,7 +526,7 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
     {"kind": "map", "at": CUE, "to": CUE, "bg": BG, "heading"?: ≤40, "places": [{"at": CUE, "name": a Malaysian state / federal territory / big town ("Johor", "KL", "Penang", "Kota Kinabalu", "Ipoh") or "seluruh Malaysia" / "Semenanjung" / "Sabah Sarawak", "label"?: ≤18 ("Stokis", "Hantar 2 hari", "Kedai baru"), "tone"?: TONE}] (≤6)} — a map of Malaysia: each spoken place lights its state with a pin and a label; "seluruh Malaysia" sweeps every state on (delivery everywhere, stockists, branches, where customers are) — ONLY places the speaker names,
     {"kind": "receipt", "at": CUE, "to": CUE, "bg": BG, "title"?: ≤30 (the shop / bundle name), "items": [{"at": CUE, "label": ≤22, "value": ≤12 ("RM39", "PERCUMA")}] (≤6), "total"?: {"at": CUE, "label"?: ≤12 ("JUMLAH", "BAYAR"), "value": ≤12}, "stamp"?: {"at": CUE, "text": ≤16 ("JIMAT RM20", "PERCUMA POS")}} — a receipt printing out item by item, the total counting up, a red stamp slamming on: a bundle, what you get for the price, a promo — ONLY prices the speaker says,
     {"kind": "chat", "at": CUE, "to": CUE, "bg": BG, "style": "comments" | "chat" | "notif", "title"?: ≤30 (sheet / contact name), "messages": [{"at": CUE, "text": ≤90, "who"?: "them" | "me", "name"?: ≤20, "likes"?: ≤8}] (≤6)} — "comments" = a comment sheet whose rows slide in (a question viewers ask, that the speaker reads out or answers), "chat" = a message thread with typing dots (a conversation the speaker recounts: "customer tanya…", "saya jawab…"), "notif" = notification banners dropping in (an order, a reminder, a message the speaker mentions). ONLY words the speaker actually says — never invent reviews, testimonials, names or numbers (no "name" unless the speaker says one),
-    BG = "dark" (charcoal, warm glow, faint grid) | "red" | "accent" | "paper" | "cork" | "yellow" | "blue" | "notebook" (lined school paper, red margin — tips, tutorials) | "chalk" (green chalkboard in a wooden frame — teacher, lessons) | "grid" (graph paper — numbers, plans) | "gradient" (deep night with drifting colour light — premium, emotional) | "burst" (a sunburst turning behind a slammed word or price); TONE = "white" | "yellow" | "green" | "red" | "blue" | "accent";
+    BG = "dark" (charcoal, warm glow, faint grid) | "red" | "accent" | "paper" | "cork" | "yellow" | "blue" | "notebook" (lined school paper, red margin — tips, tutorials) | "chalk" (green chalkboard in a wooden frame — teacher, lessons) | "grid" (graph paper — numbers, plans) | "gradient" (deep night with drifting colour light — premium, emotional) | "burst" (a sunburst turning behind a slammed word or price)${STYLED ? ` | "style" (the "palette" colours — the style's own background, use it for most scenes)` : ""}; TONE = "white" | "yellow" | "green" | "red" | "blue" | "accent";
     any scene may set "speaker": "left" | "right" (the speaker stays on screen as a die-cut sticker in that bottom corner while the scene plays — keeps the face and trust on screen during a long scene; at most 2 scenes per video), "enter": "cut" (default — the hard explainer cut) | "push" | "zoom" | "whip" | "wipe" | "rise" | "iris" | "tear" (torn paper rises — paper / notebook scenes), and "rain": one emoji that rains over it (💸 money talk, 💧 water, 🔥 hot deal, 😭 pain…),
     a scene lasts 1.5–14 s, never during the hook (a float card may) or the CTA; stickers and B-roll pause under it; keep the speaker on screen for the hook, the personal / emotional moments and the CTA,
   "behind": [{"at": CUE, "to"?: CUE, "text": ≤14 (1–2 spoken words), "tone"?: TONE}] — ONE HUGE WORD standing behind the speaker's head (the speaker is cut out and drawn over it — the viral "text behind the person" look): 0–2 per video, on the speaker's strongest word while THEY are on screen (the speaker shot between scenes, never inside a scene's time where it can't show; the product name, the result, "PALSU", "RM39"); never together with side words, a banner or a sticker (a sticker on the same moment is dropped — never also plan the same word as a bigword),
@@ -498,7 +544,7 @@ TOOL PLAYBOOK — how a top editor uses this kit (plan the beats first, then giv
 ${TOOL_PLAYBOOK}
 CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): does your strategy name a beat for every part of the speech, and does each beat use the playbook tool that fits it (not just builds)? do the scenes cover between ~45 % and 70 % of the runtime (never more — the speaker must be seen: trust sells)? is every side word, behind word, banner, sticker (overlay) and camera move ("punch", "crash", "spotlight", "lines", "tilt", "shake", "bump", "whip") placed in a gap BETWEEN your scenes (inside a scene's at…to the speaker is hidden, so they never show)? is every number / price on screen one the speaker actually says? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours? is every "behind" word's index OUTSIDE every scene's at…to range (a word inside a scene can't show)?
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
-VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
+${STYLED ? `VARIETY INSIDE THE STYLE — the style "${STYLED}" sets the look; never break it for variety.${recent.length ? ` This client's recent edits used: ${recent.join(" | ")}. Where the style leaves room, vary the details (hook style, transitions, scene kinds and backgrounds).` : ""}` : `VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`}`;
 
 function cleanDirection(d: any, nWords: number, duration: number): ProDirection | undefined {
   if (!d || typeof d !== "object") return undefined;
@@ -519,6 +565,9 @@ function cleanDirection(d: any, nWords: number, duration: number): ProDirection 
     end_card: pick(d.end_card, PRO_SETS.end_card),
     progress: pick(d.progress, PRO_SETS.progress),
     ...(typeof d.second === "string" && /^#[0-9a-f]{6}$/i.test(d.second) ? { second: d.second } : {}),
+    ...(typeof d.palette?.bg === "string" && /^#[0-9a-f]{6}$/i.test(d.palette.bg) && typeof d.palette?.ink === "string" && /^#[0-9a-f]{6}$/i.test(d.palette.ink)
+      ? { palette: { bg: d.palette.bg, ink: d.palette.ink } } : {}),
+    texture: pick(d.texture, PRO_SETS.texture),
     moves: Array.isArray(d.moves) ? d.moves.map((m: any) => {
       const at = cueIn(m?.at, nWords, duration);
       const move = pick(m?.move, PRO_SETS.move);
@@ -598,7 +647,7 @@ function cleanDirection(d: any, nWords: number, duration: number): ProDirection 
 }
 
 const SCENE_TONES = new Set(["white", "yellow", "green", "red", "blue", "accent", "black"]);
-const SCENE_BGS = new Set(["dark", "red", "accent", "paper", "cork", "yellow", "blue", "notebook", "chalk", "grid", "gradient", "burst"]);
+const SCENE_BGS = new Set(["dark", "red", "accent", "paper", "cork", "yellow", "blue", "notebook", "chalk", "grid", "gradient", "burst", "style"]);
 /** One emoji (a pictographic cluster) or nothing. */
 const emojiOf = (v: unknown) => (typeof v === "string" && v.length <= 8 && /\p{Extended_Pictographic}/u.test(v) ? v.trim() : undefined);
 
@@ -845,7 +894,9 @@ export async function directEdit(opts: {
   const { words, duration, input } = opts;
   const pro = !!opts.pro;
   const auto = !!input.auto;
-  const brief = auto ? autoBrief(input) : undefined;
+  // "Saya nak pilih sendiri": one of the 40 styles — its brief comes from the style library (null → plain manual)
+  const vs = auto && input.locks?.styleId ? await vgcStyle(input.locks.styleId) : null;
+  const brief = auto ? autoBrief(input, vs) : undefined;
   // The seller's own product photos (uploaded with the video): product shots
   // come ONLY from them; generic shots still come from Google (brand-free).
   const uploads = (input.productImages ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 5);
@@ -871,7 +922,7 @@ export async function directEdit(opts: {
   let raw: any = null;
   let lastErr = "";
   let director = ""; // "<provider>/<model>" that wrote the plan
-  const proText = pro ? proDirectionWithLists(opts.recent ?? [], input.locks) : null;
+  const proText = pro ? proDirectionWithLists(opts.recent ?? [], input.locks, vs?.name) : null;
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
     const r = await orChat({
       modelKey: "model_motion",

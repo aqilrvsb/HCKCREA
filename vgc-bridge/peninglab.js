@@ -468,15 +468,20 @@
     };
   };
   hook();
+  // in the Motion tab Custom Style is 100% Motion Ad only: footage edits are Default's 40 styles ("Saya nak pilih sendiri")
+  const motionOnly = () => {
+    if (host && footage()) { const b = document.querySelector('[data-idea-source="motion"]'); if (b) b.click(); }
+  };
   const boot = () => {
     if (pageNotify) window.notify = pageNotify;
+    motionOnly();
     hook();
     mount();
     relabel();
     refreshAction();
     // the vault picks its step once content.json has loaded: label the button as soon as it has
     let n = 0;
-    const t = setInterval(() => { n++; if (cur() || n > 50) { clearInterval(t); mount(); relabel(); refreshAction(); } }, 200);
+    const t = setInterval(() => { n++; if (cur() || n > 50) { clearInterval(t); motionOnly(); mount(); relabel(); refreshAction(); } }, 200);
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();

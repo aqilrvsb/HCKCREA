@@ -43,6 +43,8 @@ html.pl-embed #handoff, html.pl-embed .bottom-note, html.pl-embed #step-strip, h
 html.pl-embed .work-area, html.pl-embed .idea-source-picker { border-radius: 16px !important; }
 html.pl-embed .toast { display: none !important; }
 html.pl-embed .idea-code-choice, html.pl-embed #idea-route-note { display: none !important; }
+/* Custom Style in the Motion tab = 100% Motion Ad only (a footage edit is Default's 40 styles) */
+html.pl-embed #idea-source-picker, html.pl-embed [data-idea-source="footage"] { display: none !important; }
 
 /* Embedded: PeningLab's look (the colours of the vault's own rules are recoloured by peninglab.js) */
 html.pl-embed footer, html.pl-embed .platform-credit { display: none !important; }

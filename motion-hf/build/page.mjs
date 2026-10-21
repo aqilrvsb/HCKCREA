@@ -14,10 +14,19 @@ const num = (n) => Number(n).toFixed(3).replace(/\.?0+$/, "");
 
 // Families the Laju compositions use. The CSS declarations alone let the HyperFrames
 // compiler fetch them and inject deterministic @font-face rules.
+const STYLE_FONTS = [
+  ["Playfair Display", 800, "PlayfairDisplay-latin.woff2"],
+  ["JetBrains Mono", 800, "JetBrainsMono-latin.woff2"],
+  ["Press Start 2P", 400, "PressStart2P-latin.woff2"],
+  ["Bangers", 400, "Bangers-latin.woff2"],
+  ["Fredoka", 700, "Fredoka-latin.woff2"],
+];
 const FONT_FACES = [
   // not in HyperFrames' auto-resolved Google list: shipped with the page (fonts/, OFL / Apache-2.0)
   "@font-face{font-family:'Permanent Marker';font-style:normal;font-weight:400;font-display:block;src:url(fonts/PermanentMarker-latin.woff2) format('woff2')}",
   "@font-face{font-family:'Patrick Hand';font-style:normal;font-weight:400;font-display:block;src:url(fonts/PatrickHand-latin.woff2) format('woff2')}",
+  // the faces of the 40 styles (motion-hf/fonts/OFL-StyleFonts.txt)
+  ...STYLE_FONTS.map(([family, weight, file]) => `@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};font-display:block;src:url(fonts/${file}) format('woff2')}`),
 ].join("\n");
 const FONT_RULES = [
   ".hf-f1{font-family:'Permanent Marker',cursive}",
@@ -115,7 +124,7 @@ ${items.join("\n")}
 `;
   fs.mkdirSync(path.join(outDir, "fonts"), { recursive: true });
   const fontsSrc = new URL("../fonts/", import.meta.url);
-  for (const f of ["PermanentMarker-latin.woff2", "PatrickHand-latin.woff2"]) {
+  for (const f of ["PermanentMarker-latin.woff2", "PatrickHand-latin.woff2", ...STYLE_FONTS.map((x) => x[2])]) {
     fs.copyFileSync(new URL(f, fontsSrc), path.join(outDir, "fonts", f));
   }
   fs.copyFileSync(new URL("../node_modules/gsap/dist/gsap.min.js", import.meta.url), path.join(outDir, "gsap.min.js"));

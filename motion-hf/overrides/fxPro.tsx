@@ -76,6 +76,39 @@ const NOISE = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="256" height="256" filter="url(#n)"/></svg>',
 )}`;
 
+/** A picked style's surface over the whole video: "film" (flicker, scratches, dust, gate weave light) or "crt"
+ *  (scanlines, RGB mask, a rolling band). Deterministic per frame, so every render chunk draws the same. */
+export const TextureLayer: React.FC<{ kind?: string }> = ({ kind }) => {
+  const frame = useCurrentFrame();
+  if (kind === 'film') {
+    const h = (n: number) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
+    const flick = 0.035 + 0.035 * h(frame);
+    const scratches = [0, 1].map((i) => ({ on: h(frame * 3 + i) > 0.55, x: Math.round(h(Math.floor(frame / 3) * 7 + i) * 1080) }));
+    const dust = [0, 1, 2].map((i) => ({ on: h(frame * 5 + i * 11) > 0.7, x: h(frame * 13 + i) * 1080, y: h(frame * 17 + i) * 1920, r: 2 + h(frame + i) * 5 }));
+    return (
+      <AbsoluteFill style={{ pointerEvents: 'none' }}>
+        <AbsoluteFill style={{ background: `rgba(255,236,200,${flick.toFixed(3)})`, mixBlendMode: 'overlay' }} />
+        <AbsoluteFill style={{ background: 'radial-gradient(ellipse 75% 65% at 50% 46%, rgba(0,0,0,0) 55%, rgba(20,10,0,0.42) 100%)' }} />
+        {scratches.map((s, i) => (s.on ? <div key={`s${i}`} style={{ position: 'absolute', left: s.x, top: 0, width: 2, height: 1920, background: 'rgba(255,250,235,0.32)' }} /> : null))}
+        {dust.map((d, i) => (d.on ? <div key={`d${i}`} style={{ position: 'absolute', left: d.x, top: d.y, width: d.r, height: d.r, borderRadius: 99, background: 'rgba(20,14,8,0.55)' }} /> : null))}
+        <AbsoluteFill style={{ backgroundImage: `url("${NOISE}")`, backgroundPosition: `${(frame * 73) % 256}px ${(frame * 151) % 256}px`, opacity: 0.09 }} />
+      </AbsoluteFill>
+    );
+  }
+  if (kind === 'crt') {
+    const band = ((frame * 9) % 2400) - 240;
+    return (
+      <AbsoluteFill style={{ pointerEvents: 'none' }}>
+        <AbsoluteFill style={{ backgroundImage: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0px, rgba(0,0,0,0.22) 2px, transparent 2px, transparent 5px)' }} />
+        <AbsoluteFill style={{ backgroundImage: 'repeating-linear-gradient(90deg, rgba(255,0,0,0.05) 0px, rgba(255,0,0,0.05) 1px, rgba(0,255,0,0.04) 1px, rgba(0,255,0,0.04) 2px, rgba(0,0,255,0.05) 2px, rgba(0,0,255,0.05) 3px)' }} />
+        <div style={{ position: 'absolute', left: 0, right: 0, top: band, height: 240, background: 'linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0.06), rgba(255,255,255,0))' }} />
+        <AbsoluteFill style={{ boxShadow: 'inset 0 0 220px rgba(0,0,0,0.55)', borderRadius: 60 }} />
+      </AbsoluteFill>
+    );
+  }
+  return null;
+};
+
 export const Grain: React.FC<{ amount: number }> = ({ amount }) => {
   const frame = useCurrentFrame();
   if (amount <= 0) return null;

@@ -23,9 +23,9 @@ import { BRollFullSeries, BRollPipLayer, fitPip, type PlacedBRoll } from './brol
 import { CaptionsPro } from './captionsPro';
 import { CAP_LOOKS, CaptionsLook, type CapLookId } from './captionsLooks';
 import { EndCardPro } from './endCardPro';
-import { BreakFxLayer, Grain, ProgressPro } from './fxPro';
+import { BreakFxLayer, Grain, ProgressPro, TextureLayer } from './fxPro';
 import { HookPro, hookBottom } from './hookPro';
-import { FloatCard, ScenePro, SideWords, type Bg, type CardStyle, type ChatStyle, type LineEnter, type LineFx, type Note, type PlacedScene, type PlacedSide, type SceneEnter, type SideSize, type Tone } from './scenesPro';
+import { FloatCard, ScenePro, SideWords, sceneOnLight, setStyleSurface, type Bg, type CardStyle, type ChatStyle, type LineEnter, type LineFx, type Note, type PlacedScene, type PlacedSide, type SceneEnter, type SideSize, type Tone } from './scenesPro';
 import { BANNER_H, BehindText, FocusLines, NewsBanner, stickerStyle } from './scenesMore';
 import { lookFor, type Direction } from './look';
 import { BLOCKS, BLOCK_BOX } from './blocks';
@@ -124,6 +124,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     const vseed = seedFrom(`${p.hook?.text ?? ''}|${words.slice(0, 60).map((w) => w.w).join(' ')}|${durationInFrames}`);
     const look = lookFor(Number.isInteger(p.lookSeed) ? (p.lookSeed as number) : vseed, accent, style, p.direction,
       (p.hook?.text ?? '').trim().split(/\s+/).filter(Boolean).length);
+    // a picked style's colours and surface, for the scenes drawn from here on
+    setStyleSurface(look.palette, look.texture);
     // the virtual camera zooms in around the face (jump cut × breathing push × overscan): everything that keeps
     // clear of the face plans against the face as it appears on screen, not the raw tracked box
     const camK = Math.min(1.3, look.camera.jump * (1 + look.camera.push) * OVERSCAN);
@@ -779,7 +781,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
           return capLook && !inSc && p.direction?.captions !== 'subtle'
             ? <CaptionsLook pages={plan.pages} lookId={capLook} look={look} centerY={capCenter} keywords={p.keywords} lottie={p.lottie} censor={p.censor} faceBottom={faceBottom} />
             : <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look} subtle={p.direction?.captions === 'subtle' || inSc}
-                onLight={plan.scenes.some((sc) => frame >= sc.s && frame < sc.e && ['paper', 'yellow', 'notebook', 'grid'].includes(sc.bg))}
+                onLight={plan.scenes.some((sc) => frame >= sc.s && frame < sc.e && sceneOnLight(sc.bg))}
                 keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} faceBottom={faceBottom} avoid={stickerScene?.speaker} />;
         })()}
         {p.cta?.text && plan.ctaStart >= 0 && look.endcard !== 'none' && (
@@ -797,6 +799,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       <ConfettiRain at={plan.confetti} colors={CONFETTI_COLORS(accent, look.second)} />
       {gempak && <Flash impacts={plan.flashes} />}
       <Grain amount={look.grain} />
+      <TextureLayer kind={look.texture} />
       {(p.progress ?? gempak) && <ProgressPro kind={look.progress} color={accent} />}
       {p.sfx && <SfxTrack events={plan.sfx} />}
       {p.music && <Audio src={p.music} volume={p.musicVolume ?? 0.3} />}

@@ -367,6 +367,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     const productName = editProduct.replace(/\s+/g, " ").trim();
     if (!productName) return setError("Sila isi nama produk (ejaan yang betul).");
     if (editImages.length === 0) return setError("Upload sekurang-kurangnya 1 gambar produk.");
+    if (!editAuto && !locks.styleId) return setError("Pilih satu style dulu (Saya nak pilih sendiri).");
     // the settings as they are now — the form may change for the next videos
     const settings = {
       language: editLang, prompt: editAuto ? undefined : editPrompt.trim() || undefined,

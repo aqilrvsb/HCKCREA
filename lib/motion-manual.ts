@@ -13,6 +13,13 @@ export const LOCK_FONTS = [
   { id: "bebas", label: "Bebas", css: "'Bebas Neue', sans-serif", weight: 400, upper: true },
   { id: "poppins", label: "Poppins", css: "'Poppins', sans-serif", weight: 900, upper: false },
   { id: "inter", label: "Inter", css: "'Inter', sans-serif", weight: 900, upper: false },
+  // the style faces (motion-hf/fonts)
+  { id: "playfair", label: "Serif", css: "'Playfair Display', serif", weight: 800, upper: false },
+  { id: "mono", label: "Mono", css: "'JetBrains Mono', monospace", weight: 800, upper: true },
+  { id: "marker", label: "Marker", css: "'Permanent Marker', cursive", weight: 400, upper: true },
+  { id: "pixel", label: "Pixel", css: "'Press Start 2P', monospace", weight: 400, upper: true },
+  { id: "comic", label: "Comic", css: "'Bangers', cursive", weight: 400, upper: true },
+  { id: "rounded", label: "Rounded", css: "'Fredoka', sans-serif", weight: 700, upper: false },
 ] as const;
 export type LockFont = (typeof LOCK_FONTS)[number]["id"];
 
@@ -79,6 +86,10 @@ export const LOCK_ELEMENTS = [
 export type LockElement = (typeof LOCK_ELEMENTS)[number]["id"];
 
 export type MotionLocks = {
+  /** one of the 40 styles of the style library (lib/vgc-styles.ts — its brief directs the edit) */
+  styleId?: string;
+  /** its name, set by the server from the library (shown on the History card) */
+  styleName?: string;
   /** a sales angle (the preset chip's label + its brief) */
   angle?: { label: string; brief: string };
   /** the hook text, word for word */
@@ -109,6 +120,7 @@ export function cleanLocks(raw: unknown): MotionLocks | undefined {
   const ang = (r.angle ?? {}) as { label?: unknown; brief?: unknown };
   const els = (r.elements ?? {}) as Record<string, unknown>;
   const out: MotionLocks = {};
+  if (typeof r.styleId === "string" && /^[a-z0-9-]{2,40}$/.test(r.styleId)) out.styleId = r.styleId;
   const label = txt(ang.label, 40);
   if (label) out.angle = { label, brief: txt(ang.brief, 600) ?? label };
   const hook = txt(r.hook, 40);

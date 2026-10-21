@@ -1,12 +1,13 @@
 "use client";
 
-// Motion · Edit Video · "Saya nak pilih sendiri" — AI Auto plus the client's picks (lib/motion-manual.ts).
+// Motion · Edit Video · "Saya nak pilih sendiri" — the client picks one of the 40 styles (motion-style-picker.tsx): the
+// master director plans the edit in that style on the Default engine. Below it, optional locks (lib/motion-manual.ts):
 // Every option starts at "✨ AI pilih" (the AI decides, exactly as in AI Auto); whatever the client picks becomes a
 // rule the AI must follow. The options are the renderer's own (fonts, colour grades, caption looks, end cards).
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { MOTION_EDIT_PRESETS } from "@/lib/motion-prompts";
-import { MOTION_STYLES } from "@/lib/motion-styles";
+import MotionStylePicker from "./motion-style-picker";
 import {
   LOCK_CAPTION_LOOKS, LOCK_CTAS, LOCK_ELEMENTS, LOCK_END_CARDS, LOCK_FONTS, LOCK_GRADES, LOCK_MOODS, LOCK_SCENES,
   type LockElement, type MotionLocks,
@@ -16,7 +17,7 @@ const THEME = { primary: "#a855f7", soft: "rgba(168,85,247,0.35)", faint: "rgba(
 const sub = "block text-[10px] font-bold text-[var(--color-text-muted)] mb-1";
 const inputCls = "w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none";
 const inputStyle = { border: `1px solid ${THEME.soft}`, color: "var(--color-text)" } as const;
-const FONT_HREF = "https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Black&family=Bebas+Neue&family=Inter:wght@800;900&family=Montserrat:wght@800;900&family=Poppins:wght@800;900&display=swap";
+const FONT_HREF = "https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Black&family=Bebas+Neue&family=Inter:wght@800;900&family=Montserrat:wght@800;900&family=Poppins:wght@800;900&family=Playfair+Display:wght@800&family=JetBrains+Mono:wght@800&family=Permanent+Marker&family=Press+Start+2P&family=Bangers&family=Fredoka:wght@700&display=swap";
 
 const on = { background: THEME.gradient, color: "white", boxShadow: `0 4px 12px ${THEME.soft}`, border: "1px solid transparent" };
 const off = { background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" };
@@ -59,14 +60,15 @@ export type ManualPanelProps = {
 
 export default function MotionManualPanel({ locks, setLocks, note, setNote, accent, setAccent, captions, setCaptions, sfx, setSfx }: ManualPanelProps) {
   const set = (patch: Partial<MotionLocks>) => setLocks({ ...locks, ...patch });
-  const [more, setMore] = useState(false);
   const [ctaOwn, setCtaOwn] = useState(!!locks.cta && !LOCK_CTAS.includes(locks.cta as (typeof LOCK_CTAS)[number]));
   const setEl = (id: LockElement, v: boolean | undefined) => {
     const el = { ...(locks.elements ?? {}) };
     if (v === undefined) delete el[id]; else el[id] = v;
     set({ elements: Object.keys(el).length ? el : undefined });
   };
-  const picked = Object.entries(locks).filter(([k, v]) => v !== undefined && !(k === "elements" && !Object.keys(v as object).length)).length + (accent ? 1 : 0);
+  const picked = Object.entries(locks).filter(([k, v]) => v !== undefined && k !== "styleId" && k !== "styleName" && !(k === "elements" && !Object.keys(v as object).length)).length + (accent ? 1 : 0);
+  // the optional locks start folded; open when some are set
+  const [own, setOwn] = useState(picked > 0);
 
   // the font / caption-look previews draw in the real faces
   useEffect(() => {
@@ -81,13 +83,33 @@ export default function MotionManualPanel({ locks, setLocks, note, setNote, acce
   return (
     <div className="space-y-3">
       <div className="rounded-xl p-3" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
-        <span className="text-xs font-extrabold text-[var(--color-text-primary)]">🎛 Pilih sendiri — AI masih rancang semuanya, anda kunci apa yang anda mahu</span>
+        <span className="text-xs font-extrabold text-[var(--color-text-primary)]">🎨 Pilih style — master director edit video anda ikut style ini</span>
         <p className="text-[11px] text-[var(--color-text-secondary)] mt-1 leading-snug">
-          Semua bermula dengan <b>✨ AI pilih</b> (sama seperti AI Auto). Apa sahaja yang anda pilih jadi peraturan untuk AI — yang lain AI tetap fikir sendiri.
-          {picked > 0 && <> · <b>{picked}</b> pilihan dikunci · <button type="button" className="underline font-bold" style={{ color: THEME.primary }}
-            onClick={() => { setLocks({}); setAccent(""); setCtaOwn(false); }}>Reset semua ke AI</button></>}
+          Pilih satu daripada 40 style. AI (Sonnet 5.5) baca arahan penuh style itu, kemudian rancang hook, skrin grafik, warna, font, caption, kamera &amp; bunyi
+          ikut style tersebut — dengan enjin HyperFrames yang sama seperti AI Auto.
         </p>
       </div>
+
+      <MotionStylePicker value={locks.styleId} onChange={(id) => set({ styleId: id, styleName: undefined })} />
+
+      <div>
+        <span className={sub}>Arahan tambahan (optional)</span>
+        <textarea className={`${inputCls} resize-y`} style={inputStyle} rows={2} maxLength={900} value={note} onChange={(e) => setNote(e.target.value)}
+          placeholder="cth. Tekankan promo hari ini, sebut cara simpan produk." />
+      </div>
+
+      <button type="button" onClick={() => setOwn((v) => !v)} className="w-full flex items-center gap-2 text-[11px] font-extrabold px-1" style={{ color: THEME.primary }}>
+        <ChevronDown className="w-4 h-4 transition-transform" style={{ transform: own ? "rotate(180deg)" : "none" }} />
+        Kunci sendiri (optional) — sudut jualan, hook &amp; CTA, warna, caption, bunyi, elemen
+        {picked > 0 && <span className="text-[var(--color-text-muted)] font-bold">· {picked} dikunci</span>}
+      </button>
+      {own && (
+      <>
+      <p className="text-[11px] text-[var(--color-text-secondary)] leading-snug px-1">
+        Kosongkan (<b>✨ AI pilih</b>) — AI ikut style. Apa yang anda kunci di sini jadi peraturan, walaupun berbeza dengan style.
+        {picked > 0 && <> · <button type="button" className="underline font-bold" style={{ color: THEME.primary }}
+          onClick={() => { setLocks({ styleId: locks.styleId }); setAccent(""); setCtaOwn(false); }}>Reset semua ke AI</button></>}
+      </p>
 
       <Section icon="🎯" title="Sudut jualan" hint="Cara cerita video anda">
         <div className="flex flex-wrap gap-1.5">
@@ -96,11 +118,6 @@ export default function MotionManualPanel({ locks, setLocks, note, setNote, acce
             <Pick key={p.id} active={locks.angle?.label === p.label} title={p.prompt}
               onClick={() => set({ angle: locks.angle?.label === p.label ? undefined : { label: p.label, brief: p.prompt } })}>{p.label}</Pick>
           ))}
-        </div>
-        <div>
-          <span className={sub}>Arahan tambahan (optional)</span>
-          <textarea className={`${inputCls} resize-y`} style={inputStyle} rows={2} maxLength={900} value={note} onChange={(e) => setNote(e.target.value)}
-            placeholder="cth. Tekankan promo hari ini, sebut cara simpan produk." />
         </div>
       </Section>
 
@@ -132,24 +149,6 @@ export default function MotionManualPanel({ locks, setLocks, note, setNote, acce
       </Section>
 
       <Section icon="🎨" title="Rupa">
-        <div>
-          <span className={sub}>Gaya edit (rentak sticker, kesan & kamera)</span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-            <button type="button" onClick={() => set({ look: undefined })} className="text-left px-2.5 py-2 rounded-xl transition-all" style={!locks.look ? on : off}>
-              <span className="block text-xs font-extrabold">✨ AI pilih</span>
-              <span className="block text-[10px] leading-tight mt-0.5" style={{ color: !locks.look ? "rgba(255,255,255,0.85)" : "var(--color-text-muted)" }}>Ikut isi video</span>
-            </button>
-            {MOTION_STYLES.map((s) => {
-              const a = locks.look === s.id;
-              return (
-                <button key={s.id} type="button" onClick={() => set({ look: s.id })} className="text-left px-2.5 py-2 rounded-xl transition-all" style={a ? on : off}>
-                  <span className="block text-xs font-extrabold">{s.emoji} {s.label}</span>
-                  <span className="block text-[10px] leading-tight mt-0.5" style={{ color: a ? "rgba(255,255,255,0.85)" : "var(--color-text-muted)" }}>{s.desc}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
         <div>
           <span className={sub}>Font tajuk (hook & kad penutup)</span>
           <div className="flex flex-wrap gap-1.5">
@@ -234,11 +233,6 @@ export default function MotionManualPanel({ locks, setLocks, note, setNote, acce
         )}
       </Section>
 
-      <button type="button" onClick={() => setMore((v) => !v)} className="w-full flex items-center gap-2 text-[11px] font-extrabold px-1" style={{ color: THEME.primary }}>
-        <ChevronDown className="w-4 h-4 transition-transform" style={{ transform: more ? "rotate(180deg)" : "none" }} />
-        Lagi pilihan — rentak, bunyi & elemen istimewa
-      </button>
-      {more && (
         <>
           <Section icon="🎬" title="Rentak">
             <div>
@@ -305,6 +299,7 @@ export default function MotionManualPanel({ locks, setLocks, note, setNote, acce
             </div>
           </Section>
         </>
+      </>
       )}
     </div>
   );

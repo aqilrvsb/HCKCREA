@@ -16,7 +16,12 @@ export type BreakFx = 'sweep' | 'leak' | 'burn';
 export type Face = { family: string; weight: number; charW: number; upper: boolean; track: number };
 export type Grade = 'warm' | 'punchy' | 'clean' | 'cool' | 'matte' | 'vivid';
 export type CameraFeel = 'calm' | 'handheld' | 'energetic';
-export type FontId = 'montserrat' | 'archivo' | 'anton' | 'bebas' | 'poppins' | 'inter';
+export type FontId = 'montserrat' | 'archivo' | 'anton' | 'bebas' | 'poppins' | 'inter' | StyleFontId;
+/** Faces for the 40 styles (motion-hf/fonts, shipped with the page): only a director's choice uses them. */
+export type StyleFontId = 'playfair' | 'mono' | 'marker' | 'pixel' | 'comic' | 'rounded';
+/** A surface over the video: film / crt over everything, the rest over the full-screen scenes. */
+export type Texture = 'none' | 'paper' | 'film' | 'crt' | 'halftone' | 'grid' | 'glow';
+const TEXTURES: Texture[] = ['none', 'paper', 'film', 'crt', 'halftone', 'grid', 'glow'];
 
 /** What the director may set (all optional). */
 export type Direction = {
@@ -24,6 +29,9 @@ export type Direction = {
   font?: FontId; caption_font?: FontId; grade?: Grade; grain?: boolean; camera?: CameraFeel;
   transitions?: Transition[]; break_fx?: BreakFx; end_card?: EndCardStyle; progress?: ProgressStyle;
   second?: string;
+  /** a picked style's own colours: scenes with bg "style" are drawn in them */
+  palette?: { bg: string; ink: string };
+  texture?: Texture;
   moves?: { at: string | number; move: 'crash' | 'punch' | 'whip' | 'shake' | 'bump' | 'lines' | 'tilt' | 'smash' | 'spotlight'; power?: number; text?: string }[];
   /** A huge word behind the speaker's head (needs the speaker cut-out). */
   behind?: { at: string | number; to?: string | number; text: string; tone?: string }[];
@@ -60,6 +68,9 @@ export type Look = {
   progress: ProgressStyle;
   hi: string; // caption highlight colour
   second: string; // a second colour for hook blocks / badges
+  /** a picked style's colours (bg "style" scenes); light = dark text reads on it */
+  palette?: { bg: string; ink: string; light: boolean } | null;
+  texture?: Texture;
 };
 
 const FONT_IDS: FontId[] = ['montserrat', 'archivo', 'anton', 'bebas', 'poppins', 'inter'];
@@ -74,6 +85,22 @@ const FACES: Face[] = [
   { family: "'Poppins', sans-serif", weight: 900, charW: 0.70, upper: true, track: -0.5 },
   { family: "'Inter', sans-serif", weight: 900, charW: 0.68, upper: true, track: -1 },
 ];
+// the style faces (Chrome-measured caps: Playfair 800 0.694, JetBrains Mono 800 0.600, Permanent Marker 0.675,
+// Press Start 2P 1.000, Bangers 0.420, Fredoka 700 0.645) plus a little air; never drawn at random (pickLook)
+const STYLE_FACES: Record<StyleFontId, Face> = {
+  playfair: { family: "'Playfair Display', serif", weight: 800, charW: 0.72, upper: false, track: -0.5 },
+  mono: { family: "'JetBrains Mono', monospace", weight: 800, charW: 0.62, upper: true, track: -1 },
+  marker: { family: "'Permanent Marker', cursive", weight: 400, charW: 0.7, upper: true, track: 0 },
+  pixel: { family: "'Press Start 2P', monospace", weight: 400, charW: 1.02, upper: true, track: 0 },
+  comic: { family: "'Bangers', cursive", weight: 400, charW: 0.45, upper: true, track: 1 },
+  rounded: { family: "'Fredoka', sans-serif", weight: 700, charW: 0.67, upper: false, track: 0 },
+};
+const HEX = /^#[0-9a-f]{6}$/i;
+/** Relative luminance of a #RRGGBB colour (0 black … 1 white). */
+const lum = (hex: string) => {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
 
 const GRADE_IDS: Grade[] = ['warm', 'punchy', 'clean', 'cool', 'matte', 'vivid'];
 const GRADES = [
@@ -117,7 +144,7 @@ const mix = (n: number) => {
 export function lookFor(seed: number, accent: string, style: 'gempak' | 'clean', d: Direction | null | undefined, hookWords: number): Look {
   const look = pickLook(seed, accent, style);
   if (d) {
-    const fi = (id?: FontId) => (id && FONT_IDS.includes(id) ? FACES[FONT_IDS.indexOf(id)] : null);
+    const fi = (id?: FontId) => (id && FONT_IDS.includes(id) ? FACES[FONT_IDS.indexOf(id)] : id && id in STYLE_FACES ? STYLE_FACES[id as StyleFontId] : null);
     look.display = fi(d.font) ?? look.display;
     look.caption = fi(d.caption_font) ?? look.caption;
     if (d.hook_style) look.hook = d.hook_style;
@@ -132,6 +159,14 @@ export function lookFor(seed: number, accent: string, style: 'gempak' | 'clean',
     if (d.end_card) look.endcard = d.end_card;
     if (d.progress) look.progress = d.progress;
     if (d.second && /^#[0-9a-f]{6}$/i.test(d.second) && d.second.toLowerCase() !== look.hi.toLowerCase()) look.second = d.second;
+    if (d.palette && HEX.test(d.palette.bg) && HEX.test(d.palette.ink)) {
+      // text that can't be read on its background is replaced by black / white
+      const bgL = lum(d.palette.bg);
+      const inkL = lum(d.palette.ink);
+      const ratio = (Math.max(bgL, inkL) + 0.05) / (Math.min(bgL, inkL) + 0.05);
+      look.palette = { bg: d.palette.bg, ink: ratio >= 3 ? d.palette.ink : bgL > 0.4 ? '#111111' : '#ffffff', light: bgL > 0.4 };
+    }
+    if (d.texture && TEXTURES.includes(d.texture)) look.texture = d.texture;
   }
   // one word per line only reads for a short hook
   if (look.hook === 'stack' && hookWords > 4) look.hook = 'slam';
