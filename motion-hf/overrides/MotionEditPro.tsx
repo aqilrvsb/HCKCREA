@@ -355,6 +355,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       e = Math.min(Math.max(e, s + fr(1.2)), s + fr(4), ctaStart >= 0 ? ctaStart : last);
       const nextScene = scenes.find((x) => x.s > s);
       if (nextScene && e > nextScene.s) e = nextScene.s;
+      const holder = cuts.find((c) => c.s <= s && c.e > s);
+      if (holder && holder.e < e && holder.e - s >= fr(1)) e = holder.e;
       if (e - s < fr(1) || !covered(s, e) || behinds.some((x) => s < x.e && e > x.s) || sides.some((x) => s < x.e && e > x.s)
         || banners.some((x) => s < x.e && e > x.s) || broll.some((x) => s < x.e + 4 && e > x.s - 4)) continue;
       const fc = faceAt(p.faces, s / fps);

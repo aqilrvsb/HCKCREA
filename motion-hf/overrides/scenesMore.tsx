@@ -68,9 +68,9 @@ export const ChatBody: React.FC<{ msgs: ChatMsg[]; style: ChatStyle; title?: str
     if (style === 'comments') return <CommentSheet msgs={msgs} title={title} frame={frame} s={s} />;
     if (style === 'notif') return <NotifStack msgs={msgs} title={title} frame={frame} accent={accent} />;
     // ── a message thread ──
-    const FS = 54;
-    const LH = FS * 1.24;
-    const maxT = 680;
+    const FS = 62;
+    const LH = FS * 1.22;
+    const maxT = 720;
     const lay = msgs.map((m) => {
       const lines = wrapLines(m.text, UI, FS, maxT);
       const w = Math.min(maxT, Math.max(...lines.map((l) => textWidth(l, UI, FS)))) + 64;
@@ -147,9 +147,9 @@ export const ChatBody: React.FC<{ msgs: ChatMsg[]; style: ChatStyle; title?: str
 
 /** A comment sheet: rows slide up into a white panel, the newest glows for a moment. */
 const CommentSheet: React.FC<{ msgs: ChatMsg[]; title?: string; frame: number; s: number }> = ({ msgs, title, frame, s }) => {
-  const FS = 52;
-  const LH = FS * 1.22;
-  const maxT = 620;
+  const FS = 58;
+  const LH = FS * 1.2;
+  const maxT = 640;
   const lay = msgs.map((m) => {
     const lines = wrapLines(m.text, UI, FS, maxT).slice(0, 4);
     return { lines, h: Math.max(104, lines.length * LH + (m.name ? 46 : 0)) + 44 };
@@ -258,9 +258,9 @@ export const SplitBody: React.FC<{ sides: SplitSide[]; marks: boolean; frame: nu
     const cols = [colorOf(sides[0].tone) || '#E5484D', colorOf(sides[1].tone) || '#25A55F'];
     const up = (t: string) => (face.upper ? t.toUpperCase() : t);
     const titleSize = Math.min(...sides.map((sd) => fitSize(up(sd.title), 112 * (face.charW < 0.5 ? 1.22 : 1), half - 90, 1, face.charW, 40)));
-    const textW = half - 64 - 96;
+    const textW = marks ? half - 64 - 96 : half - 84;
     const all = sides.flatMap((sd) => sd.items.map((it) => up(it.text)));
-    let size = Math.min(...all.map((t) => fitWrap(t, face, 62 * (face.charW < 0.5 ? 1.2 : 1), textW, 3, 30)));
+    let size = Math.min(...all.map((t) => fitWrap(t, face, 78 * (face.charW < 0.5 ? 1.2 : 1), textW, 3, 30)));
     // the taller column must fit between the titles and the captions
     const colH = (sz: number) => Math.max(...sides.map((sd) => sd.items.reduce((h, it) => h + Math.max(84, wrapLines(up(it.text), face, sz, textW).length * sz * 1.06) + 46, 0)));
     while (size > 30 && colH(size) > 740) size -= 2;

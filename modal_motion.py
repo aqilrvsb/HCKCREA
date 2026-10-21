@@ -2138,7 +2138,8 @@ def _matte_plan(direction: dict, words: list, dur: float, fps: int = 30) -> list
             a = _cue_sec(b.get("at"), words, -1)
             if a >= 0 and not in_scene(a):
                 e = _cue_sec(b.get("to"), words, a + 2.5) if b.get("to") is not None else a + 2.5
-                win.append((a - 0.2, min(e, a + 4.0) + 0.2))
+                # the word holds at least 1.2 s on screen (MotionEditPro), even for a short spoken "to"
+                win.append((a - 0.2, min(max(e, a + 1.3), a + 4.0) + 0.2))
     for m in direction.get("moves") or []:
         if isinstance(m, dict) and m.get("move") == "spotlight":
             a = _cue_sec(m.get("at"), words, -1)
