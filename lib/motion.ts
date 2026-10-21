@@ -312,7 +312,8 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
     if (j?.status === "running") return { status: "running", progress: j.progress ?? null };
     // a finished render (url) or a finished 2-step draft (draft = the state to review)
     // (a Custom Style step may finish with an answer and no video)
-    if (j?.status === "done" && (j?.result?.url || j?.result?.draft || (vgc && j?.result))) return { status: "done", result: j.result };
+    // (a CLIPPER analysis finishes with its analysis: no video)
+    if (j?.status === "done" && (j?.result?.url || j?.result?.draft || j?.result?.analysis || (vgc && j?.result))) return { status: "done", result: j.result };
     if (j?.status === "failed") return { status: "failed", error: String(j.error || "render failed"), apiError: j?.result?.api_error ? String(j.result.api_error) : undefined };
     return { status: "unknown", error: `Modal check HTTP ${r.status}` };
   } catch (e: any) {
