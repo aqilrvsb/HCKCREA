@@ -13,6 +13,7 @@
 // An estimate is RESERVED at submit; settleMotionRow trues it up to
 // ceil(actual seconds) × rate on success, or refunds it on failure.
 
+import type { MotionLocks } from "./motion-manual";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSetting } from "@/lib/settings";
@@ -138,6 +139,8 @@ export type EditInput = {
   /** AI Auto: the director decides angle, look, colour, captions, hook sound and
    *  music from the video itself (style / caption / music / accent fields unused). */
   auto?: boolean;
+  /** "Saya nak pilih sendiri": AI Auto plus the client's picks as rules (lib/motion-manual.ts); unset = AI decides. */
+  locks?: MotionLocks;
   engine?: MotionEngine;
 };
 

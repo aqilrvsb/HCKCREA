@@ -20,6 +20,7 @@ import {
 import { searchClips, searchStickers } from "@/lib/motion-media";
 import { MOTION_EDIT_PRESETS, MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
 import { MOTION_STYLES, motionStyle, type MotionEnergy, type MotionStyleId } from "@/lib/motion-styles";
+import type { MotionLocks } from "@/lib/motion-manual";
 import { HOOK_SOUNDS } from "@/lib/motion-hook-sounds";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
@@ -168,20 +169,23 @@ const shuffle = <T,>(a: readonly T[]): T[] => {
 const firstSentence = (s: string) => (s.split(/(?<=[.!?:])\s/)[0] || s).slice(0, 150);
 
 /** The AUTO section of the director prompt — a fresh random shortlist every call. */
-function autoBrief(): string {
-  const looks = shuffle(MOTION_STYLES).slice(0, 2).map((l) =>
+function autoBrief(input?: EditInput): string {
+  const locks = input?.locks;
+  const lookOpts = locks?.look ? [motionStyle(locks.look)] : shuffle(MOTION_STYLES).slice(0, 2);
+  const looks = lookOpts.map((l) =>
     `- ${l.id} (${l.label}: ${l.desc}) — ${l.edit} Palette: ${l.palette}. Max gap ${l.maxGap} s. Music mood: ${l.mood}.`).join("\n");
   const anglePool = [
     ...MOTION_EDIT_PRESETS.map((a) => ({ label: a.label.replace(/^\P{L}+/u, ""), desc: firstSentence(a.prompt) })),
     ...EXTRA_ANGLES,
   ];
-  const angles = shuffle(anglePool).slice(0, 4).map((a) => `- ${a.label}: ${a.desc}`).join("\n");
+  const angles = (locks?.angle ? [{ label: locks.angle.label.replace(/^\P{L}+/u, ""), desc: firstSentence(locks.angle.brief) }] : shuffle(anglePool).slice(0, 4))
+    .map((a) => `- ${a.label}: ${a.desc}`).join("\n");
   const sounds = shuffle(HOOK_SOUNDS.map((s, i) => `${i} = ${s}`)).slice(0, 5).join("\n");
   const formulas = shuffle(HOOK_FORMULAS).slice(0, 3).map((f) => `- ${f}`).join("\n");
   const caps = shuffle(CAPTION_CHOICES).slice(0, 2).map((c) => `"${c}"`).join(" or ");
   const spark = SPARKS[Math.floor(Math.random() * SPARKS.length)];
-  const colour = ACCENTS[Math.floor(Math.random() * ACCENTS.length)];
-  return `AI AUTO — YOU ARE THE CREATIVE DIRECTOR AND THE EDITOR. The client chose nothing: read the WHOLE transcript first, understand the product, the speaker's energy and what actually happens in the video, then decide EVERYTHING yourself. Goal: stop the scroll, keep people watching to the end, push the beg kuning — and beat what a skilled human TikTok editor would make of this footage, so it has its best shot at the For You Page.
+  const colour = input?.accent || ACCENTS[Math.floor(Math.random() * ACCENTS.length)];
+  return `${locks ? clientChoices(input!) : ""}AI AUTO — YOU ARE THE CREATIVE DIRECTOR AND THE EDITOR. The client chose nothing: read the WHOLE transcript first, understand the product, the speaker's energy and what actually happens in the video, then decide EVERYTHING yourself. Goal: stop the scroll, keep people watching to the end, push the beg kuning — and beat what a skilled human TikTok editor would make of this footage, so it has its best shot at the For You Page.
 Decide, in this order:
 This generation's options were drawn at random — choose ONLY from them, the best fit for this footage (another generation of the same video gets different options on purpose):
 1. "angle": ONE of the 4 ANGLES below — frame this footage through it honestly (a tutorial video can still be told as a POV, a soft-sell story, a myth-buster…); name it in ≤6 words.
@@ -205,10 +209,10 @@ FYP PLAYBOOK (TikTok Shop Academy 2026 + TikTok Creative Center):
 - TikTok Shop now pushes down near-identical videos — this one must not look like a template.
 THINK IT UP FRESH: treat this video as a brand-new creative brief — no default template, no safe go-to look, no stock hook line. Find the idea that is special about THIS footage and build the whole edit around it. Creative spark for this edit: "${spark}" — use it for one signature move only if it fits the content honestly; ignore it if it doesn't.
 
-LOOKS — pick one of these 2 (id — feel — pace rules — palette — max gap — music mood):
+LOOKS — pick ${lookOpts.length === 1 ? "this one (the client chose it)" : "one of these 2"} (id — feel — pace rules — palette — max gap — music mood):
 ${looks}
 
-ANGLES — pick one of these 4:
+ANGLES — pick ${locks?.angle ? "this one (the client chose it)" : "one of these 4"}:
 ${angles}
 
 HOOK FORMULAS — pick one:
@@ -216,6 +220,28 @@ ${formulas}
 
 HOOK SOUNDS — pick one (index = sound — suits):
 ${sounds}`;
+}
+
+/** "Saya nak pilih sendiri": the client's picks, stated as rules that override every option and rule after them. */
+function clientChoices(input: EditInput): string {
+  const l = input.locks ?? {};
+  const out: string[] = [];
+  if (l.angle) out.push(`Sales angle: "${l.angle.label.replace(/^\P{L}+/u, "")}" — ${l.angle.brief}`);
+  if (l.hook) out.push(`Hook: use exactly "${l.hook}" as hook.text (you may add a short "sub").`);
+  if (l.cta) out.push(`CTA: use exactly "${l.cta}" as cta.text, in the last 3–5 s.`);
+  if (l.look) out.push(`Look: "${l.look}" — follow its pace rules.`);
+  if (input.accent) out.push(`Accent colour: ${input.accent}.`);
+  if (l.captionLook === "tiktok") out.push(`Captions: style "tiktok".`);
+  if (l.captionPos) out.push(`Captions position: "${l.captionPos}".`);
+  if (typeof l.music === "boolean") out.push(`Music: ${l.music}.`);
+  if (l.mood) out.push(`Music mood: "${l.mood}".`);
+  const el = l.elements ?? {};
+  if (el.gif === true) out.push("GIF stickers: 1–2 \"gif\" reactions on the most emotional beats.");
+  if (el.gif === false) out.push("GIF stickers: none (no \"gif\" items).");
+  if (el.emoji === true) out.push("Animated emoji: 2–4 — \"emoji\" items and keyword emoji on the key words.");
+  if (el.emoji === false) out.push("Animated emoji: none (no \"emoji\" items, no keyword emoji).");
+  if (input.instructions) out.push("The client's own notes (CLIENT PROMPT, in the message) — follow them.");
+  return out.length ? `CLIENT CHOICES — the client picked these in the form; they are RULES and override any option or rule below:\n${out.map((x) => `- ${x}`).join("\n")}\nEverything the client did not pick is your call, exactly as below.\n\n` : "";
 }
 
 // ── PRO direction (Laju v2 on HyperFrames) ───────────────────────────────────
@@ -268,17 +294,74 @@ const PRO_FEEL: Record<string, Record<string, string>> = {
 /** The options this call offered, per field (PRO_DIRECTION fills it; enforceShortlists holds the plan to it). */
 type Shortlists = Record<string, string[]>;
 let LISTS: Shortlists | null = null;
+/** The client's PRO picks for this call (field → value): its shortlist is that value alone. */
+let LOCKED: Record<string, string> | null = null;
 const shortlist = (key: string, n: number, keep?: string, field: string = key) => {
+  const lock = LOCKED?.[field];
+  if (lock && PRO_FEEL[key][lock]) {
+    if (LISTS) LISTS[field] = [lock];
+    return `"${lock}" (${PRO_FEEL[key][lock]}) — the client chose it`;
+  }
   const rest = shuffle(Object.keys(PRO_FEEL[key]).filter((k) => k !== keep)).slice(0, keep ? n - 1 : n);
   const picked = shuffle(keep ? [keep, ...rest] : rest);
   if (LISTS) LISTS[field] = picked;
   return picked.map((k) => `"${k}" (${PRO_FEEL[key][k]})`).join(" | ");
 };
 /** PRO_DIRECTION plus the shortlists it drew. */
-export const proDirectionWithLists = (recent: string[]): { text: string; lists: Shortlists } => {
+export const proDirectionWithLists = (recent: string[], locks?: MotionLocks): { text: string; lists: Shortlists } => {
   LISTS = {};
-  try { return { text: PRO_DIRECTION(recent), lists: LISTS }; } finally { LISTS = null; }
+  LOCKED = proLocked(locks);
+  try { return { text: PRO_DIRECTION(recent) + proLockText(locks), lists: LISTS }; } finally { LISTS = null; LOCKED = null; }
 };
+
+/** The PRO fields a manual pick decides. Gaya edit sets the camera feel too (a calm look never gets the lively float). */
+function proLocked(locks?: MotionLocks): Record<string, string> | null {
+  if (!locks) return null;
+  const out: Record<string, string> = {};
+  if (locks.font) out.font = locks.font;
+  if (locks.grade) out.grade = locks.grade;
+  if (locks.endCard) out.end_card = locks.endCard;
+  if (locks.captionLook && locks.captionLook !== "tiktok") out.caption_look = locks.captionLook;
+  if (locks.look) out.camera = motionStyle(locks.look).energy === "clean" ? "calm" : locks.look === "hype" || locks.look === "promo" ? "energetic" : "handheld";
+  return Object.keys(out).length ? out : null;
+}
+
+const SCENE_SHARE: Record<string, { cover: number; keep: number; say: string }> = {
+  many: { cover: 0.72, keep: 2, say: "45–70 % of the runtime (the news / explainer feel)" },
+  some: { cover: 0.45, keep: 1, say: "about 25–45 % of the runtime — the speaker is seen often" },
+  few: { cover: 0.25, keep: 0, say: "at most 2 short scenes, under 25 % of the runtime — the speaker on screen almost all the time" },
+};
+
+/** The client's picks for the finish, as rules that override the PRO rules above them. */
+function proLockText(locks?: MotionLocks): string {
+  if (!locks) return "";
+  const out: string[] = [];
+  if (locks.scenes) out.push(`SCENES: ${SCENE_SHARE[locks.scenes].say} (this replaces the 45–70 % rule).`);
+  const fx = locks.fx ?? (locks.look && motionStyle(locks.look).energy === "clean" ? "light" : undefined);
+  if (fx) out.push(`"fx": "${fx}".`);
+  const el = locks.elements ?? {};
+  if (el.behind === true) out.push(`"behind": exactly 1 word, on the speaker's strongest line between scenes.`);
+  if (el.behind === false) out.push(`"behind": [] (none).`);
+  if (el.spotlight === true) out.push(`"moves": include exactly 1 "spotlight" (a confession, a secret or a warning).`);
+  if (el.spotlight === false) out.push(`"moves": no "spotlight".`);
+  if (el.smash === true) out.push(`"moves": include exactly 1 "smash" (the single biggest beat).`);
+  if (el.smash === false) out.push(`"moves": no "smash".`);
+  return out.length ? `\n\nCLIENT CHOICES FOR THE FINISH — rules, they override the PRO rules above:\n${out.map((x) => `- ${x}`).join("\n")}` : "";
+}
+
+/** The client's picks written into the finish (the model may leave a field out or drift from it). */
+function applyProLocks(d: ProDirection, locks?: MotionLocks): void {
+  if (!locks) return;
+  const set = proLocked(locks) ?? {};
+  for (const [k, v] of Object.entries(set)) (d as Record<string, unknown>)[k] = v;
+  const fx = locks.fx ?? (locks.look && motionStyle(locks.look).energy === "clean" ? "light" : undefined);
+  if (fx) d.fx = fx;
+  const el = locks.elements ?? {};
+  if (el.behind === false) d.behind = [];
+  if (Array.isArray(d.moves)) {
+    d.moves = d.moves.filter((m: any) => !(el.spotlight === false && m?.move === "spotlight") && !(el.smash === false && m?.move === "smash"));
+  }
+}
 /** A choice outside this call's shortlist (the model drifting to a favourite) becomes the shortlist's first option:
  *  the random draw is what keeps a client's videos from looking alike. */
 function enforceShortlists(d: ProDirection, lists: Shortlists): void {
@@ -721,13 +804,13 @@ export async function directEdit(opts: {
   const { words, duration, input } = opts;
   const pro = !!opts.pro;
   const auto = !!input.auto;
-  const brief = auto ? autoBrief() : undefined;
+  const brief = auto ? autoBrief(input) : undefined;
   // The seller's own product photos (uploaded with the video): product shots
   // come ONLY from them; generic shots still come from Google (brand-free).
   const uploads = (input.productImages ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 5);
   const style = motionStyle(input.style).id;
   // AI Auto: the plan is checked against the look the director chose itself
-  const lookOf = (raw: { look?: unknown } | null | undefined): MotionStyleId => (auto ? motionStyle(raw?.look).id : style);
+  const lookOf = (raw: { look?: unknown } | null | undefined): MotionStyleId => (auto ? motionStyle(input.locks?.look ?? raw?.look).id : style);
   const transcript = words.slice(0, 1400).map((w) => `${w.i}@${w.t.toFixed(2)} ${w.w}`).join("\n");
   const userPrompt =
     `VIDEO: ${duration.toFixed(1)} s, ${words.length} words, language ${input.language}. Face on screen: ${opts.hasFace === false ? "no" : "yes"}.\n` +
@@ -747,7 +830,7 @@ export async function directEdit(opts: {
   let raw: any = null;
   let lastErr = "";
   let director = ""; // "<provider>/<model>" that wrote the plan
-  const proText = pro ? proDirectionWithLists(opts.recent ?? []) : null;
+  const proText = pro ? proDirectionWithLists(opts.recent ?? [], input.locks) : null;
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
     const r = await orChat({
       modelKey: "model_motion",
@@ -777,11 +860,12 @@ export async function directEdit(opts: {
     const direction = cleanDirection(raw?.direction, words.length, duration);
     if (direction) {
       if (proText) enforceShortlists(direction, proText.lists);
+      applyProLocks(direction, input.locks);
       plan.direction = direction;
     }
   }
   // only numbers the speaker says (or the client wrote) reach the screen; nothing that sits on the speaker hides inside a scene
-  groundPlan(plan, words, duration, [input.product, input.instructions].filter(Boolean).join(" "));
+  groundPlan(plan, words, duration, [input.product, input.instructions, input.locks?.hook, input.locks?.cta].filter(Boolean).join(" "), input.locks?.scenes);
   const guard = !!input.guard;
   if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
 
@@ -824,7 +908,7 @@ function allowedNumbers(words: DirectorWord[], extra: string): Set<string> {
   return out;
 }
 
-function groundPlan(plan: EditPlanV2, words: DirectorWord[], duration: number, brief: string): void {
+function groundPlan(plan: EditPlanV2, words: DirectorWord[], duration: number, brief: string, scenesLock?: string): void {
   const ok = allowedNumbers(words, brief);
   // a leading step number ("1. Cara guna") is numbering, not a claim
   const numsOk = (v: unknown) => typeof v !== "string" || (v.replace(/^\s*\d{1,2}[.)]\s+/, "").match(NUM) ?? []).every((m) => ok.has(normNum(m)));
@@ -875,14 +959,15 @@ function groundPlan(plan: EditPlanV2, words: DirectorWord[], duration: number, b
     d.banner = keep(d.banner, (b: any) => numsOk(b.text) && numsOk(b.ticker));
     d.moves = keep(d.moves, (m: any) => numsOk(m.text));
 
-    // scenes ≤ ~70 % of the runtime: the thinnest scene (fewest items per second) goes first
+    // scenes ≤ ~70 % of the runtime (or the client's pick): the thinnest scene (fewest items per second) goes first
     reason = "over70";
+    const share = SCENE_SHARE[scenesLock ?? "many"] ?? SCENE_SHARE.many;
     const scenes = ((d.scenes ?? []) as Record<string, any>[]);
     const full = () => scenes.filter((sc) => !(sc.kind === "card" && sc.style === "float"));
     const span = (sc: any) => Math.max(0, tOf(sc.to ?? sc.at, true) - tOf(sc.at));
     const itemsOf = (sc: any) => ["lines", "entries", "stickers", "bars", "items", "steps", "rings", "messages", "notes", "places"]
       .reduce((n, k) => n + (Array.isArray(sc[k]) ? sc[k].length : 0), 0) + (sc.chart?.points?.length ?? 0) + (sc.sides ?? []).reduce((n: number, sd: any) => n + (sd.items?.length ?? 0), 0);
-    while (full().length > 2 && full().reduce((a, sc) => a + span(sc), 0) > duration * 0.72) {
+    while (full().length > share.keep && (full().reduce((a, sc) => a + span(sc), 0) > duration * share.cover || (scenesLock === "few" && full().length > 2))) {
       const thin = full().sort((a, b) => itemsOf(a) / Math.max(0.5, span(a)) - itemsOf(b) / Math.max(0.5, span(b)))[0];
       scenes.splice(scenes.indexOf(thin), 1);
       why.push(`over70:${thin.kind}`);
@@ -998,14 +1083,16 @@ const CAPTION_STYLES = new Set(["pop", "karaoke", "box", "tiktok"]);
 export function validateDirectorPlan(raw: any, nWords: number, duration: number, input: EditInput, style: MotionStyleId, auto = false): EditPlanV2 & { broll: BRollPlan[] } {
   const look = motionStyle(style);
   // AI Auto: captions, music and the hook sound are the director's call too
-  const capStyle = auto && CAPTION_STYLES.has(raw?.captions?.style) ? raw.captions.style as EditPlanV2["captions"]["style"] : input.captionStyle;
-  const capPos = auto ? (raw?.captions?.pos === "mid" ? "mid" : "low") : input.captionPos;
+  const locks = input.locks;
+  const capStyle = locks?.captionLook ? (locks.captionLook === "tiktok" ? "tiktok" : "pop")
+    : auto && CAPTION_STYLES.has(raw?.captions?.style) ? raw.captions.style as EditPlanV2["captions"]["style"] : input.captionStyle;
+  const capPos = locks?.captionPos ?? (auto ? (raw?.captions?.pos === "mid" ? "mid" : "low") : input.captionPos);
   const hs = Number(raw?.hook_sound);
   const autoPicks: Partial<EditPlanV2> = auto ? {
     angle: clean(raw?.angle, 60) || undefined,
     look: look.id,
     energy: look.energy,
-    music: typeof raw?.music === "boolean" ? raw.music : look.energy === "gempak",
+    music: typeof locks?.music === "boolean" ? locks.music : typeof raw?.music === "boolean" ? raw.music : look.energy === "gempak",
     hookSound: Number.isInteger(hs) && hs >= 0 && hs < HOOK_SOUNDS.length ? hs : Math.floor(Math.random() * HOOK_SOUNDS.length),
   } : {};
   const maxOverlays = Math.max(3, Math.ceil(duration / look.overlayEvery));
@@ -1044,7 +1131,7 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
     })
     .filter(Boolean)
     .slice(0, 80) as EditPlanV2["keywords"];
-  const hookText = clean(raw?.hook?.text, 40);
+  const hookText = clean(locks?.hook, 40) || clean(raw?.hook?.text, 40);
   const accent = HEX.test(input.accent || "") ? input.accent! : HEX.test(raw?.accent) ? raw.accent : "#FFD93B";
   const rehookAt = cueIn(raw?.rehook?.at, nWords, duration);
   const ctaAt = cueIn(raw?.cta?.at, nWords, duration);
@@ -1053,16 +1140,20 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
     ...(brand ? { brand } : {}),
     hook: hookText && duration >= 5 ? { text: hookText, ...(raw?.hook?.sub ? { sub: clean(raw.hook.sub, 40) } : {}) } : null,
     accent,
-    mood: MOODS.has(raw?.mood) ? raw.mood : look.mood,
+    mood: locks?.mood ?? (MOODS.has(raw?.mood) ? raw.mood : look.mood),
     captions: { on: input.captions, style: capStyle, pos: capPos, maxWords: capStyle === "karaoke" ? 4 : 3 },
     ...autoPicks,
-    overlays,
+    // the client switched GIF stickers / animated emoji off
+    overlays: overlays.filter((o: MotionItem) => !(locks?.elements?.gif === false && o.t === "gif") && !(locks?.elements?.emoji === false && o.t === "emoji")),
     zooms,
     broll,
     facts: [],
-    keywords,
+    keywords: locks?.elements?.emoji === false ? keywords.map(({ emoji: _e, ...k }) => k) : keywords,
     ...(rehookAt !== undefined && clean(raw?.rehook?.text, 30) && duration > 20 ? { rehook: { at: rehookAt, text: clean(raw.rehook.text, 30) } } : {}),
-    ...(ctaAt !== undefined && clean(raw?.cta?.text, 30) ? { cta: { at: ctaAt, text: clean(raw.cta.text, 30), ...(raw?.cta?.sub ? { sub: clean(raw.cta.sub, 34) } : {}) } } : {}),
+    ...(locks?.cta && duration >= 6
+      // the client's CTA, word for word — at the director's moment, else the last ~3.5 s
+      ? { cta: { at: ctaAt ?? Math.max(0, duration - 3.5), text: clean(locks.cta, 30), ...(raw?.cta?.sub ? { sub: clean(raw.cta.sub, 34) } : {}) } }
+      : ctaAt !== undefined && clean(raw?.cta?.text, 30) ? { cta: { at: ctaAt, text: clean(raw.cta.text, 30), ...(raw?.cta?.sub ? { sub: clean(raw.cta.sub, 34) } : {}) } } : {}),
   };
 }
 

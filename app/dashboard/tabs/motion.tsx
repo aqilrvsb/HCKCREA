@@ -15,6 +15,8 @@ import { uploadImage } from "@/lib/upload-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
 import { MOTION_STYLES, type MotionStyleId } from "@/lib/motion-styles";
 import MotionPhotoPicker, { MAX_PRODUCT_PHOTOS, withRetry } from "./motion-photo-picker";
+import MotionManualPanel from "./motion-manual-panel";
+import type { MotionLocks } from "@/lib/motion-manual";
 
 type Mode = "ad" | "edit";
 type CaptionStyle = "pop" | "karaoke" | "box" | "tiktok";
@@ -135,31 +137,25 @@ const readDuration = (url: string) =>
   });
 
 const LOOK_KEY = "motion-look";
-const ENGINE_KEY = "motion-engine";
-type Engine = "laju" | "padat";
+// "Saya nak pilih sendiri": the last picks, remembered per browser
+const LOCKS_KEY = "motion-locks";
+type Engine = "laju";
 
 export default function MotionTab({ projectId }: { projectId?: string }) {
   // Default = PeningLab's own Edit Video / Buat Iklan; Custom Style = the VGC
   // vault (Coach Am) at /vgc, generated directly (remembered per browser)
   const [look, setLookState] = useState<"default" | "custom">("default");
-  // Default engine: "Laju · Ringkas" (Remotion templates) or "Padat · Lambat"
-  // (Claude Code on HyperFrames + critic rounds) — remembered per browser too
-  const [engine, setEngineState] = useState<Engine>("laju");
+  // Default renders on HyperFrames ("Padat" was retired 2026-10-21)
+  const engine: Engine = "laju";
   useEffect(() => {
     try {
       if (localStorage.getItem(LOOK_KEY) === "custom") setLookState("custom");
-      if (localStorage.getItem(ENGINE_KEY) === "padat") setEngineState("padat");
     } catch { /* private mode */ }
   }, []);
   const setLook = (v: "default" | "custom") => {
     setLookState(v);
     try { localStorage.setItem(LOOK_KEY, v); } catch { /* private mode */ }
   };
-  const setEngine = (v: Engine) => {
-    setEngineState(v);
-    try { localStorage.setItem(ENGINE_KEY, v); } catch { /* private mode */ }
-  };
-  const [padatMin, setPadatMin] = useState(0);
   const [mode, setMode] = useState<Mode>("edit");
   const [rate, setRate] = useState<number | null>(null);
 
@@ -199,17 +195,27 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   // Speech language: always Malay (no picker) — the English terms Malaysians mix
   // in are kept as English by the transcriber and the caption fixer.
   const editLang = "ms";
-  const [captionPos, setCaptionPos] = useState<"low" | "mid">("low");
-  const [editMusic, setEditMusic] = useState(false);
   // Jump cut, B-roll and fact cards: always on (no toggles in the form).
   const jumpcut = true;
   const broll = true;
   const facts = true;
-  const [editPrompt, setEditPrompt] = useState(MOTION_EDIT_PRESETS[0]?.prompt ?? "");
+  // "Saya nak pilih sendiri": extra notes for the AI (the sales angle is a chip in the panel)
+  const [editPrompt, setEditPrompt] = useState("");
   // AI Auto (default): the AI watches the video and picks angle, look, colour,
   // captions, hook sound and music itself; "Saya nak pilih sendiri" = manual
   const [editAuto, setEditAuto] = useState(true);
   const autoOn = mode === "edit" && editAuto;
+  // the manual picks (lib/motion-manual.ts): unset = the AI decides, exactly as in AI Auto
+  const [locks, setLocksState] = useState<MotionLocks>({});
+  // the last picks come back when the panel opens
+  const openManual = () => {
+    try { const v = JSON.parse(localStorage.getItem(LOCKS_KEY) || "null"); if (v && typeof v === "object") setLocksState(v); } catch { /* private mode */ }
+    setEditAuto(false);
+  };
+  const setLocks = (v: MotionLocks) => {
+    setLocksState(v);
+    try { localStorage.setItem(LOCKS_KEY, JSON.stringify(v)); } catch { /* private mode */ }
+  };
   const [editImages, setEditImages] = useState<string[]>([]);
   // product name as it should be spelt — required; the AI uses it for captions
   const [editProduct, setEditProduct] = useState("");
@@ -221,23 +227,16 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   // client (profiles.settings.hidden_modes). Hidden until the server says it's
   // allowed — starting visible made it flash on every tab open.
   const [adAllowed, setAdAllowed] = useState(false);
-  // "Padat" can be hidden from clients (app_settings.motion_padat); hidden → Laju only
-  const [padatShown, setPadatShown] = useState(false);
   useEffect(() => {
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => {
       setRate(Number(d?.rate) || 0);
-      setPadatMin(Number(d?.padat_min) || 0);
       const ok = d?.modes?.ad === true;
       setAdAllowed(ok);
-      const pd = d?.modes?.padat === true;
-      setPadatShown(pd);
-      if (!pd) setEngineState("laju");
       if (!ok) setMode("edit");
     }).catch(() => setRate(0));
   }, [projectId]);
 
-  // Padat: each video costs at least padatMin
-  const perVideo = (sec: number) => (rate === null ? 0 : engine === "padat" ? Math.max(sec * rate, padatMin) : sec * rate);
+  const perVideo = (sec: number) => (rate === null ? 0 : sec * rate);
   const adCost = rate !== null ? perVideo(Math.ceil(seconds + 2)) * variations : null;
   const toSend = videos.filter((v) => !v.sending);
   const sendingCount = videos.length - toSend.length;
@@ -378,9 +377,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     if (editImages.length === 0) return setError("Upload sekurang-kurangnya 1 gambar produk.");
     // the settings as they are now — the form may change for the next videos
     const settings = {
-      language: editLang, prompt: editAuto ? undefined : editPrompt,
-      product: productName, product_images: editImages, auto: editAuto,
-      captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
+      language: editLang, prompt: editAuto ? undefined : editPrompt.trim() || undefined,
+      product: productName, product_images: editImages, auto: true,
+      ...(editAuto ? {} : { locks }),
+      captions, caption_style: captionStyle, sfx,
       accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard, engine,
     };
     const keys = new Set(batch.map((v) => v.key));
@@ -418,8 +418,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     }));
     window.dispatchEvent(new CustomEvent("history:refresh"));
     if (failed.length) setError(failed.join(" · "));
-    else setNotice("📝 Skrip & caption sedang dijana. Bila kad History bertukar border kuning, tekan \"Semak skrip\", betulkan jika perlu, kemudian \"Jana Video\"."
-      + (settings.engine === "padat" ? " 💎 Padat: selepas Jana Video, AI bina & semak video ~20–40 minit." : ""));
+    else setNotice("📝 Skrip & caption sedang dijana. Bila kad History bertukar border kuning, tekan \"Semak skrip\", betulkan jika perlu, kemudian \"Jana Video\".");
   }
 
   const presets = mode === "ad" ? MOTION_AD_PRESETS : MOTION_EDIT_PRESETS;
@@ -481,34 +480,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </div>
         )}
 
-        {padatShown && <div className="mb-5">
-          <label className={label}>Gaya penghasilan</label>
-          <div role="radiogroup" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {([
-              { key: "laju", title: "⚡ Laju · Ringkas", desc: "Template motion siap pakai — video siap dalam beberapa minit." },
-              {
-                key: "padat", title: "💎 Padat · Lambat",
-                desc: `AI bina motion graphics dari kosong (HyperFrames), disemak & dibaiki oleh AI pengkritik — ~20–40 minit setiap video${padatMin > 0 ? `, min RM${padatMin.toFixed(2)}` : ""}.`,
-              },
-            ] as const).map((o) => {
-              const on = engine === o.key;
-              return (
-                <button key={o.key} type="button" role="radio" aria-checked={on} onClick={() => setEngine(o.key)}
-                  className="text-left rounded-xl p-3 border transition-colors flex gap-2.5 items-start"
-                  style={{ borderColor: on ? THEME.primary : "var(--color-border)", background: on ? THEME.faint : "transparent" }}>
-                  <span className="mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0"
-                    style={{ borderColor: on ? THEME.primary : "var(--color-text-muted)" }}>
-                    {on && <span className="w-2 h-2 rounded-full" style={{ background: THEME.primary }} />}
-                  </span>
-                  <span>
-                    <span className="block text-xs font-extrabold text-[var(--color-text-primary)]">{o.title}</span>
-                    <span className="block text-[11px] text-[var(--color-text-secondary)] leading-snug mt-0.5">{o.desc}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>}
 
         {mode === "edit" ? (
           <div className="space-y-4">
@@ -549,7 +520,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               <div className="rounded-xl p-3" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-extrabold text-[var(--color-text-primary)]">🤖 AI Auto — AI tonton video anda &amp; rancang semuanya</span>
-                  <button type="button" onClick={() => setEditAuto(false)} className="ml-auto text-[11px] font-bold underline" style={{ color: THEME.primary }}>
+                  <button type="button" onClick={openManual} className="ml-auto text-[11px] font-bold underline" style={{ color: THEME.primary }}>
                     Saya nak pilih sendiri
                   </button>
                 </div>
@@ -562,7 +533,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 <button type="button" onClick={() => setEditAuto(true)} className="text-[11px] font-bold underline" style={{ color: THEME.primary }}>
                   🤖 Guna AI Auto (AI pilih semua)
                 </button>
-                <PromptBox value={editPrompt} onChange={setEditPrompt} presets={presets} placeholder="cth. Jadikan video jualan beg kuning: hook kuat, tick setiap kelebihan, tutup dengan CTA tekan beg kuning." />
+                <MotionManualPanel locks={locks} setLocks={setLocks} note={editPrompt} setNote={setEditPrompt} accent={accent} setAccent={setAccent}
+                  captions={captions} setCaptions={setCaptions} sfx={sfx} setSfx={setSfx} />
               </>
             )}
             <div>
@@ -669,9 +641,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </div>
         )}
 
-        {/* shared style controls (AI Auto decides them all; caption on / off is the client's) */}
+        {/* shared style controls: Buat Iklan; Edit Video shows caption on / off under AI Auto (the manual panel has its own) */}
+        {(mode === "ad" || autoOn) && (
         <div className="mt-5 pt-4 border-t space-y-3" style={{ borderColor: "var(--color-border)" }}>
-          {!autoOn && (
+          {mode === "ad" && (
           <div>
             <span className={label}>Gaya edit</span>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
@@ -697,7 +670,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               <Toggle on={captions} onChange={setCaptions}>Caption</Toggle>
             </div>
           )}
-          {!autoOn && (
+          {mode === "ad" && (
           <>
           <div className="flex flex-wrap gap-2 items-center">
             <Toggle on={captions} onChange={setCaptions}>Caption</Toggle>
@@ -707,20 +680,11 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 <Chip small active={captionStyle === "karaoke"} onClick={() => setCaptionStyle("karaoke")}>Karaoke</Chip>
                 <Chip small active={captionStyle === "box"} onClick={() => setCaptionStyle("box")}>Box</Chip>
                 <Chip small active={captionStyle === "tiktok"} onClick={() => setCaptionStyle("tiktok")}>TikTok</Chip>
-                {mode === "edit" && (
-                  <>
-                    <span className="text-[10px] font-bold text-[var(--color-text-muted)] ml-2">Kedudukan</span>
-                    <Chip small active={captionPos === "low"} onClick={() => setCaptionPos("low")}>Bawah</Chip>
-                    <Chip small active={captionPos === "mid"} onClick={() => setCaptionPos("mid")}>Tengah</Chip>
-                  </>
-                )}
               </>
             )}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
-            {mode === "ad"
-              ? <Toggle on={music} onChange={setMusic}>Muzik latar</Toggle>
-              : <Toggle on={editMusic} onChange={setEditMusic}>Tambah muzik latar</Toggle>}
+            <Toggle on={music} onChange={setMusic}>Muzik latar</Toggle>
             <Toggle on={sfx} onChange={setSfx}>Sound effect</Toggle>
             <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-secondary)] ml-1">Warna tema</span>
             <Chip small active={!accent} onClick={() => setAccent("")}>✨ AI pilih</Chip>
@@ -737,6 +701,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </>
           )}
         </div>
+        )}
 
         {error && (
           <div className="mt-4 text-xs font-bold px-3 py-2 rounded-lg" style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.35)" }}>{error}</div>
@@ -767,10 +732,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             {rate === null
               ? "…"
               : mode === "ad"
-                ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (${variations} × ~${seconds + 2}s × RM${rate.toFixed(2)}/s${engine === "padat" && padatMin > 0 ? `, min RM${padatMin.toFixed(2)} setiap iklan` : ""}). Caj ikut tempoh sebenar.`
+                ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (${variations} × ~${seconds + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
                 : editCost !== null
-                  ? `Anggaran RM${editCost.toFixed(2)} (${editSec}s × RM${rate.toFixed(2)}/s${engine === "padat" && padatMin > 0 ? `, min RM${padatMin.toFixed(2)} setiap video` : ""}). Caj ikut tempoh selepas potong senyap.`
-                  : `RM${rate.toFixed(2)} sesaat video${engine === "padat" && padatMin > 0 ? ` (Padat: min RM${padatMin.toFixed(2)} setiap video)` : ""}`}
+                  ? `Anggaran RM${editCost.toFixed(2)} (${editSec}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh selepas potong senyap.`
+                  : `RM${rate.toFixed(2)} sesaat video`}
           </span>
         </div>
         {/* attribution the asset licences ask for (Noto Animated Emoji: CC BY 4.0; GIPHY API: "Powered by GIPHY") */}

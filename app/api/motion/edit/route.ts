@@ -5,6 +5,7 @@ import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { MOTION_EDIT_MAX_SEC, allowedEngine, costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { isMotionStyle, styleEnergy } from "@/lib/motion-styles";
+import { cleanLocks } from "@/lib/motion-manual";
 import { padatMin } from "@/lib/motion-padat";
 
 // POST /api/motion/edit — Motion "Edit Video": animate the client's own video
@@ -53,8 +54,11 @@ export async function POST(req: Request) {
   if (!product) return NextResponse.json({ error: "Sila isi nama produk." }, { status: 400 });
 
   // AI Auto: the director picks angle, look, colour, captions, hook sound and
-  // music from the video itself — the manual choices are ignored.
-  const auto = b?.auto === true;
+  // music from the video itself. "Saya nak pilih sendiri" sends `locks`: the same AI Auto brain plans the edit and
+  // every pick is a rule it must follow (lib/motion-manual.ts) — unset picks stay the AI's call.
+  const locks = cleanLocks(b?.locks);
+  const manual = !!locks;
+  const auto = b?.auto === true || manual;
   // 2-step flow (mandatory): stop after the script + captions so the client
   // reviews them ("Jana Video" on the History card renders — /api/motion/render)
   const review = true;
@@ -62,22 +66,24 @@ export async function POST(req: Request) {
     videoUrl,
     durationSec,
     language: b?.language === "en" ? "en" : b?.language === "auto" ? "auto" : "ms",
-    instructions: auto ? undefined : str(b?.prompt ?? b?.instructions, 900) || undefined,
+    instructions: auto && !manual ? undefined : str(b?.prompt ?? b?.instructions, 900) || undefined,
     product,
     productImages,
     captions: b?.captions !== false, // the one choice AI Auto leaves to the client
-    captionStyle: auto ? "pop" : style,
-    captionPos: auto ? "low" : b?.caption_pos === "mid" ? "mid" : "low",
-    music: auto ? false : !!b?.music,
-    sfx: auto || b?.sfx !== false,
-    accent: !auto && /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
-    style: !auto && isMotionStyle(b?.style) ? b.style : "gempak",
+    captionStyle: manual ? (locks.captionLook === "tiktok" ? "tiktok" : "pop") : auto ? "pop" : style,
+    captionPos: manual ? locks.captionPos ?? "low" : auto ? "low" : b?.caption_pos === "mid" ? "mid" : "low",
+    // AI Auto: Modal takes music from the plan (a manual lock is written into the plan)
+    music: manual ? locks.music === true : auto ? false : !!b?.music,
+    sfx: manual ? b?.sfx !== false : auto || b?.sfx !== false,
+    accent: (!auto || manual) && /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
+    style: manual ? locks.look ?? "gempak" : !auto && isMotionStyle(b?.style) ? b.style : "gempak",
     resolution: b?.resolution === "720" ? "720" : "1080",
     jumpcut: b?.jumpcut !== false,
     broll: b?.broll !== false,
     facts: b?.facts !== false,
     guard: b?.guard === true,
     ...(auto ? { auto: true } : {}),
+    ...(manual ? { locks } : {}),
     // "laju" = the templates; "padat" = step 2 built by Claude Code on HyperFrames (hidden from clients
     // unless app_settings.motion_padat is on — a hidden Padat request runs as Laju)
     engine: await allowedEngine(b?.engine, user.id),
