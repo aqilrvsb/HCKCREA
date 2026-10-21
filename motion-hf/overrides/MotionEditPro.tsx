@@ -103,8 +103,15 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
   const capCenter = cap.pos === 'mid' ? 1180 : 1330;
   // the director's caption look (a creator style); TikTok's own white-box style keeps its renderer
   const capLook = (() => {
+    if (cap.style === 'tiktok') return null;
     const id = (p.direction as { caption_look?: string } | null | undefined)?.caption_look;
-    return id && id in CAP_LOOKS && cap.style !== 'tiktok' ? (id as CapLookId) : null;
+    if (id && id in CAP_LOOKS) return id as CapLookId;
+    // the director left it out: the client's own pick maps onto its creator look, else one drawn from the video's seed
+    if (cap.style === 'karaoke') return 'karaoke' as CapLookId;
+    if (cap.style === 'box') return 'sweep' as CapLookId;
+    const pool: CapLookId[] = ['hormozi', 'karaoke', 'popline', 'sweep', 'sticker', 'fill', 'beast', 'pod', 'deep', 'pill', 'neon'];
+    const seed = Number.isInteger(p.lookSeed) ? (p.lookSeed as number) : seedFrom(`${p.hook?.text ?? ''}|${(p.words ?? []).length}`);
+    return pool[(seed >>> 3) % pool.length];
   })();
 
   const plan = useMemo(() => {

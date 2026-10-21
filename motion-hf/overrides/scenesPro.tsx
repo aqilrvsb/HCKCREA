@@ -174,25 +174,23 @@ const Highlighted: React.FC<{ text: string; words?: string[]; p: number; color?:
 const TEXT_ENTERS = new Set<string>(['type', 'scramble', 'letters', 'rise', 'outline']);
 const MARKS = new Set<string>(['circle', 'underline', 'arrow', 'box']);
 
-const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string; bg: Bg; lottie?: LottieMap; boost?: number }> = ({ l, frame, look, accent, bg, lottie, boost = 1 }) => {
-  const face = look.display;
-  const d = frame - l.f;
+/** A build line's size and rows: the face's estimate, then the measured width (wide letters like "M" run long); a big
+ *  line of several words that would shrink on one line may wrap onto two balanced lines instead (plain entrances only —
+ *  typed / scrambled / rolled / swapped / struck / shined lines stay on one line). Sized on the FINAL text, so a count-up
+ *  never changes size while it counts. `height` = the room it takes in the stack. */
+const lineLayout = (l: PlacedLine, face: Look['display'], boost: number, wrap: boolean) => {
   const full = face.upper ? l.text.toUpperCase() : l.text;
-  const single = (full.match(/\d[\d.,]*/g) ?? []).length === 1;
-  const text = l.fx === 'count' && single && d >= 0 ? countText(full, d) : full;
   const base = SIZE[l.size ?? 'md'] * boost;
+  const boxed = !!(l.box && l.box !== 'none');
   // a swap slot is as wide as its widest word
   const swap = l.enter === 'swap' && l.options?.length ? l.options.map((o) => (face.upper ? o.toUpperCase() : o)) : null;
-  const fitText = swap ? [text, ...swap].reduce((a, b) => (textWidth(b, face, 100) > textWidth(a, face, 100) ? b : a)) : text;
-  // the estimate from the face's average letter, then the measured width (wide letters like "M" run long)
+  const fitText = swap ? [full, ...swap].reduce((a, b) => (textWidth(b, face, 100) > textWidth(a, face, 100) ? b : a)) : full;
   const est = fitFace(fitText, base, W - 160, 1, face, 30);
-  let size = Math.max(30, Math.min(est, Math.floor((est * (W - 150 - (l.box && l.box !== 'none' ? est * 0.36 : 0))) / Math.max(1, textWidth(fitText, face, est)))));
-  // a big line of several words that would shrink on one line wraps onto two balanced lines instead
-  // (plain entrances only: the typed / scrambled / rolled / swapped / struck / shined lines stay on one line)
-  let rows: string[] = [text];
-  const words = text.split(' ').filter(Boolean);
+  let size = Math.max(30, Math.min(est, Math.floor((est * (W - 150 - (boxed ? est * 0.36 : 0))) / Math.max(1, textWidth(fitText, face, est)))));
+  let rows: string[] = [full];
+  const words = full.split(' ').filter(Boolean);
   const plain = !(l.enter && TEXT_ENTERS.has(l.enter)) && l.enter !== 'swap' && l.fx !== 'roll' && l.fx !== 'count' && l.fx !== 'strike' && l.fx !== 'shine';
-  if (plain && words.length >= 2 && l.size !== 'sm' && size < base * 0.8) {
+  if (wrap && plain && words.length >= 2 && l.size !== 'sm' && size < base * 0.8) {
     let best: { a: string; b: string; w: number } | null = null;
     for (let i = 1; i < words.length; i++) {
       const a = words.slice(0, i).join(' ');
@@ -201,11 +199,32 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
       if (!best || w < best.w) best = { a, b, w };
     }
     if (best) {
-      const room = W - 150 - (l.box && l.box !== 'none' ? base * 0.36 : 0);
+      const room = W - 150 - (boxed ? base * 0.36 : 0);
       const two = Math.min(base, Math.floor((room * 100) / best.w));
       if (two > size * 1.25) { size = two; rows = [best.a, best.b]; }
     }
   }
+  return { size, rows, height: size * 1.02 * rows.length + (boxed ? size * 0.1 : 0) + 6 };
+};
+
+/** How a build stack fills its room: grow (≤ 1.4×) while it fits, wrap big lines only while it fits, shrink as a last resort. */
+const buildFit = (ls: PlacedLine[], face: Look['display'], room: number): { boost: number; wrap: boolean } => {
+  const total = (b: number, w: boolean) => ls.reduce((h, l) => h + lineLayout(l, face, b, w).height, 0);
+  const natural = ls.reduce((h, l) => h + SIZE[l.size ?? 'md'] * 1.08, 0);
+  const want = Math.max(1, Math.min(1.4, (room * 0.92) / Math.max(1, natural)));
+  for (let b = want; b >= 1 - 1e-6; b -= 0.05) if (total(b, true) <= room) return { boost: b, wrap: true };
+  if (total(1, false) <= room) return { boost: 1, wrap: false };
+  return { boost: Math.max(0.6, room / Math.max(1, total(1, false))), wrap: false };
+};
+
+const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string; bg: Bg; lottie?: LottieMap; boost?: number; wrap?: boolean }> = ({ l, frame, look, accent, bg, lottie, boost = 1, wrap = true }) => {
+  const face = look.display;
+  const d = frame - l.f;
+  const full = face.upper ? l.text.toUpperCase() : l.text;
+  const single = (full.match(/\d[\d.,]*/g) ?? []).length === 1;
+  const text = l.fx === 'count' && single && d >= 0 ? countText(full, d) : full;
+  const swap = l.enter === 'swap' && l.options?.length ? l.options.map((o) => (face.upper ? o.toUpperCase() : o)) : null;
+  const { size, rows } = lineLayout(l, face, boost, wrap);
   const box = l.box && l.box !== 'none' ? l.box : null;
   const boxBg = box === 'yellow' ? '#FFD93B' : box === 'black' ? '#111' : box === 'white' ? '#fff' : box === 'accent' ? look.hi : 'transparent';
   let color = toneColor(l.tone, look, accent);
@@ -425,11 +444,10 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
             ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
         )}
         {(() => {
-          // a sparse build grows to fill the frame's upper two-thirds (lines still fit the width)
+          // the stack fills the frame's upper two-thirds and ends above the captions (y ≈ 1225)
           const ls = sc.lines ?? [];
-          const natural = ls.reduce((h, l) => h + SIZE[l.size ?? 'md'] * 1.08, 0) + (sc.heading ? 90 : 0);
-          const boost = Math.max(1, Math.min(1.4, 720 / Math.max(1, natural)));
-          return ls.map((l, i) => <Line key={i} l={l} frame={frame} look={look} accent={accent} bg={sc.bg} lottie={lottie} boost={boost} />);
+          const { boost, wrap } = buildFit(ls, face, 1225 - TOP_BUILD - (sc.heading ? 84 : 0));
+          return ls.map((l, i) => <Line key={i} l={l} frame={frame} look={look} accent={accent} bg={sc.bg} lottie={lottie} boost={boost} wrap={wrap} />);
         })()}
       </div>
     );
