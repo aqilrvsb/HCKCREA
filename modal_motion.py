@@ -736,6 +736,136 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
             shutil.rmtree(p, ignore_errors=True)
 
 
+def _gather_chunks(job: str, count: int, calls: list, limit: float = 900) -> dict:
+    """Collect a plan's chunks from hf_chunk calls: a failed chunk is re-run (≤ 2 extra runs); once 75 % are in, a
+    straggler far past the median gets a twin and the first copy wins. Returns {index: mp4 bytes}; cancels leftovers."""
+    t = time.time()
+    got, runs, extra, hedged, sec_done = {}, {}, {}, set(), []
+    for i, c in enumerate(calls):
+        if i < count:
+            runs.setdefault(i, []).append((c, time.time()))
+    try:
+        while len(got) < count and time.time() - t < limit:
+            for i in range(count):
+                if i in got:
+                    continue
+                for c, started in list(runs.get(i, [])):
+                    try:
+                        res = c.get(timeout=0)
+                    except (TimeoutError, modal.exception.TimeoutError):
+                        continue
+                    except Exception as e:  # noqa: BLE001
+                        runs[i].remove((c, started))
+                        print("hf chunk failed:", i, str(e)[:300], flush=True)
+                        if not runs[i] and extra.get(i, 0) < 2:
+                            extra[i] = extra.get(i, 0) + 1
+                            c2 = hf_chunk.spawn(job, i)
+                            calls.append(c2)
+                            runs[i].append((c2, time.time()))
+                        continue
+                    if res.get("skip"):
+                        continue
+                    got[i] = res["data"]
+                    sec_done.append(time.time() - started)
+                    break
+                if i not in got and not runs.get(i) and extra.get(i, 0) >= 2:
+                    raise RuntimeError(f"chunk {i} failed 3 times")
+            if len(got) >= count:
+                break
+            if len(got) >= max(1, int(count * 0.75)) and sec_done:
+                med = sorted(sec_done)[len(sec_done) // 2]
+                for i in range(count):
+                    if i in got or i in hedged or not runs.get(i):
+                        continue
+                    if time.time() - min(st for _, st in runs[i]) > max(20.0, 1.8 * med):
+                        hedged.add(i)
+                        c2 = hf_chunk.spawn(job, i)
+                        calls.append(c2)
+                        runs[i].append((c2, time.time()))
+            time.sleep(0.5)
+    finally:
+        for c in calls:
+            try:
+                c.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+    missing = [i for i in range(count) if i not in got]
+    if missing:
+        raise RuntimeError(f"chunks missing: {missing}")
+    return got
+
+
+@app.function(image=hf_render_image, cpu=4.0, memory=8192, timeout=1800, volumes={JOBS_ROOT: JOBS})
+def render_project(job: str, project: str = "ws/video", out_name: str = "render.mp4") -> dict:
+    """Render a whole HyperFrames project from the jobs Volume across hf_chunk containers — the parallel renderer
+    Default uses — into <job>/<out_name>. Custom Style's `pl-render` (modal_vgc.py) calls it: its workspace's
+    ./video (+ ./bahan, so relative media paths hold) is copied to <job>/ws first. No loudness pass here (the
+    Custom Style run masters its own audio)."""
+    import shutil
+    t0 = time.time()
+    T = {}
+    JOBS.reload()
+    d = Path(JOBS_ROOT) / job
+    if not (d / project / "index.html").exists():
+        raise RuntimeError(f"no HyperFrames project at {project}")
+    local = Path(tempfile.mkdtemp(prefix="vgcproj_"))
+    plan_root = Path(tempfile.mkdtemp(prefix="hfplan_"))
+    tmp = Path(tempfile.mkdtemp(prefix="hfchunks_"))
+    ready, plan_vol = d / HF_READY, d / HF_PLAN
+    calls = []
+    try:
+        # plan from a local copy (the Volume is slow for many small reads)
+        shutil.copytree(d / project.split("/")[0], local / project.split("/")[0])
+        proj = local / project
+        T["copy"] = round(time.time() - t0, 1)
+        t = time.time()
+        plan = plan_root / "plan"
+        size = 90
+        pinfo = _hf_node([f"{HF_DIR}/build/dist.mjs", "plan", str(proj), str(plan), str(size)], "plan", 600)
+        total = int(pinfo["totalFrames"])
+        if int(pinfo["chunkCount"]) > HF_MAX_CHUNKS:
+            size = _hf_chunk_frames(total)
+            shutil.rmtree(plan, ignore_errors=True)
+            pinfo = _hf_node([f"{HF_DIR}/build/dist.mjs", "plan", str(proj), str(plan), str(size)], "plan", 600)
+        count = int(pinfo["chunkCount"])
+        T["plan"] = round(time.time() - t, 1)
+        t = time.time()
+        ready.unlink(missing_ok=True)
+        shutil.rmtree(plan_vol, ignore_errors=True)
+        shutil.copytree(plan, plan_vol)
+        ready.write_text(json.dumps({"chunkCount": count}))
+        JOBS.commit()
+        T["publish"] = round(time.time() - t, 1)
+        t = time.time()
+        calls = [hf_chunk.spawn(job, i) for i in range(count)]
+        got = _gather_chunks(job, count, calls)
+        T["chunks"] = round(time.time() - t, 1)
+        t = time.time()
+        paths = []
+        for i in range(count):
+            p = tmp / f"c{i:02d}.mp4"
+            p.write_bytes(got[i])
+            paths.append(str(p))
+        out = tmp / "out.mp4"
+        _hf_node([f"{HF_DIR}/build/dist.mjs", "assemble", str(plan), str(out), *paths], "assemble", 600)
+        got_sec, want = _probe(out)["duration"], total / 30.0
+        if abs(got_sec - want) > 0.5:
+            raise RuntimeError(f"duration {got_sec:.2f}s vs {want:.2f}s")
+        shutil.copy2(out, d / out_name)
+        T["assemble"] = round(time.time() - t, 1)
+        T["total"] = round(time.time() - t0, 1)
+        return {"ok": True, "chunks": count, "chunk_frames": size, "frames": total, "timings": T}
+    finally:
+        ready.unlink(missing_ok=True)
+        shutil.rmtree(plan_vol, ignore_errors=True)
+        try:
+            JOBS.commit()
+        except Exception:  # noqa: BLE001
+            pass
+        for p in (local, plan_root, tmp):
+            shutil.rmtree(p, ignore_errors=True)
+
+
 def _render(comp: str, props: dict, d: Path, out: Path, scale: float, pct_from: int, pct_to: int, p: dict) -> dict:
     """Render with the renderer PeningLab asked for (payload "renderer"). HyperFrames only, no Remotion
     fallback: a failed HyperFrames render is tried once more from scratch, then the job fails. It always

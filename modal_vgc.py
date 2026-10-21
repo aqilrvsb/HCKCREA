@@ -51,6 +51,9 @@ HF_VERSION = "0.8.181"
 HF_SKILLS = "/opt/hf-skills"
 KIT = modal.Volume.from_name("peninglab-vgc-kit", create_if_missing=True)
 WORK = modal.Volume.from_name("peninglab-vgc-work", create_if_missing=True)
+# the Motion app's jobs Volume: pl-render hands a project to its parallel renderer (render_project + hf_chunk) there
+MJOBS = modal.Volume.from_name("peninglab-motion-jobs", create_if_missing=True)
+MJOBS_ROOT = "/mjobs"
 KIT_ROOT, WORK_ROOT = "/kit", "/work"
 PROGRESS = modal.Dict.from_name("peninglab-vgc-progress", create_if_missing=True)
 
@@ -251,8 +254,10 @@ ENGINE_RULES = """
   text effects (outline-to-fill, gravity drop, freeze pop…). Chat / comment / testimonial cards may only show words
   the client actually gave — never invent customer messages, reviews or ratings.
 - Before rendering: `hyperframes lint` (fix every error AND every timeline warning) and `hyperframes check`.
-- Render with `hyperframes render` (use all 8 CPU cores where it allows), then put the MP4 at ./out/preview.mp4
-  (1080x1920, 30 fps).
+- Render with `pl-render video out/preview.mp4` — PeningLab's parallel renderer: the same HyperFrames render, split
+  across many machines (~1–2 min instead of 5–8 on this one); if it reports a failure it renders here with
+  `hyperframes render` by itself. Output ./out/preview.mp4 (1080x1920, 30 fps). Use it for every render, including the
+  fixes after a critic's report.
 - Its Chrome is pre-installed (never run `browser ensure`). Do not install whisper / Kokoro / MusicGen: the voice is
   pl-tts, the music is pl-music, and the footage's words are already in ./bahan/captions.json when there is footage.
 - HyperFrames only — never switch to another engine (no Remotion). If a render fails, find the cause (`hyperframes
@@ -734,10 +739,89 @@ def _safe_name(name: str, i: int) -> str:
     return base or f"bahan-{i + 1}"
 
 
+# pl-render: Claude Code's render command. It hands the project to the run's controller (_render_service, which has
+# the Modal access Claude Code's shell does not) and waits; the controller renders it across the Motion app's render
+# containers (~1–2 min instead of 5–8 on one machine). Any failure → a normal `hyperframes render` here, so a run
+# never stalls on it.
+PL_RENDER = r"""#!/usr/bin/env python3
+import json, os, subprocess, sys, time, uuid
+args = [a for a in sys.argv[1:] if not a.startswith("-")]
+proj = os.path.realpath(args[0] if args else "video")
+out = os.path.realpath(args[1] if len(args) > 1 else "out/preview.mp4")
+os.makedirs(os.path.dirname(out), exist_ok=True)
+d = "/tmp/pl-render"
+if os.path.isdir(d) and os.path.isfile(os.path.join(proj, "index.html")):
+    rid = uuid.uuid4().hex[:10]
+    tmp = os.path.join(d, rid + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump({"id": rid, "project": proj, "out": out}, f)
+    os.replace(tmp, os.path.join(d, rid + ".req"))
+    t0 = time.time()
+    done = os.path.join(d, rid + ".done")
+    while time.time() - t0 < 1500 and not os.path.exists(done):
+        time.sleep(1)
+    if os.path.exists(done):
+        r = json.load(open(done))
+        if r.get("ok") and os.path.isfile(out):
+            print(f"pl-render: OK in {time.time() - t0:.0f}s on {r.get('chunks')} parallel render containers -> {out}")
+            sys.exit(0)
+        print("pl-render: parallel render failed (" + str(r.get("error"))[:300] + ") - rendering here with hyperframes render")
+    else:
+        print("pl-render: no answer from the parallel renderer - rendering here with hyperframes render")
+sys.exit(subprocess.call(["hyperframes", "render", "--output", out], cwd=proj))
+"""
+
+
+def _render_service(ws: Path, hid: str, step: str, stop) -> None:
+    """Serve pl-render requests for this run: copy the project (+ ./bahan) to the Motion jobs Volume, render it on the
+    Motion app's parallel renderer, write the MP4 where Claude Code asked. Errors go back to pl-render (it falls back)."""
+    reqdir = Path("/tmp/pl-render")
+    reqdir.mkdir(parents=True, exist_ok=True)
+    skip = shutil.ignore_patterns("node_modules", ".git", ".cache", "__pycache__", "out", "renders", "*.mp4.tmp")
+    n = 0
+    while not stop.is_set():
+        for req in sorted(reqdir.glob("*.req")):
+            try:
+                data = json.loads(req.read_text())
+            except Exception:  # noqa: BLE001
+                continue
+            req.unlink(missing_ok=True)
+            n += 1
+            job = f"vgc-{(hid or 'run')[:36]}-{step}-{n}"
+            res = {"ok": False}
+            t0 = time.time()
+            try:
+                proj = Path(data["project"]).resolve()
+                rel = proj.relative_to(ws.resolve())
+                dest = Path(MJOBS_ROOT) / job / "ws"
+                shutil.rmtree(dest.parent, ignore_errors=True)
+                shutil.copytree(proj, dest / rel, ignore=skip)
+                if (ws / "bahan").is_dir() and rel.parts[0] != "bahan":
+                    shutil.copytree(ws / "bahan", dest / "bahan", ignore=skip)
+                MJOBS.commit()
+                fn = modal.Function.from_name("peninglab-motion", "render_project")
+                r = fn.remote(job, f"ws/{rel.as_posix()}", "render.mp4")
+                MJOBS.reload()
+                shutil.copy2(Path(MJOBS_ROOT) / job / "render.mp4", data["out"])
+                res = {"ok": True, "chunks": r.get("chunks"), "timings": r.get("timings"), "sec": round(time.time() - t0, 1)}
+                print(f"[pl-render] {job}: {res}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                res = {"ok": False, "error": str(e)[:400]}
+                print(f"[pl-render] {job} failed: {e}", flush=True)
+            finally:
+                shutil.rmtree(Path(MJOBS_ROOT) / job, ignore_errors=True)
+                try:
+                    MJOBS.commit()
+                except Exception:  # noqa: BLE001
+                    pass
+            (reqdir / f"{data.get('id', 'x')}.done").write_text(json.dumps(res))
+        stop.wait(0.5)
+
+
 def _stage_of(tool: str, inp: dict) -> tuple:
     """A tool call → (stage label, rough %)."""
     cmd = str(inp.get("command") or "")
-    if tool == "Bash" and re.search(r"(remotion|hyperframes) render", cmd):
+    if tool == "Bash" and re.search(r"(remotion|hyperframes) render|pl-render", cmd):
         return "render", 75
     if tool == "Bash" and re.search(r"remotion still|hyperframes (lint|check|snapshot)|pl-frames|pl-audio-check", cmd):
         return "check", 65
@@ -1311,7 +1395,7 @@ def _find_video(ws: Path, since: float) -> Path | None:
 
 
 @app.function(image=image, cpu=8.0, memory=16384, timeout=RUN_TIMEOUT + 600, secrets=SECRETS,
-              volumes={KIT_ROOT: KIT, WORK_ROOT: WORK})
+              volumes={KIT_ROOT: KIT, WORK_ROOT: WORK, MJOBS_ROOT: MJOBS})
 def run_vgc(payload: dict) -> dict:
     t0 = time.time()
     hid = re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("history_id") or f"job{int(t0)}"))[:60]
@@ -1401,7 +1485,7 @@ def run_vgc(payload: dict) -> dict:
         if k.startswith(("B2_", "MOTION_", "MODAL_")):
             env.pop(k, None)
     for name, body in (("pl-vo-track", PL_VO_TRACK), ("pl-audio-check", PL_AUDIO_CHECK), ("pl-frames", PL_FRAMES),
-                       ("pl-music", PL_MUSIC)):
+                       ("pl-music", PL_MUSIC), ("pl-render", PL_RENDER)):
         tool = Path("/usr/local/bin") / name
         if not tool.exists():
             tool.write_text(body, encoding="utf-8")
@@ -1418,6 +1502,13 @@ def run_vgc(payload: dict) -> dict:
             tool.write_text(PL_TTS, encoding="utf-8")
             tool.chmod(0o755)
         env.update({"PL_TTS_URL": str(tts["url"]), "PL_TTS_TOKEN": str(tts["token"]), "PL_TTS_HID": str(payload.get("history_id") or "")})
+    # the parallel renderer behind pl-render, for as long as this run lives (daemon: it ends with the container)
+    import threading as _th
+    _render_stop = _th.Event()
+    if not bakeoff:
+        _th.Thread(target=_render_service, args=(ws, str(payload.get("history_id") or ""), str(payload.get("step") or "s1"), _render_stop),
+                   daemon=True).start()
+
     def claude(text: str, session: str | None, budget: float, cwd: Path | None = None, run_env: dict | None = None,
                stage: str | None = None, turns: int | None = None) -> dict:
         """One `claude -p` invocation (optionally resuming); streams progress."""
