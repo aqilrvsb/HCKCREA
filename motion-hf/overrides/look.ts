@@ -24,11 +24,17 @@ export type Direction = {
   font?: FontId; caption_font?: FontId; grade?: Grade; grain?: boolean; camera?: CameraFeel;
   transitions?: Transition[]; break_fx?: BreakFx; end_card?: EndCardStyle; progress?: ProgressStyle;
   second?: string;
-  moves?: { at: string | number; move: 'crash' | 'punch' | 'whip' | 'shake' | 'bump'; power?: number }[];
+  moves?: { at: string | number; move: 'crash' | 'punch' | 'whip' | 'shake' | 'bump' | 'lines' | 'tilt' | 'smash' | 'spotlight'; power?: number; text?: string }[];
+  /** A huge word behind the speaker's head (needs the speaker cut-out). */
+  behind?: { at: string | number; to?: string | number; text: string; tone?: string }[];
+  /** News strips over the speaker (overrides/scenesMore.tsx NewsBanner). */
+  banner?: { at: string | number; to?: string | number; tag?: string; text: string; ticker?: string }[];
   /** "light" = no flashes / confetti / break light, shakes only where the director put them (explainer restraint) */
   fx?: 'full' | 'light';
   /** "subtle" = explainer captions (small words building); "big" (default) = the TikTok captions */
   captions?: 'big' | 'subtle';
+  /** a creator caption style for the big captions (overrides/captionsLooks.tsx) */
+  caption_look?: string;
   /** Full-screen explainer scenes over the speaker (overrides/scenesPro.tsx). */
   scenes?: ({ kind: string; at: string | number; to?: string | number; bg?: string } & Record<string, unknown>)[];
   /** Big stacked words beside the speaker. */

@@ -107,6 +107,9 @@ image = (
         " || git clone --depth 1 https://github.com/heygen-com/hyperframes /tmp/hf",
         f"mkdir -p {HF_SKILLS} && cp -r /tmp/hf/skills/* {HF_SKILLS}/ && rm -rf /tmp/hf && ls {HF_SKILLS}",
         "hyperframes doctor || true",
+        # voice clean-up for the client's footage: DeepFilterNet3 as one static binary (MIT / Apache-2.0, model built in)
+        "curl -fsSL -o /usr/local/bin/deep-filter https://github.com/Rikorose/DeepFilterNet/releases/download/v0.5.6/"
+        "deep-filter-0.5.6-x86_64-unknown-linux-musl && chmod +x /usr/local/bin/deep-filter && /usr/local/bin/deep-filter --version",
         # motion-video-kit (MIT): motion grammar + quality bar for the builder and the critic
         f"git clone https://github.com/echris6/motion-video-kit /tmp/mvk && git -C /tmp/mvk checkout {MVK_COMMIT}"
         f" && mkdir -p {MVK_DIR} && cp -r /tmp/mvk/business-motion-film/references /tmp/mvk/business-motion-film/scripts"
@@ -348,6 +351,23 @@ EXPLAINER_RULES = """
   gloss-sweep, slot-machine-roll, torn-paper-rip, paper-collage-reveal, notification-stack / chat-thread (ONLY words
   the client or speaker really gave — never invented comments); blocks/split-flap-board, bar-chart-race,
   news-ticker are 16:9 — re-lay them out for 9:16 before use.
+- More devices the Default edit uses, worth having here too: a comment sheet / message thread with typing dots /
+  notification banners dropping in (a question the speaker reads out and answers); a split screen of two coloured
+  halves (MITOS | FAKTA, JANGAN | BOLEH, SEBELUM | SELEPAS — components/comparison-split with orientation "vertical"
+  for 9:16) whose items tick / cross on their words; an annotated key sentence held big while words get marked
+  and a hand connector draws to a handwritten note (vox-annotate); a word slot that rolls through options and lands
+  ("MURAH? MAHAL?" → "BERBALOI" — kinetic-type-swap, ticker-takeover); a news strip over the speaker (blinking
+  "TERKINI" tag, the headline wiping open, a ticker); a receipt printing item by item with the total counting up and
+  a red "JIMAT RM20" stamp; a Malaysia map whose states light up on their words (pins + labels; "seluruh Malaysia"
+  sweeps every state on); manga focus lines bursting around the face on a shock word; a smash cut (0.4 s of black
+  with ONE huge word); a quick dutch tilt.
+- Caption looks to choose from (one per video, built from components/caption-* or by hand): Hormozi (caps, thick
+  stroke, one emphasis word per page in green / yellow), Beast (loud yellow caps, green glowing key word), karaoke
+  (the spoken word pops in green / yellow — caption-pill-karaoke for the soft version), deep-diver (lowercase dark
+  words on a white box, grey → black as spoken), sticker (coloured words, thick white outline, popping in one by one),
+  highlight sweep (a red box sliding word to word — caption-highlight), neon (caption-neon-glow), weight shift
+  (caption-weight-shift). Keep them left of TikTok's button column (x < ~930 on 1080) and above the bottom ~480 px;
+  never let a line end on "yang / dan / di / untuk / dengan" or split "RM 50"; lower them under a low face.
 - Only words, numbers and facts that are really said or given appear on screen.
 """
 
@@ -764,6 +784,84 @@ def _probe(path: Path) -> dict:
             "h": int(v.get("height") or 0), "audio": any(x.get("codec_type") == "audio" for x in j.get("streams", []))}
 
 
+# the client's voice after DeepFilterNet (as modal_motion.py): rumble cut, less boxiness, presence, de-ess, gentle compression
+VOICE_POST = ("highpass=f=80,equalizer=f=250:t=q:w=1.2:g=-2,equalizer=f=3200:t=q:w=0.9:g=2,deesser=i=0.4:m=0.5:f=0.5,"
+              "acompressor=threshold=-24dB:ratio=3:attack=12:release=150:knee=4:makeup=2,alimiter=limit=0.95")
+VOICE_LEGACY = "highpass=f=75,afftdn=nr=10:nf=-32,acompressor=threshold=-20dB:ratio=2.5:attack=8:release=160:makeup=1.6,alimiter=limit=0.95"
+
+
+def _cut_audio(src_label: str, segs: list, chain: str) -> str:
+    """Keep `segs` with an 8 ms fade at both ends of every piece (a hard sample cut clicks), joined, then `chain` → [aout]."""
+    n = len(segs)
+    parts = [f"{src_label}asplit={n}" + "".join(f"[s{i}]" for i in range(n))] if n > 1 else [f"{src_label}anull[s0]"]
+    for i, (a, b) in enumerate(segs):
+        ln = max(0.001, b - a)
+        f = min(0.008, ln / 4)
+        parts.append(f"[s{i}]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,afade=t=in:st=0:d={f:.4f},"
+                     f"afade=t=out:st={ln - f:.4f}:d={f:.4f}[c{i}]")
+    parts.append("".join(f"[c{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1,{chain}[aout]")
+    return ";".join(parts)
+
+
+def _enhance_voice(src: Path, work: Path, span: float):
+    """DeepFilterNet3 on the whole source voice before any cut; strength from the measured noise (a limit, never full
+    removal — that is what sounds "underwater"). None when the binary is missing or anything fails."""
+    import shutil
+    import wave
+    import numpy as np
+    exe = shutil.which("deep-filter")
+    if not exe:
+        return None
+    t0 = time.time()
+    try:
+        wav = work / "voice_in.wav"
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-t", f"{span:.2f}", "-vn", "-ac", "1", "-ar", "48000",
+                            "-c:a", "pcm_s16le", str(wav)], capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            return None
+        with wave.open(str(wav)) as w:
+            x = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
+        fr = x[: len(x) // 960 * 960].reshape(-1, 960)
+        if not len(fr):
+            return None
+        e = 10 * np.log10((fr ** 2).mean(1) + 1e-10)
+        snr = float(np.percentile(e, 95) - np.percentile(e, 10))
+        atten = 8 if snr >= 35 else 12 if snr >= 25 else 18
+        od = work / "dfn"
+        od.mkdir(exist_ok=True)
+        r = subprocess.run([exe, "-D", "-a", str(atten), "-o", str(od), str(wav)], capture_output=True, text=True, timeout=300)
+        out = od / wav.name
+        if r.returncode != 0 or not out.exists() or out.stat().st_size < 1000:
+            return None
+        print(f"[voice] DeepFilterNet3 atten {atten} dB (noise spread {snr:.1f} dB) in {time.time() - t0:.1f} s", flush=True)
+        return out
+    except Exception as e:  # noqa: BLE001
+        print("voice enhance skipped:", str(e)[:200], flush=True)
+        return None
+
+
+def _remux_voice(vid: Path, voice: Path, segs) -> bool:
+    """The normalised video's audio → the enhanced voice, cut on the same segments (any problem keeps the original)."""
+    tmp = vid.with_name(vid.stem + "_v.mp4")
+    try:
+        fc = _cut_audio("[1:a]apad=pad_dur=0.5,", segs, VOICE_POST) if segs else f"[1:a]apad=pad_dur=0.5,{VOICE_POST}[aout]"
+        script = vid.with_suffix(".voice.txt")
+        script.write_text(fc, encoding="utf-8")
+        before = _probe(vid)["duration"]
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(vid), "-i", str(voice), "-filter_complex_script", str(script),
+                            "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+                            "-t", f"{before:.3f}", str(tmp)], capture_output=True, text=True, timeout=300)
+        script.unlink(missing_ok=True)
+        if r.returncode != 0 or not tmp.exists() or abs(_probe(tmp)["duration"] - before) > 0.15:
+            print("voice remux skipped:", (r.stderr or "")[-200:], flush=True)
+            return False
+        tmp.replace(vid)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print("voice remux skipped:", str(e)[:200], flush=True)
+        return False
+
+
 def _normalise(src: Path, out: Path, info: dict, max_sec: float, segs=None) -> Path:
     """The Motion renderer's cut: 1080x1920 30 fps H.264, voice clean-up, and with
     `segs` only those time ranges (the client-reviewed jump cut)."""
@@ -782,9 +880,9 @@ def _normalise(src: Path, out: Path, info: dict, max_sec: float, segs=None) -> P
               f"[b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos{sharpen}{grade}[fg];"
               "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]")
     amap = "0:a:0" if info["audio"] else "1:a"
-    voice = "highpass=f=75,afftdn=nr=10:nf=-32,acompressor=threshold=-20dB:ratio=2.5:attack=8:release=160:makeup=1.6,alimiter=limit=0.95"
+    voice = VOICE_LEGACY
     if segs and info["audio"]:
-        fc += f";[0:a]aselect='{expr}',asetpts=N/SR/TB,{voice}[aout]"
+        fc += ";" + _cut_audio("[0:a]", segs, voice)
         amap = "[aout]"
     elif info["audio"]:
         fc += f";[0:a]{voice}[aout]"
@@ -838,13 +936,35 @@ def _prepare_footage(ws: Path, payload: dict) -> str:
     max_sec = float(payload.get("max_sec") or 180)
     segs = payload.get("segs") or None
     words = list(payload.get("words") or [])
+    # the voice is cleaned (DeepFilterNet3) while the video encodes
+    vbox: dict = {}
+    vthread = None
+    if info.get("audio"):
+        import threading
+        span = min(info["duration"], max_sec) if not segs else info["duration"]
+        vthread = threading.Thread(target=lambda: vbox.update(wav=_enhance_voice(src, ws / "bahan", span)), daemon=True)
+        vthread.start()
     try:
         _normalise(src, foot, info, max_sec, segs)
     except Exception as e:  # noqa: BLE001
         print("cut failed, using the uncut video:", str(e)[:300], flush=True)
         if segs:
             words = _unmap_words(words, segs)
+        segs = None
         _normalise(src, foot, info, max_sec, None)
+    if vthread:
+        vthread.join(timeout=240)
+        if vbox.get("wav"):
+            _remux_voice(foot, vbox["wav"], segs)
+        for junk in (ws / "bahan" / "voice_in.wav", ws / "bahan" / "dfn"):
+            try:
+                if junk.is_dir():
+                    import shutil
+                    shutil.rmtree(junk, ignore_errors=True)
+                else:
+                    junk.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
     caps = [{"w": str(w.get("w") or ""), "t": round(float(w["t"]), 3), "e": round(float(w.get("e") or float(w["t"]) + 0.3), 3)}
             for w in words if str(w.get("w") or "").strip()]
     (ws / "bahan" / "captions.json").write_text(json.dumps(caps, ensure_ascii=False), encoding="utf-8")

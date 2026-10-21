@@ -224,12 +224,17 @@ if (DUR - T_FINAL > 0.8) {
 
 // ── duck under speech, sum ────────────────────────────────────────────────────
 {
+  // the bed dips 150 ms BEFORE each phrase (the first syllable is never masked), stays down through
+  // pauses under 0.4 s (no pumping between words) and comes back slowly (450 ms)
   const speak = new Uint8Array(N);
-  for (const [a0, b0] of job.speech || []) { const a = Math.max(0, Math.floor(a0 * SR)), b = Math.min(N, Math.floor(b0 * SR)); for (let i = a; i < b; i++) speak[i] = 1; }
+  const spans = (job.speech || []).map(([a0, b0]) => [Math.max(0, a0 - 0.15), b0]).sort((x, y) => x[0] - y[0]);
+  const merged = [];
+  for (const sp of spans) { const last = merged[merged.length - 1]; if (last && sp[0] - last[1] < 0.4) last[1] = Math.max(last[1], sp[1]); else merged.push([...sp]); }
+  for (const [a0, b0] of merged) { const a = Math.max(0, Math.floor(a0 * SR)), b = Math.min(N, Math.floor(b0 * SR)); for (let i = a; i < b; i++) speak[i] = 1; }
   let g = 1, gx = 1;
-  const att = 1 - Math.exp(-1 / (0.08 * SR)), rel = 1 - Math.exp(-1 / (0.35 * SR));
+  const att = 1 - Math.exp(-1 / (0.06 * SR)), rel = 1 - Math.exp(-1 / (0.45 * SR));
   for (let i = 0; i < N; i++) {
-    const tg = speak[i] ? 0.42 : 1, tx = speak[i] ? 0.75 : 1;
+    const tg = speak[i] ? 0.3 : 1, tx = speak[i] ? 0.7 : 1;
     g += (tg < g ? att : rel) * (tg - g); gx += (tx < gx ? att : rel) * (tx - gx);
     L[i] = L[i] * g + XL[i] * gx; R[i] = R[i] * g + XR[i] * gx;
   }
@@ -246,6 +251,12 @@ buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(2, 22); b
 buf.write('data', 36); buf.writeUInt32LE(N * 4, 40);
 for (let i = 0; i < N; i++) { buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, L[i])) * 32767), 44 + i * 4); buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, R[i])) * 32767), 46 + i * 4); }
 writeFileSync(job.bedOut, buf);
+// leave room for the voice: a gentle dip where speech intelligibility lives (2.5 kHz)
+try {
+  const tmp = job.bedOut.replace(/\.wav$/i, '') + '_eq.wav';
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', job.bedOut, '-af', 'equalizer=f=2500:t=q:w=1:g=-3', '-ar', String(SR), '-ac', '2', '-c:a', 'pcm_s16le', tmp]);
+  writeFileSync(job.bedOut, readFileSync(tmp));
+} catch (e) { console.log('bed eq skipped:', String(e).slice(0, 120)); }
 console.log(`bed ${DUR.toFixed(2)}s mood=${mood} bpm=${BPM} key=${KEY}`);
 
 // ── optional: mix the voice-over over the bed ─────────────────────────────────

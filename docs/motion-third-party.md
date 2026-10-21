@@ -23,6 +23,9 @@ now. The owner will apply for permission, and each such item is kept in
 | HyperFrames registry blocks: count-up, star-rating-fill, shutter-slam (jsDelivr GSAP tag removed) | `motion-hf/blocks` | heygen-com/hyperframes @ ae02e5a | Apache-2.0 |
 | HyperFrames distributed renderer (`@hyperframes/producer`) | `motion-hf` dependency | npm 0.8.181 | Apache-2.0 |
 | Anton, Bebas Neue, Poppins, Archivo Black, Inter, Montserrat (fetched by HyperFrames from Google Fonts at render) | Laju v2 Pro looks | Google Fonts | OFL |
+| DeepFilterNet3 `deep-filter` binary (voice clean-up, model built in) | Modal images (`/usr/local/bin/deep-filter`) | Rikorose/DeepFilterNet v0.5.6 release | MIT / Apache-2.0 |
+| BiRefNet-lite weights + code (speaker cut-out) | Modal `matte_image` (`/models/birefnet`) | huggingface ZhengPeng7/BiRefNet_lite | MIT |
+| Malaysia state outlines (simplified) | `motion-hf/overrides/malaysia.ts` | Natural Earth 1:10m admin-1 | Public domain |
 
 ## Pending licence (permission to be requested)
 
@@ -44,3 +47,6 @@ Laju v2 Pro numbers come from public write-ups and repos: TikTok / Reels safe zo
 caption sizing and active-word pops (remotion-dev/template-tiktok — no licence, ideas only; Upload-Post/avatar-mix — MIT),
 crash-zoom and SFX alignment rules (Vincentwei1021/video-shotcraft — Apache-2.0), handheld-drift octaves and
 transition durations (HyperFrames skills — Apache-2.0).
+Round 3–4 of the Pro kit (2026-10-21) re-implements as frame math, without copying code: HyperFrames registry chat-thread,
+notification-stack, comparison-split, vox-annotate, kinetic-type-swap, ticker-takeover, caption-highlight (Apache-2.0);
+Remocn caption-highlight-box (MIT); caption looks described by Opus Clip / Submagic / Captions (ideas only).

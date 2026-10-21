@@ -36,8 +36,16 @@ export const textWidth = (text: string, face: Look['display'], size: number): nu
   }
   let w = text.length * size * face.charW;
   if (ctx) {
-    ctx.font = `${face.weight} ${size}px ${face.family}`;
+    const font = `${face.weight} ${size}px ${face.family}`;
+    ctx.font = font;
     w = ctx.measureText(text).width + Math.max(0, text.length - 1) * (face.track || 0);
+    // a face that has not loaded yet measures in the fallback font: keep the estimate's worth of room and don't cache it
+    let ready = true;
+    try { ready = typeof document === 'undefined' || !document.fonts || document.fonts.check(font, text); } catch { ready = true; }
+    if (!ready) {
+      try { void document.fonts.load(font, text); } catch { /* ignore */ }
+      return Math.max(w, text.length * size * face.charW);
+    }
   }
   widths.set(key, w);
   return w;
@@ -60,7 +68,7 @@ export const seedOf = (s: string) => { let h = 2166136261; for (let i = 0; i < s
 
 type Pt = [number, number];
 /** A smooth path through points (quadratic midpoints) and its length (polyline). */
-const pathOf = (pts: Pt[]) => {
+export const pathOf = (pts: Pt[]) => {
   let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
   let len = 0;
   for (let i = 1; i < pts.length; i++) {

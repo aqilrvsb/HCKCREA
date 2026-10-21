@@ -99,6 +99,7 @@ NODE22 = "/opt/node22"
 NODE22_VERSION = "v22.12.0"
 HF_VERSION = "0.8.181"
 HF_DIR = "/app/motion-hf"
+DEEP_FILTER_URL = "https://github.com/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-x86_64-unknown-linux-musl"
 hf_render_image = (
     render_image
     .apt_install("xz-utils")
@@ -107,6 +108,10 @@ hf_render_image = (
         f" && mv /opt/node-{NODE22_VERSION}-linux-x64 {NODE22} && {NODE22}/bin/node --version",
         f"PATH={NODE22}/bin:$PATH npm install -g hyperframes@{HF_VERSION} --no-audit --no-fund",
         f"PATH={NODE22}/bin:$PATH hyperframes browser ensure",
+    )
+    # voice clean-up: DeepFilterNet3 as one static binary (MIT / Apache-2.0, model built in, no torch)
+    .run_commands(
+        f"curl -fsSL -o /usr/local/bin/deep-filter {DEEP_FILTER_URL} && chmod +x /usr/local/bin/deep-filter && /usr/local/bin/deep-filter --version",
     )
     .env({"HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1", "HYPERFRAMES_SKIP_SKILLS": "1"})
     .add_local_dir("motion-hf", HF_DIR, copy=True, ignore=["node_modules", "dist"])
@@ -118,6 +123,26 @@ hf_render_image = (
 
 
 web_image = modal.Image.debian_slim(python_version="3.11").pip_install("fastapi[standard]==0.115.0")
+
+# Speaker cut-out (HyperFrames Pro: text behind the speaker, spotlight, speaker sticker over a scene):
+# BiRefNet-lite (ZhengPeng7/BiRefNet_lite, MIT — code and weights) on a GPU, only on the windows the
+# director's plan needs; delivered as VP9 + alpha WebM (HyperFrames decodes VP9 alpha to PNG frames).
+MATTE_MODEL = "ZhengPeng7/BiRefNet_lite"
+MATTE_DIR = "/models/birefnet"
+
+
+def _preload_matte():
+    from huggingface_hub import snapshot_download
+    snapshot_download(MATTE_MODEL, local_dir=MATTE_DIR)
+
+
+matte_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg")
+    .pip_install("torch==2.5.1", "torchvision==0.20.1", "transformers==4.46.3", "timm==1.0.11", "kornia==0.7.4",
+                 "einops==0.8.0", "numpy<2", "pillow==10.4.0", "huggingface_hub==0.26.2", "safetensors==0.4.5", "scipy==1.13.1")
+    .run_function(_preload_matte)
+)
 
 PROGRESS = modal.Dict.from_name("peninglab-motion-progress", create_if_missing=True)
 
@@ -339,11 +364,22 @@ MUSIC_BPM = {"chill": 88, "upbeat": 100, "hype": 116}  # the tempos motion/scrip
 
 
 def _loudnorm_inplace(out: Path) -> None:
-    """Normalise the finished mix (voice + SFX + music) to -14 LUFS."""
+    """Normalise the finished mix (voice + SFX + music) to -14 LUFS. Two passes: measure, then one linear gain
+    (single-pass loudnorm rides the gain and lifts the room noise in every pause); single pass if measuring fails."""
     tmp = out.with_name(out.stem + "_ln.mp4")
+    af = LOUDNORM
     try:
-        _run(["ffmpeg", "-v", "error", "-y", "-i", str(out), "-map", "0:v", "-map", "0:a", "-c:v", "copy", "-af", LOUDNORM,
-              "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(tmp)], "loudnorm", 300)
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(out), "-vn", "-af", LOUDNORM + ":print_format=json", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=300)
+        m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
+        if float(m["input_i"]) > -60:
+            af = (f"{LOUDNORM}:measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
+                  f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true,aresample=48000")
+    except Exception as e:  # noqa: BLE001
+        print("loudnorm measure failed (single pass):", str(e)[:160])
+    try:
+        _run(["ffmpeg", "-v", "error", "-y", "-i", str(out), "-map", "0:v", "-map", "0:a", "-c:v", "copy", "-af", af,
+              "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(tmp)], "loudnorm", 300)
         tmp.replace(out)
     except Exception as e:  # noqa: BLE001
         print("loudnorm skipped:", str(e)[:160])
@@ -1733,6 +1769,88 @@ def _flow_ad(p: dict, d: Path, srv: _Serve) -> dict:
 
 
 # ── Flow B: Edit Video ────────────────────────────────────────────────────────
+# the client's voice after DeepFilterNet: rumble cut, less boxiness, a little presence, de-ess, gentle compression
+VOICE_POST = ("highpass=f=80,equalizer=f=250:t=q:w=1.2:g=-2,equalizer=f=3200:t=q:w=0.9:g=2,deesser=i=0.4:m=0.5:f=0.5,"
+              "acompressor=threshold=-24dB:ratio=3:attack=12:release=150:knee=4:makeup=2,alimiter=limit=0.95")
+# without it (the binary failed): the FFT denoiser does the clean-up
+VOICE_LEGACY = "highpass=f=75,afftdn=nr=10:nf=-32,acompressor=threshold=-20dB:ratio=2.5:attack=8:release=160:makeup=1.6,alimiter=limit=0.95"
+
+
+def _cut_audio(src_label: str, segs: list, chain: str) -> str:
+    """Filter graph: keep `segs` of the stream with an 8 ms fade at both ends of every piece (a hard sample cut
+    clicks), joined end to end, then `chain` → [aout]. Same total length as aselect over the same segments."""
+    n = len(segs)
+    parts = [f"{src_label}asplit={n}" + "".join(f"[s{i}]" for i in range(n))] if n > 1 else [f"{src_label}anull[s0]"]
+    for i, (a, b) in enumerate(segs):
+        ln = max(0.001, b - a)
+        f = min(0.008, ln / 4)
+        parts.append(f"[s{i}]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,afade=t=in:st=0:d={f:.4f},"
+                     f"afade=t=out:st={ln - f:.4f}:d={f:.4f}[c{i}]")
+    parts.append("".join(f"[c{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1,{chain}[aout]")
+    return ";".join(parts)
+
+
+def _enhance_voice(src: Path, d: Path, span: float) -> Path | None:
+    """DeepFilterNet3 on the whole source voice (before any cut, so the noise floor never jumps at a splice).
+    Its strength follows the measured noise: a clean recording keeps its room tone (a limit, not full removal —
+    full removal is what sounds "underwater"). None when the binary is missing or anything fails."""
+    import shutil
+    import wave
+    import numpy as np
+    exe = shutil.which("deep-filter")
+    if not exe:
+        return None
+    t0 = time.time()
+    try:
+        wav = d / "voice_in.wav"
+        _run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-t", f"{span:.2f}", "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(wav)],
+             "voice extract", 300)
+        with wave.open(str(wav)) as w:
+            x = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
+        fr = x[: len(x) // 960 * 960].reshape(-1, 960)
+        if not len(fr):
+            return None
+        e = 10 * np.log10((fr ** 2).mean(1) + 1e-10)
+        snr = float(np.percentile(e, 95) - np.percentile(e, 10))
+        atten = 8 if snr >= 35 else 12 if snr >= 25 else 18
+        od = d / "dfn"
+        od.mkdir(exist_ok=True)
+        _run([exe, "-D", "-a", str(atten), "-o", str(od), str(wav)], "deep-filter", 300)
+        out = od / wav.name
+        if not out.exists() or out.stat().st_size < 1000:
+            return None
+        print(f"[voice] DeepFilterNet3 atten {atten} dB (noise spread {snr:.1f} dB) in {time.time() - t0:.1f} s", flush=True)
+        return out
+    except Exception as e:  # noqa: BLE001
+        print("voice enhance skipped:", str(e)[:200])
+        return None
+
+
+def _remux_voice(vid: Path, voice: Path, segs, max_sec: float) -> bool:
+    """Replace the normalised video's audio with the enhanced voice, cut on the same segments."""
+    tmp = vid.with_name(vid.stem + "_v.mp4")
+    try:
+        if segs:
+            fc = _cut_audio("[1:a]apad=pad_dur=0.5,", segs, VOICE_POST)
+        else:
+            fc = f"[1:a]apad=pad_dur=0.5,{VOICE_POST}[aout]"
+        script = vid.with_suffix(".voice.txt")
+        script.write_text(fc, encoding="utf-8")
+        before = _probe(vid)["duration"]
+        cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(vid), "-i", str(voice), "-filter_complex_script", str(script),
+               "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-t", f"{before:.3f}"]
+        _run(cmd + [str(tmp)], "voice remux", 300)
+        after = _probe(tmp)["duration"]
+        if abs(after - before) > 0.15:
+            print(f"voice remux length {after:.2f} vs {before:.2f} s: kept the original voice")
+            return False
+        tmp.replace(vid)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print("voice remux skipped:", str(e)[:200])
+        return False
+
+
 def _normalise(src: Path, out: Path, info: dict, max_sec: float, segs=None) -> Path:
     """1080x1920 30 fps H.264 (lanczos; sharpen low-res sources) — and, with
     `segs`, keep only those time ranges (jump cut) in the same pass."""
@@ -1755,12 +1873,11 @@ def _normalise(src: Path, out: Path, info: dict, max_sec: float, segs=None) -> P
               f"[b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos{sharpen}{grade}[fg];"
               "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]")
     amap = "0:a:0" if info["audio"] else "1:a"
-    # Voice clean-up: rumble cut, FFT denoise, gentle compression, peak limit
-    # (the final mix is loudness-normalised to -14 LUFS after the render).
-    voice = "highpass=f=75,afftdn=nr=10:nf=-32,acompressor=threshold=-20dB:ratio=2.5:attack=8:release=160:makeup=1.6,alimiter=limit=0.95"
+    # Voice clean-up: rumble cut, FFT denoise, gentle compression, peak limit (the final mix is
+    # loudness-normalised to -14 LUFS after the render). _remux_voice swaps in the DeepFilterNet voice.
+    voice = VOICE_LEGACY
     if segs and info["audio"]:
-        expr = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in segs)
-        fc += f";[0:a]aselect='{expr}',asetpts=N/SR/TB,{voice}[aout]"
+        fc += ";" + _cut_audio("[0:a]", segs, voice)
         amap = "[aout]"
     elif info["audio"]:
         fc += f";[0:a]{voice}[aout]"
@@ -1923,6 +2040,12 @@ def _edit_direct(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     guard = bool(st.get("guard"))
 
     _progress("normalise", 10)
+    # the voice is cleaned (DeepFilterNet3) while the video encodes
+    vbox: dict = {}
+    vthread = None
+    if info.get("audio"):
+        vthread = threading.Thread(target=lambda: vbox.update(wav=_enhance_voice(src, d, span)), daemon=True)
+        vthread.start()
     try:
         vid = _normalise(src, d / "video.mp4", info, max_sec, segs)
     except Exception as e:  # noqa: BLE001
@@ -1931,6 +2054,10 @@ def _edit_direct(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
             words = _unmap_words(words, segs)
         segs, cut = None, {"error": "jumpcut skipped"}
         vid = _normalise(src, d / "video.mp4", info, max_sec, None)
+    if vthread:
+        vthread.join(timeout=240)
+        if vbox.get("wav"):
+            _remux_voice(vid, vbox["wav"], segs, max_sec)
     dur = _probe(vid)["duration"] or span
 
     gres, gthread = {}, None
@@ -1994,6 +2121,43 @@ def _edit_direct(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
             "_gthread": gthread, "_gres": gres}
 
 
+def _matte_plan(direction: dict, words: list, dur: float, fps: int = 30) -> list:
+    """The [first, end) frame windows the speaker cut-out is needed for: text behind the speaker, a spotlight,
+    a scene that keeps the speaker on screen as a sticker. Merged, ≤ 30 s in all (later ones dropped)."""
+    win = []
+    for b in direction.get("behind") or []:
+        if isinstance(b, dict) and b.get("text"):
+            a = _cue_sec(b.get("at"), words, -1)
+            if a >= 0:
+                e = _cue_sec(b.get("to"), words, a + 2.5) if b.get("to") is not None else a + 2.5
+                win.append((a - 0.2, min(e, a + 4.0) + 0.2))
+    for m in direction.get("moves") or []:
+        if isinstance(m, dict) and m.get("move") == "spotlight":
+            a = _cue_sec(m.get("at"), words, -1)
+            if a >= 0:
+                win.append((a - 0.1, a + 2.6))
+    for sc in direction.get("scenes") or []:
+        if isinstance(sc, dict) and sc.get("speaker") in ("left", "right"):
+            a = _cue_sec(sc.get("at"), words, -1)
+            if a >= 0:
+                e = _cue_sec(sc.get("to"), words, a + 3) if sc.get("to") is not None else a + 3
+                win.append((a - 0.2, min(e, a + 14.0) + 0.3))
+    win = sorted((max(0.0, a), min(dur, b)) for a, b in win if b > a)
+    merged = []
+    for a, b in win:
+        if merged and a - merged[-1][1] < 0.5:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    out, total = [], 0.0
+    for a, b in merged:
+        if total + (b - a) > 30:
+            break
+        total += b - a
+        out.append((int(math.floor(a * fps)), int(math.ceil(b * fps))))
+    return out
+
+
 def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     """B-roll / stickers → guideline report → music → QA → render, from a
     prepared state (from _edit_direct, or an older draft that already had its plan)."""
@@ -2004,6 +2168,18 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     gspeech, cut = st.get("gspeech") or {}, st.get("cut") or {}
     gthread = st.get("_gthread")
     gres = st["_gres"] if st.get("_gres") is not None else (st.get("gres") or {})
+
+    # speaker cut-out (HyperFrames Pro): the GPU matte runs while the B-roll, stickers and music are fetched
+    matte_call, matte_win = None, []
+    if str(p.get("renderer") or "") == "hyperframes" and isinstance(plan.get("direction"), dict):
+        try:
+            matte_win = _matte_plan(plan["direction"], words, dur)
+            if matte_win:
+                JOBS.commit()
+                matte_call = matte_windows.spawn(d.name, matte_win)
+        except Exception as e:  # noqa: BLE001
+            print("matte spawn failed:", str(e)[:200])
+            matte_call = None
 
     _progress("assets", 40)
     broll_guard = {}
@@ -2091,6 +2267,21 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
             qa = {"qa": f"error {str(e)[:160]}"}
             print("qa failed:", e)
 
+    if matte_call is not None:
+        try:
+            cutouts = []
+            for k, (res, (f0, f1)) in enumerate(zip(matte_call.get(timeout=300), matte_win)):
+                blob = (res or {}).get("webm") or b""
+                if len(blob) > 2000:
+                    fp = d / f"cut_{k}.webm"
+                    fp.write_bytes(blob)
+                    cutouts.append({"src": srv.url(fp), "s": round(f0 / 30, 4), "e": round(f1 / 30, 4),
+                                    **({"top": res["top"]} if isinstance(res.get("top"), int) else {})})
+            if cutouts:
+                props["cutouts"] = cutouts
+        except Exception as e:  # noqa: BLE001
+            print("matte failed (no cut-out effects):", str(e)[:200])
+
     out = d / "out.mp4"
     _progress("render", 50)
     rinfo = _render("MotionEdit", props, d, out, _scale_for(p), 50, 92, p)
@@ -2146,6 +2337,116 @@ def _final_check(d: Path, out: Path, dur: float, p: dict, props: dict) -> dict:
     props["patchTapes"] = tracks
     return {"texts": len(texts), "leaks": len(tracks), "leak_texts": sorted({texts[keys[k]] for k in risky if k in keys})[:12],
             "patched": bool(tracks)}
+
+
+@app.function(image=matte_image, gpu=["L40S", "L4"], cpu=8.0, memory=16384, timeout=600, volumes={JOBS_ROOT: JOBS})
+def matte_windows(job: str, windows: list) -> list:
+    """Cut the subject out of video.mp4 for each [first, end) frame window → {"webm": VP9-with-alpha bytes (same
+    1080x1920 / 30 fps timing, frame 0 = the window's first frame), "top": the top of the subject's head (px, median
+    over the window — a word behind the speaker sits on it)}. Mask: BiRefNet-lite at 576x1024 (the frame's own 9:16 — half
+    the pixels of a squashed 1024², no distortion), fp16, then a 3-frame
+    median so the edge doesn't shimmer."""
+    import numpy as np
+    import torch
+    from scipy import ndimage
+    from transformers import AutoModelForImageSegmentation
+    t0 = time.time()
+    JOBS.reload()
+    vid = Path(JOBS_ROOT) / job / "video.mp4"
+    if not vid.exists():
+        raise FileNotFoundError(f"matte: no video.mp4 in job {job}")
+    torch.set_float32_matmul_precision("high")
+    model = AutoModelForImageSegmentation.from_pretrained(MATTE_DIR, trust_remote_code=True).to("cuda").eval().half()
+    t_model = time.time() - t0
+    mean = torch.tensor([0.485, 0.456, 0.406], device="cuda").view(1, 3, 1, 1).half()
+    std = torch.tensor([0.229, 0.224, 0.225], device="cuda").view(1, 3, 1, 1).half()
+    W, H = 1080, 1920
+    fsz = W * H * 3
+    outs = []
+    for k, (f0, f1) in enumerate(windows):
+        f0, f1 = int(f0), int(f1)
+        if f1 <= f0:
+            outs.append({"webm": b"", "top": None})
+            continue
+        tmp = Path(tempfile.mkdtemp(prefix="matte_")) / f"cut_{k}.webm"
+        # seek straight to the window (decoding from frame 0 cost seconds per window); frame f0 is the first one at/after
+        # (f0 - 0.25) / 30 s on the 30 fps CFR timeline
+        dec = subprocess.Popen(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, (f0 - 0.25) / 30):.4f}", "-i", str(vid), "-frames:v", str(f1 - f0),
+                                "-vf", f"scale={W}:{H}", "-vsync", "0", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE)
+        enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{W}x{H}", "-r", "30", "-i", "-",
+                                "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0", "-b:v", "0", "-crf", "32",
+                                "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-threads", "8", "-tile-columns", "2",
+                                "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+                                "-metadata:s:v:0", "alpha_mode=1", str(tmp)], stdin=subprocess.PIPE)
+        pend_rgb, pend_m = [], []  # one frame of look-ahead for the median
+        tops = []
+        tm = {"read": 0.0, "infer": 0.0, "post": 0.0, "write": 0.0}
+
+        def emit(rgb, m):
+            tw = time.time()
+            enc.stdin.write(np.concatenate([rgb, m[..., None]], axis=2).tobytes())
+            tm["write"] += time.time() - tw
+            rows = np.nonzero((m[:, 270:810] > 128).any(axis=1))[0]
+            if len(rows):
+                tops.append(int(rows[0]))
+
+        n = 0
+        while True:
+            batch = []
+            tr = time.time()
+            for _ in range(8):
+                buf = dec.stdout.read(fsz)
+                if len(buf) < fsz:
+                    break
+                batch.append(np.frombuffer(buf, np.uint8).reshape(H, W, 3))
+            tm["read"] += time.time() - tr
+            if not batch:
+                break
+            ti = time.time()
+            x = torch.from_numpy(np.stack(batch)).to("cuda").permute(0, 3, 1, 2).half() / 255
+            x = torch.nn.functional.interpolate(x, size=(1024, 576), mode="bilinear", align_corners=False)
+            with torch.no_grad():
+                pred = model((x - mean) / std)[-1].sigmoid()
+            m = torch.nn.functional.interpolate(pred.float(), size=(H, W), mode="bilinear", align_corners=False)
+            masks = (m[:, 0] * 255).clamp(0, 255).byte().cpu().numpy()
+            tm["infer"] += time.time() - ti
+            tp = time.time()
+            # keep the main subject only (the speaker and whatever they hold); a lamp or shelf the model also found
+            # is dropped: the largest connected region at quarter size, grown a little, gates the soft mask
+            for j in range(len(masks)):
+                small = masks[j][::4, ::4] > 128
+                lab, nlab = ndimage.label(small)
+                if nlab > 1:
+                    sizes = ndimage.sum(small, lab, range(1, nlab + 1))
+                    keep = ndimage.binary_dilation(lab == (int(np.argmax(sizes)) + 1), iterations=3)
+                    masks[j] = masks[j] * np.repeat(np.repeat(keep, 4, axis=0), 4, axis=1)[:H, :W]
+            tm["post"] += time.time() - tp
+            for rgb, mk in zip(batch, masks):
+                pend_rgb.append(rgb)
+                pend_m.append(mk)
+                if n == 0 and len(pend_m) == 2:  # the first frame has no left neighbour: its own mask
+                    emit(pend_rgb[0], pend_m[0])
+                    n += 1
+                if len(pend_m) == 3:
+                    emit(pend_rgb[1], np.median(np.stack(pend_m), axis=0).astype(np.uint8))
+                    pend_rgb.pop(0)
+                    pend_m.pop(0)
+                    n += 1
+            if len(batch) < 8:
+                break
+        # the last frame (no right neighbour) keeps its own mask
+        if pend_m:
+            emit(pend_rgb[-1], pend_m[-1])
+        dec.wait()
+        enc.stdin.close()
+        te = time.time()
+        enc.wait()
+        tm["encode_tail"] = time.time() - te
+        print(f"[matte] window {k}: {f1 - f0} frames, " + ", ".join(f"{a} {b:.1f}s" for a, b in tm.items()), flush=True)
+        outs.append({"webm": tmp.read_bytes() if tmp.exists() else b"", "top": int(np.median(tops)) if tops else None,
+                     "ms": {a: round(b * 1000) for a, b in tm.items()}, "model_s": round(t_model, 1)})
+    print(f"[matte] {len(windows)} window(s), {sum(int(b) - int(a) for a, b in windows)} frames in {time.time() - t0:.1f} s (model ready at {t_model:.1f} s)", flush=True)
+    return outs
 
 
 # ── job + endpoints ───────────────────────────────────────────────────────────

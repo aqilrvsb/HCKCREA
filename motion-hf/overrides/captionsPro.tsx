@@ -18,7 +18,8 @@ type PWord = Word & { gi: number };
 type Page = { words: PWord[]; start: number; end: number };
 
 const KEY_COLOR: Record<KeyColor, string> = { benefit: '#4ade80', price: '#FFD93B', pain: '#f87171', brand: '#ffffff', accent: '#ffffff' };
-const MAX_W = W - 220; // narrower than the frame: clear of TikTok's right-hand buttons
+const MAX_W = W - 280; // narrower than the frame and a little left of centre: clear of TikTok's button column (x ≈ 930)
+const BLOCK_LEFT = 90;
 
 export const CaptionsPro: React.FC<{
   pages: Page[]; style: CaptionStyle; accent: string; centerY: number; look: Look;
@@ -27,17 +28,23 @@ export const CaptionsPro: React.FC<{
   subtle?: boolean;
   /** a light scene (paper, notebook, grid, yellow) is behind the captions: the subtle words go dark */
   onLight?: boolean;
+  /** the bottom of the face on screen (px) at a time, or null: a low face pushes the captions down */
+  faceBottom?: (t: number) => number | null;
+  /** a speaker sticker sits in this bottom corner: the explainer captions keep to the other side */
+  avoid?: 'left' | 'right';
 }> = (props) => {
-  const { pages, style, centerY, look, keywords, lottie, gempak, censor, subtle, onLight } = props;
+  const { pages, style, look, keywords, lottie, gempak, censor, subtle, onLight, faceBottom, avoid } = props;
+  let centerY = props.centerY;
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  if (subtle) return <SubtleCaptions pages={pages} centerY={centerY} look={look} keywords={keywords} censor={censor} onLight={onLight} />;
+  if (subtle) return <SubtleCaptions pages={pages} centerY={centerY} look={look} keywords={keywords} censor={censor} onLight={onLight} avoid={avoid} />;
   if (style === 'tiktok') {
     return <SharedCaptions pages={pages} style={style} accent={props.accent} centerY={centerY} keywords={keywords} lottie={lottie} gempak={gempak} censor={censor} />;
   }
   const t = frame / fps;
   const page = pages.find((p) => t >= p.start - 0.06 && t < p.end);
   if (!page) return null;
+  const fb = faceBottom?.(page.start) ?? null;
   const hi = look.hi;
   const keyOf = new Map<number, CaptionKey>((keywords ?? []).map((k) => [k.i, k]));
   const taped = new Set(censor ?? []);
@@ -53,10 +60,11 @@ export const CaptionsPro: React.FC<{
   page.words.forEach((w, k) => { if (t >= w.t - 0.02) cur = k; });
   const active = style === 'box' ? 'box' : style === 'karaoke' ? 'color' : look.active;
   const stroke = Math.max(7, Math.round(size / 8));
+  if (fb != null) centerY = Math.min(1440, Math.max(centerY, fb + 50 + size * 1.1));
   let emojiSeen = false;
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
-      <div style={{ position: 'absolute', left: (W - MAX_W) / 2 - 20, width: MAX_W + 40, top: centerY,
+      <div style={{ position: 'absolute', left: BLOCK_LEFT - 20, width: MAX_W + 40, top: centerY,
         transform: `translateY(-50%) translateY(${(1 - enter) * 40}px) scale(${(0.82 + 0.18 * enter) * (0.95 + 0.05 * leave)})`, opacity: leave,
         display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', columnGap: size * 0.32, rowGap: size * 0.12 }}>
         {page.words.map((w, k) => {
@@ -120,7 +128,7 @@ export const CaptionsPro: React.FC<{
 
 // Explainer captions: small caps words that build as they are spoken, the next word
 // faintly previewed; keywords take their colour. No pops — the scenes are the show.
-const SubtleCaptions: React.FC<{ pages: Page[]; centerY: number; look: Look; keywords?: CaptionKey[]; censor?: number[]; onLight?: boolean }> = ({ pages, centerY, look, keywords, censor, onLight }) => {
+const SubtleCaptions: React.FC<{ pages: Page[]; centerY: number; look: Look; keywords?: CaptionKey[]; censor?: number[]; onLight?: boolean; avoid?: 'left' | 'right' }> = ({ pages, centerY, look, keywords, censor, onLight, avoid }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t = frame / fps;
@@ -134,7 +142,7 @@ const SubtleCaptions: React.FC<{ pages: Page[]; centerY: number; look: Look; key
   const size = face.charW < 0.5 ? 66 : 54;
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
-      <div style={{ position: 'absolute', left: 110, right: 150, top: centerY, transform: 'translateY(-50%)', display: 'flex', flexWrap: 'wrap',
+      <div style={{ position: 'absolute', left: avoid === 'left' ? 450 : 110, right: avoid === 'right' ? 450 : 150, top: centerY, transform: 'translateY(-50%)', display: 'flex', flexWrap: 'wrap',
         justifyContent: 'center', columnGap: size * 0.3, rowGap: 4 }}>
         {page.words.map((w, k) => {
           if (k > cur + 1) return null;

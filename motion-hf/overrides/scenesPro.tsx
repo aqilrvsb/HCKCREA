@@ -27,20 +27,24 @@ import {
   extrudeShadow, kitBgLight, seedOf, tearClip, textWidth,
   type ChartPoint, type CheckItem, type KitBg, type Mark, type Ring, type Step, type TextEnter,
 } from './scenesKit';
+import { AnnotateBody, ChatBody, SplitBody, SwapText, type ChatMsg, type ChatStyle, type Note, type SplitSide } from './scenesMore';
+import { MapBody, ReceiptBody, type MapPlace, type ReceiptItem } from './scenesMap';
 
 export type Tone = 'white' | 'yellow' | 'green' | 'red' | 'blue' | 'accent' | 'black';
 export type Bg = 'dark' | 'red' | 'accent' | 'paper' | 'cork' | 'yellow' | 'blue' | KitBg | 'burst';
 export type LineFx = 'strike' | 'marker' | 'count' | Mark | 'sparkle' | 'roll' | 'extrude' | 'shine';
-export type LineEnter = 'slam' | 'slide' | TextEnter;
-export type PlacedLine = { f: number; text: string; tone?: Tone; box?: 'yellow' | 'black' | 'white' | 'accent' | 'none'; size?: 'sm' | 'md' | 'lg' | 'xl'; enter?: LineEnter; fx?: LineFx; emoji?: string };
+export type LineEnter = 'slam' | 'slide' | 'swap' | TextEnter;
+export type PlacedLine = { f: number; text: string; tone?: Tone; box?: 'yellow' | 'black' | 'white' | 'accent' | 'none'; size?: 'sm' | 'md' | 'lg' | 'xl'; enter?: LineEnter; fx?: LineFx; emoji?: string;
+  /** swap: the words the slot rolls through before it lands on `text` */
+  options?: string[] };
 export type PlacedEntry = { f: number; date: string; lines: string[]; tone?: Tone };
 export type PlacedSticker = { f: number; text: string; sub?: string; kind: 'note' | 'strip' | 'burst' | 'tag'; tone?: Tone };
 export type PlacedBar = { f: number; label: string; value: string; tone?: Tone };
 export type CardStyle = 'polaroid' | 'article' | 'float' | 'phone';
 export type SceneEnter = 'cut' | 'push' | 'zoom' | 'whip' | 'wipe' | 'rise' | 'iris' | 'tear';
-export type { ChartPoint, CheckItem, Ring, Step };
+export type { ChartPoint, CheckItem, Ring, Step, ChatMsg, ChatStyle, Note, SplitSide, MapPlace, ReceiptItem };
 export type PlacedScene = {
-  kind: 'build' | 'timeline' | 'collage' | 'card' | 'compare' | 'checklist' | 'steps' | 'ring' | 'chart'; s: number; e: number; bg: Bg;
+  kind: 'build' | 'timeline' | 'collage' | 'card' | 'compare' | 'checklist' | 'steps' | 'ring' | 'chart' | 'chat' | 'split' | 'annotate' | 'map' | 'receipt'; s: number; e: number; bg: Bg;
   heading?: string; kicker?: string; title?: string; caption?: string; image?: string;
   /** card look; a float card sits over the speaker (no background) at `top`, scaled by `scale` */
   style?: CardStyle; source?: string; date?: string; badge?: string; highlight?: string[]; top?: number; scale?: number;
@@ -50,6 +54,17 @@ export type PlacedScene = {
   chart?: { type: 'line' | 'area' | 'bars'; unit?: string; points: ChartPoint[] };
   /** an emoji raining over the scene */
   rain?: string;
+  chat?: { style: ChatStyle; msgs: ChatMsg[] };
+  /** split: two sides (title + items), ticks / crosses on the items unless marks is false */
+  sides?: SplitSide[]; marks?: boolean;
+  /** annotate: the held sentence and its notes */
+  text?: string; notes?: Note[];
+  /** the speaker stays on screen as a cut-out sticker in this bottom corner (needs props.cutouts) */
+  speaker?: 'left' | 'right';
+  /** map: the spoken places (states, cities, "seluruh Malaysia") */
+  places?: MapPlace[];
+  /** receipt: printed items, the total, a stamp */
+  receipt?: { items: ReceiptItem[]; total?: ReceiptItem; stamp?: { f: number; text: string } };
 };
 export type SideSize = 'sm' | 'md' | 'lg';
 export type PlacedSide = { s: number; e: number; words: { f: number; text: string; tone?: Tone; size?: SideSize }[]; align: 'left' | 'right' | 'center' };
@@ -166,9 +181,12 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
   const single = (full.match(/\d[\d.,]*/g) ?? []).length === 1;
   const text = l.fx === 'count' && single && d >= 0 ? countText(full, d) : full;
   const base = SIZE[l.size ?? 'md'];
+  // a swap slot is as wide as its widest word
+  const swap = l.enter === 'swap' && l.options?.length ? l.options.map((o) => (face.upper ? o.toUpperCase() : o)) : null;
+  const fitText = swap ? [text, ...swap].reduce((a, b) => (textWidth(b, face, 100) > textWidth(a, face, 100) ? b : a)) : text;
   // the estimate from the face's average letter, then the measured width (wide letters like "M" run long)
-  const est = fitFace(text, base, W - 160, 1, face, 30);
-  const size = Math.max(30, Math.min(est, Math.floor((est * (W - 150 - (l.box && l.box !== 'none' ? est * 0.36 : 0))) / Math.max(1, textWidth(text, face, est)))));
+  const est = fitFace(fitText, base, W - 160, 1, face, 30);
+  const size = Math.max(30, Math.min(est, Math.floor((est * (W - 150 - (l.box && l.box !== 'none' ? est * 0.36 : 0))) / Math.max(1, textWidth(fitText, face, est)))));
   const box = l.box && l.box !== 'none' ? l.box : null;
   const boxBg = box === 'yellow' ? '#FFD93B' : box === 'black' ? '#111' : box === 'white' ? '#fff' : box === 'accent' ? look.hi : 'transparent';
   let color = toneColor(l.tone, look, accent);
@@ -187,18 +205,19 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
     transform: box ? 'rotate(-1.2deg)' : undefined, whiteSpace: 'nowrap', display: 'inline-block',
     ...(l.fx === 'extrude' && !box ? { textShadow: extrudeShadow(d, lightBg(bg) ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.6)') } : {}),
   };
-  const roll = l.fx === 'roll' && /\d/.test(text) && !(l.enter && TEXT_ENTERS.has(l.enter));
+  const roll = l.fx === 'roll' && /\d/.test(text) && !(l.enter && TEXT_ENTERS.has(l.enter)) && !swap;
   // the block the hand marks / sparkles frame: the measured text (+ the box padding)
   const bw = textWidth(text, face, size) + (box ? size * 0.36 : 0);
   const bh = size * 1.02 + (box ? size * 0.08 : 0);
   const markColor = lightBg(bg) ? '#F2443F' : '#FFD93B';
   const es = l.emoji ? interpolate(d - 2, [0, 6], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2.2)) }) : 0;
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', ...(textEnter ? (d < 0 ? { opacity: 0 } : {}) : enterStyle(d, (l.enter as 'slam' | 'slide' | undefined) ?? (l.size === 'sm' ? 'slide' : 'slam'))) }}>
+    <div style={{ display: 'flex', justifyContent: 'center', ...(textEnter || swap ? (d < 0 ? { opacity: 0 } : {}) : enterStyle(d, (l.enter as 'slam' | 'slide' | undefined) ?? (l.size === 'sm' ? 'slide' : 'slam'))) }}>
       <span style={{ position: 'relative', display: 'inline-block' }}>
         {mk > 0 && <span style={{ position: 'absolute', left: -size * 0.12, right: -size * 0.12, top: size * 0.1, bottom: size * 0.02, background: '#FFE45C',
           transform: `scaleX(${mk}) rotate(-1.2deg)`, transformOrigin: 'left center', borderRadius: size * 0.06 }} />}
-        {textEnter ? <EnterText text={text} kind={textEnter} d={d} seed={seed} style={textStyle} /> : roll ? <RollText text={text} d={d} style={textStyle} measure={(ch) => textWidth(ch, face, size)} /> : <span style={textStyle}>{text}</span>}
+        {swap ? <SwapText text={text} options={swap} d={d} style={textStyle} measure={(t) => textWidth(t, face, size)} />
+          : textEnter ? <EnterText text={text} kind={textEnter} d={d} seed={seed} style={textStyle} /> : roll ? <RollText text={text} d={d} style={textStyle} measure={(ch) => textWidth(ch, face, size)} /> : <span style={textStyle}>{text}</span>}
         {l.fx === 'shine' && <Shine text={text} d={d} style={textStyle} />}
         {st > 0 && <span style={{ position: 'absolute', left: -size * 0.08, right: -size * 0.08, top: '50%', height: Math.max(8, size * 0.1), marginTop: -Math.max(4, size * 0.05),
           background: '#F2443F', transform: `scaleX(${st}) rotate(-4deg)`, transformOrigin: 'left center', borderRadius: 4, boxShadow: '0 3px 0 rgba(0,0,0,0.3)' }} />}
@@ -445,6 +464,8 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
       : sc.kind === 'steps'
         ? <StepsBody steps={sc.steps ?? []} frame={frame} face={face} ink={ink} dark={dark} heading={heading} colorOf={colorOf} />
         : <RingsBody rings={sc.rings ?? []} frame={frame} face={face} ink={ink} dark={dark} heading={heading} colorOf={colorOf} />;
+  } else if (sc.kind === 'chat' && sc.chat) {
+    body = <ChatBody msgs={sc.chat.msgs} style={sc.chat.style} title={sc.title ?? sc.heading} frame={frame} s={sc.s} dark={dark} accent={look.hi === '#111111' ? accent : look.hi} />;
   } else if (sc.kind === 'card') {
     const p = interpolate(f, [0, 6], [0, 1], { ...clamp, easing: Easing.out(Easing.back(1.4)) });
     const sweep = interpolate(f, [14, 26], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
@@ -513,6 +534,44 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
         </div>
       );
     }
+  }
+  // full-frame scenes lay themselves out over the whole frame
+  const colorOf = (t?: string) => (t ? toneColor(t as Tone, look, accent) : '');
+  const push = `scale(${(1 + 0.03 * Math.min(1, f / Math.max(1, sc.e - sc.s))).toFixed(4)})`;
+  if (sc.kind === 'split' && sc.sides?.length === 2) {
+    return (
+      <AbsoluteFill style={sc.enter === 'tear' ? tearClip(f, seedOf(`${sc.s}|tear`)) : sceneEnter(sc.enter, f)}>
+        <AbsoluteFill style={{ background: '#111' }} />
+        <AbsoluteFill style={{ transform: push, transformOrigin: '50% 45%' }}>
+          <SplitBody sides={sc.sides} marks={sc.marks !== false} frame={frame} s={sc.s} face={face} colorOf={colorOf} />
+        </AbsoluteFill>
+        {sc.rain && <Rain emoji={sc.rain} f={f} fps={fps} seed={seedOf(`${sc.s}|rain`)} lottie={lottie} />}
+      </AbsoluteFill>
+    );
+  }
+  if ((sc.kind === 'map' && sc.places?.length) || (sc.kind === 'receipt' && sc.receipt)) {
+    return (
+      <AbsoluteFill style={sc.enter === 'tear' ? tearClip(f, seedOf(`${sc.s}|tear`)) : sceneEnter(sc.enter, f)}>
+        <SceneBg bg={sc.bg} f={f} accent={accent} />
+        {sc.rain && <Rain emoji={sc.rain} f={f} fps={fps} seed={seedOf(`${sc.s}|rain`)} lottie={lottie} />}
+        <AbsoluteFill style={{ transform: push, transformOrigin: '50% 50%' }}>
+          {sc.kind === 'map'
+            ? <MapBody places={sc.places!} frame={frame} s={sc.s} dark={dark} heading={sc.heading ?? sc.title} face={face} colorOf={colorOf} hi={look.hi} />
+            : <ReceiptBody title={sc.title ?? sc.heading} items={sc.receipt!.items} total={sc.receipt!.total} stamp={sc.receipt!.stamp} frame={frame} s={sc.s} />}
+        </AbsoluteFill>
+      </AbsoluteFill>
+    );
+  }
+  if (sc.kind === 'annotate' && sc.text && sc.notes) {
+    return (
+      <AbsoluteFill style={sc.enter === 'tear' ? tearClip(f, seedOf(`${sc.s}|tear`)) : sceneEnter(sc.enter, f)}>
+        <SceneBg bg={sc.bg} f={f} accent={accent} />
+        {sc.rain && <Rain emoji={sc.rain} f={f} fps={fps} seed={seedOf(`${sc.s}|rain`)} lottie={lottie} />}
+        <AbsoluteFill style={{ transform: push, transformOrigin: '50% 46%' }}>
+          <AnnotateBody text={sc.text} notes={sc.notes} frame={frame} s={sc.s} face={face} dark={dark} accent={accent} />
+        </AbsoluteFill>
+      </AbsoluteFill>
+    );
   }
   return (
     <AbsoluteFill style={sc.enter === 'tear' ? tearClip(f, seedOf(`${sc.s}|tear`)) : sceneEnter(sc.enter, f)}>

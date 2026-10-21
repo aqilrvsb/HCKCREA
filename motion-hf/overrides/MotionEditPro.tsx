@@ -17,14 +17,16 @@
 //     and the first cutaway only
 // Everything is a pure function of the frame (HyperFrames seeks any frame).
 import React, { useMemo } from 'react';
-import { AbsoluteFill, Audio, Easing, OffthreadVideo, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Audio, Easing, OffthreadVideo, Sequence, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { noise2D } from '@remotion/noise';
 import { BRollFullSeries, BRollPipLayer, fitPip, type PlacedBRoll } from './brollPro';
 import { CaptionsPro } from './captionsPro';
+import { CAP_LOOKS, CaptionsLook, type CapLookId } from './captionsLooks';
 import { EndCardPro } from './endCardPro';
 import { BreakFxLayer, Grain, ProgressPro } from './fxPro';
 import { HookPro, hookBottom } from './hookPro';
-import { FloatCard, ScenePro, SideWords, type Bg, type CardStyle, type LineEnter, type LineFx, type PlacedScene, type PlacedSide, type SceneEnter, type SideSize, type Tone } from './scenesPro';
+import { FloatCard, ScenePro, SideWords, type Bg, type CardStyle, type ChatStyle, type LineEnter, type LineFx, type Note, type PlacedScene, type PlacedSide, type SceneEnter, type SideSize, type Tone } from './scenesPro';
+import { BANNER_H, BehindText, FocusLines, NewsBanner, stickerStyle } from './scenesMore';
 import { lookFor, type Direction } from './look';
 import { BLOCKS, BLOCK_BOX } from './blocks';
 import { recordBlock } from '../runtime/collect.js';
@@ -37,7 +39,9 @@ import { seedFrom, sfxFor, type SfxEvent, type SfxEventName } from '../../motion
 import type { EditProps, Face, Item, ItemType } from '../../motion/src/types';
 
 /** Extra props the Pro edit reads (all optional: older jobs render without them). */
-type ProProps = EditProps & { lookSeed?: number; musicBpm?: number; direction?: Direction | null };
+type ProProps = EditProps & { lookSeed?: number; musicBpm?: number; direction?: Direction | null;
+  /** the speaker cut out (alpha WebM) over windows of the edit, seconds — for text behind the speaker, spotlight, sticker */
+  cutouts?: { src: string; s: number; e: number; top?: number }[] };
 
 const DEFAULT_DUR = 2.6;
 const BROLL_DUR = 2.4;
@@ -57,12 +61,15 @@ const TONES = new Set<Tone>(['white', 'yellow', 'green', 'red', 'blue', 'accent'
 const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'blue', 'notebook', 'chalk', 'grid', 'gradient', 'burst']);
 const ENTERS = new Set<SceneEnter>(['cut', 'push', 'zoom', 'whip', 'wipe', 'rise', 'iris', 'tear']);
 const LINE_FX = new Set<LineFx>(['strike', 'marker', 'count', 'circle', 'underline', 'arrow', 'box', 'sparkle', 'roll', 'extrude', 'shine']);
-const LINE_ENTERS = new Set<string>(['slam', 'slide', 'type', 'scramble', 'letters', 'rise', 'outline']);
+const LINE_ENTERS = new Set<string>(['slam', 'slide', 'type', 'scramble', 'letters', 'rise', 'outline', 'swap']);
+const NOTE_MARKS = new Set<string>(['highlight', 'circle', 'underline', 'box']);
 /** One emoji (a pictographic cluster, ≤ 8 code units) or nothing. */
 const emojiOf = (v: unknown) => (typeof v === 'string' && v.length <= 8 && /\p{Extended_Pictographic}/u.test(v) ? v.trim() : undefined);
 /** Every item of a scene that lands on a word (for timing rules, events and SFX). */
 const sceneItems = (sc: PlacedScene) => [...(sc.lines ?? []), ...(sc.entries ?? []), ...(sc.stickers ?? []), ...(sc.bars ?? []),
-  ...(sc.items ?? []), ...(sc.steps ?? []), ...(sc.rings ?? []), ...(sc.chart?.points ?? [])].map((x) => x.f);
+  ...(sc.items ?? []), ...(sc.steps ?? []), ...(sc.rings ?? []), ...(sc.chart?.points ?? []), ...(sc.chat?.msgs ?? []),
+  ...(sc.sides ?? []).flatMap((sd) => sd.items), ...(sc.notes ?? []), ...(sc.places ?? []), ...(sc.receipt?.items ?? []),
+  ...(sc.receipt?.total ? [sc.receipt.total] : []), ...(sc.receipt?.stamp ? [sc.receipt.stamp] : [])].map((x) => x.f);
 const SIDE_SIZES = new Set<SideSize>(['sm', 'md', 'lg']);
 const txt = (v: unknown, n: number) => {
   if (typeof v !== 'string') return '';
@@ -94,6 +101,11 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
   const cap = p.captions ?? { on: true, style: 'pop', pos: 'low', maxWords: 3 };
   // TikTok's UI covers ~660 px at the bottom and a ~180 px button column on the right (from y ≈ 840)
   const capCenter = cap.pos === 'mid' ? 1180 : 1330;
+  // the director's caption look (a creator style); TikTok's own white-box style keeps its renderer
+  const capLook = (() => {
+    const id = (p.direction as { caption_look?: string } | null | undefined)?.caption_look;
+    return id && id in CAP_LOOKS && cap.style !== 'tiktok' ? (id as CapLookId) : null;
+  })();
 
   const plan = useMemo(() => {
     const words = p.words ?? [];
@@ -157,7 +169,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     const floats: PlacedScene[] = [];
     for (const raw of arr(p.direction?.scenes).slice(0, 16)) {
       const kind = String(raw.kind);
-      if (!['build', 'timeline', 'collage', 'card', 'compare', 'checklist', 'steps', 'ring', 'chart'].includes(kind)) continue;
+      if (!['build', 'timeline', 'collage', 'card', 'compare', 'checklist', 'steps', 'ring', 'chart', 'chat', 'split', 'annotate', 'map', 'receipt'].includes(kind)) continue;
       const float = kind === 'card' && raw.style === 'float';
       const s = onBeat(fr(cue(raw.at as string | number, -1)));
       // a float card may open the video (under the hook title); full-screen scenes wait for the hook to end
@@ -185,7 +197,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
           enter: LINE_ENTERS.has(String(l.enter)) ? (l.enter as LineEnter) : undefined,
           fx: LINE_FX.has(l.fx as LineFx) ? (l.fx as LineFx) : undefined,
           emoji: emojiOf(l.emoji),
-        })).filter((l) => l.text);
+          options: l.enter === 'swap' ? (Array.isArray(l.options) ? l.options : []).map((o) => txt(o, 26)).filter(Boolean).slice(0, 4) : undefined,
+        })).filter((l) => l.text).map((l) => (l.enter === 'swap' && !l.options?.length ? { ...l, enter: undefined, options: undefined } : l));
         if (!sc.lines.length) continue;
       } else if (kind === 'timeline') {
         sc.entries = arr(raw.entries).slice(0, 4).map((en) => ({
@@ -216,6 +229,35 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         sc.steps = arr(raw.steps).slice(0, 4).map((st) => ({ f: at(st.at), title: txt(st.title, 28), sub: txt(st.sub, 30) || undefined, tone: tone(st.tone) }))
           .filter((st) => st.title);
         if (sc.steps.length < 2) continue;
+      } else if (kind === 'chat') {
+        const style = (['chat', 'comments', 'notif'].includes(String(raw.style)) ? raw.style : 'chat') as ChatStyle;
+        const msgs = arr(raw.messages).slice(0, 6).map((m) => ({ f: at(m.at), text: txt(m.text, 90), who: m.who === 'me' ? 'me' as const : 'them' as const,
+          name: txt(m.name, 20) || undefined, likes: txt(m.likes, 8) || undefined })).filter((m) => m.text);
+        if (!msgs.length) continue;
+        sc.chat = { style, msgs };
+      } else if (kind === 'split') {
+        const sides = arr(raw.sides).slice(0, 2).map((sd) => ({ title: txt(sd.title, 14), tone: tone(sd.tone),
+          items: arr(sd.items).slice(0, 4).map((it) => ({ f: at(it.at), text: txt(it.text, 30) })).filter((it) => it.text) }));
+        if (sides.length < 2 || sides.some((sd) => !sd.title)) continue;
+        sc.sides = sides;
+        sc.marks = raw.marks !== false;
+      } else if (kind === 'map') {
+        sc.places = arr(raw.places).slice(0, 6).map((pl) => ({ f: at(pl.at), name: txt(pl.name, 30), label: txt(pl.label, 18) || undefined, tone: tone(pl.tone) }))
+          .filter((pl) => pl.name);
+        if (!sc.places.length) continue;
+      } else if (kind === 'receipt') {
+        const items = arr(raw.items).slice(0, 6).map((it) => ({ f: at(it.at), label: txt(it.label, 22), value: txt(it.value, 12) })).filter((it) => it.label && it.value);
+        const tot = raw.total && typeof raw.total === 'object' ? (raw.total as Record<string, unknown>) : null;
+        const stp = raw.stamp && typeof raw.stamp === 'object' ? (raw.stamp as Record<string, unknown>) : null;
+        const total = tot && txt(tot.value, 12) ? { f: at(tot.at), label: txt(tot.label, 12) || 'JUMLAH', value: txt(tot.value, 12) } : undefined;
+        const stamp = stp && txt(stp.text, 16) ? { f: at(stp.at), text: txt(stp.text, 16) } : undefined;
+        if (!items.length) continue;
+        sc.receipt = { items, total, stamp };
+      } else if (kind === 'annotate') {
+        sc.text = txt(raw.text, 80) || undefined;
+        sc.notes = arr(raw.notes).slice(0, 3).map((n) => ({ f: at(n.at), word: txt(n.word, 30), note: txt(n.note, 26),
+          mark: (NOTE_MARKS.has(String(n.mark)) ? n.mark : 'highlight') as Note['mark'] })).filter((n) => n.word && n.note);
+        if (!sc.text || !sc.notes.length) continue;
       } else if (kind === 'ring') {
         sc.rings = arr(raw.rings).slice(0, 3).map((rg) => ({ f: at(rg.at), value: Math.max(0, Math.min(100, Number(rg.value))), label: txt(rg.label, 20), tone: tone(rg.tone) }))
           .filter((rg) => Number.isFinite(rg.value) && rg.label);
@@ -224,7 +266,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       // never sit on a finished scene: cut back to the speaker ~3.5 s after its last item lands (a card may hold 11 s, as in the reference)
       const items = sceneItems(sc);
       if (sc.kind !== 'card') {
-        const head = !!(sc.heading || sc.title || sc.kicker);
+        const head = !!(sc.heading || sc.title || sc.kicker || sc.text || sc.sides);
         // too thin to cut away for: the speaker carries it
         if (items.length + (head ? 1 : 0) < 2) continue;
         // no empty opening frame: without a heading the scene opens on its first item
@@ -235,6 +277,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       sc.e = Math.max(sc.s + fr(1.5), Math.min(sc.e, hold));
       const rain = emojiOf(raw.rain);
       if (rain && !float) sc.rain = rain;
+      if ((raw.speaker === 'left' || raw.speaker === 'right') && !float) sc.speaker = raw.speaker;
       (float ? floats : scenes).push(sc);
     }
     scenes.sort((a, b) => a.s - b.s);
@@ -279,6 +322,53 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       sides.push({ s, e, words, align: raw.align === 'right' ? 'right' : raw.align === 'center' ? 'center' : 'left' });
     }
 
+    // news banners (a "TERKINI" strip): above the head when there is room, else a lower third above the captions
+    const banners: { s: number; e: number; tag: string; text: string; ticker?: string; top: number }[] = [];
+    for (const raw of arr((p.direction as Record<string, unknown> | null | undefined)?.banner).slice(0, 2)) {
+      const s = fr(cue(raw.at as string | number, -1));
+      const text = txt(raw.text, 48);
+      if (!text || s < 0 || s <= hookEnd || inScene(s) || (ctaStart >= 0 && s >= ctaStart - fr(1.5))) continue;
+      let e = raw.to !== undefined ? fr(cue(raw.to as string | number, s / fps + 3.5)) : s + fr(3.5);
+      e = Math.min(Math.max(e, s + fr(2)), s + fr(6), ctaStart >= 0 ? ctaStart : last);
+      const nextScene = scenes.find((x) => x.s > s);
+      if (nextScene && e > nextScene.s) e = nextScene.s;
+      if (e - s < fr(1.5) || sides.some((x) => s < x.e && e > x.s) || floats.some((x) => s < x.e && e > x.s) || banners.some((x) => s < x.e + 6 && e > x.s - 6)
+        || broll.some((x) => s < x.e + 4 && e > x.s - 4)) continue;
+      const near = faces.filter((x) => x.t >= s / fps - 0.3 && x.t <= e / fps + 0.3);
+      const fTop = near.length ? Math.min(...near.map((x) => x.y)) * 1920 : 700;
+      const fBot = near.length ? Math.max(...near.map((x) => x.y + x.h)) * 1920 : 1000;
+      const low = (cap.on ? capCenter - 135 : 1240) - BANNER_H - 20;
+      const top = fTop - 50 - BANNER_H >= 230 ? 230 : low > fBot + 10 ? low : -1;
+      if (top < 0) continue;
+      banners.push({ s, e, tag: txt(raw.tag, 12) || 'TERKINI', text, ticker: txt(raw.ticker, 90) || undefined, top: Math.round(top) });
+    }
+    // ── the speaker cut-out (props.cutouts): text behind the speaker, spotlight, speaker sticker over a scene ──
+    const cuts = (p.cutouts ?? []).map((c) => ({ src: c.src, s: Math.round(c.s * fps), e: Math.round(c.e * fps), top: c.top })).filter((c) => c.src && c.e > c.s + 2);
+    const covered = (s: number, e: number) => cuts.some((c) => c.s <= s && c.e >= e);
+    for (const sc of scenes) if (sc.speaker && !covered(sc.s, sc.e)) sc.speaker = undefined;
+    const behinds: { s: number; e: number; text: string; tone?: Tone; headTop: number }[] = [];
+    for (const raw of arr((p.direction as Record<string, unknown> | null | undefined)?.behind).slice(0, 3)) {
+      const s = fr(cue(raw.at as string | number, -1));
+      const text = txt(raw.text, 14);
+      if (!text || s < 0 || s <= hookEnd || inScene(s) || (ctaStart >= 0 && s >= ctaStart - fr(1))) continue;
+      let e = raw.to !== undefined ? fr(cue(raw.to as string | number, s / fps + 2.5)) : s + fr(2.5);
+      e = Math.min(Math.max(e, s + fr(1.2)), s + fr(4), ctaStart >= 0 ? ctaStart : last);
+      const nextScene = scenes.find((x) => x.s > s);
+      if (nextScene && e > nextScene.s) e = nextScene.s;
+      if (e - s < fr(1) || !covered(s, e) || behinds.some((x) => s < x.e && e > x.s) || sides.some((x) => s < x.e && e > x.s)
+        || banners.some((x) => s < x.e && e > x.s) || broll.some((x) => s < x.e + 4 && e > x.s - 4)) continue;
+      const fc = faceAt(p.faces, s / fps);
+      if (!fc) continue;
+      // the word stands on the top of the head: the head covers its lower part, the rest reads above and around it
+      const cut = cuts.find((c) => c.s <= s && c.e >= e);
+      const headTop = typeof cut?.top === 'number' ? cut.top : (fc.y - fc.h * 0.35) * 1920;
+      behinds.push({ s, e, text, tone: tone(raw.tone), headTop: Math.max(300, headTop) });
+    }
+    const spots: { s: number; e: number }[] = [];
+
+    // manga focus lines burst around the face on the director's word (with a punch-in)
+    const focus: { f: number; cx: number; cy: number; r: number }[] = [];
+
     // float cards sit in the band above the face; during the hook, under the hook title
     // (a speaker framed high leaves no room under the hook title: the card then waits for the title to clear)
     for (let i = floats.length - 1; i >= 0; i--) {
@@ -305,7 +395,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       const pl = placed[i];
       if (inScene(pl.s)) { placed.splice(i, 1); continue; }
       // side words carry that line (the reference look): a sticker on the same moment would repeat it
-      if (pl.it.t !== 'confetti' && sides.some((x) => pl.s < x.e && pl.e > x.s)) { placed.splice(i, 1); continue; }
+      if (pl.it.t !== 'confetti' && [...sides, ...banners, ...behinds].some((x) => pl.s < x.e && pl.e > x.s)) { placed.splice(i, 1); continue; }
       const next = scenes.find((sc) => sc.s > pl.s && sc.s < pl.e);
       if (next) placed[i] = { ...pl, e: Math.max(pl.s + 14, next.s) };
     }
@@ -325,7 +415,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       if (e - s < fr(def.min) - 1) continue;
       // the band above the face is the block's: never while a B-roll card, a cutaway or another block is up
       if (broll.some((x) => s < x.e + 4 && e > x.s - 4) || blocks.some((x) => s < x.e + 6 && e > x.s - 6)
-        || scenes.some((x) => s < x.e && e > x.s) || sides.some((x) => s < x.e && e > x.s) || floats.some((x) => s < x.e && e > x.s)) continue;
+        || scenes.some((x) => s < x.e && e > x.s) || sides.some((x) => s < x.e && e > x.s) || floats.some((x) => s < x.e && e > x.s)
+        || banners.some((x) => s < x.e && e > x.s)) continue;
       blocks.push({ key: 900 + k, block: String(g.block), vars, s, e });
     }
 
@@ -386,6 +477,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     const crashes: { f: number; k: number }[] = [];
     const punches: { f: number; k: number }[] = [];
     const whips: { f: number; k: number; dir: number }[] = [];
+    const tilts: { f: number; dir: number }[] = [];
+    const smashes: { f: number; text: string }[] = [];
     const directed: Impact[] = [];
     for (const [n, mv] of (p.direction?.moves ?? []).slice(0, 12).entries()) {
       const f = fr(cue(mv.at, -1));
@@ -396,6 +489,19 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       else if (mv.move === 'whip') whips.push({ f, k, dir: n % 2 ? 1 : -1 });
       else if (mv.move === 'shake') directed.push({ frame: f, power: Math.min(1, 0.7 * k) });
       else if (mv.move === 'bump') tryBump(f);
+      else if (mv.move === 'tilt') tilts.push({ f, dir: n % 2 ? 1 : -1 });
+      else if (mv.move === 'spotlight' && !inScene(f) && covered(f, f + fr(2.4)) && !spots.some((x) => f < x.e && f + fr(2.4) > x.s)) spots.push({ s: f, e: f + fr(2.4) });
+      else if (mv.move === 'smash' && !inScene(f) && f > hookEnd) {
+        // a smash cut: 12 frames of black with one huge word, then a hard cut back with a punch-in
+        const text = txt((mv as { text?: unknown }).text, 14);
+        if (text && !smashes.some((x) => Math.abs(x.f - f) < fr(3))) { smashes.push({ f, text }); punches.push({ f: f + 12, k: 1.1 }); }
+      }
+      else if (mv.move === 'lines' && !inScene(f) && !focus.some((x) => Math.abs(x.f - f) < fr(2))) {
+        const fc = faceAt(p.faces, f / fps);
+        if (!fc) continue;
+        focus.push({ f, cx: (fc.x + fc.w / 2) * 1080, cy: (fc.y + fc.h / 2) * 1920, r: Math.max(fc.w * 1080, fc.h * 1920) * 0.62 * camK });
+        punches.push({ f, k: 0.8 * k });
+      }
     }
     bumps.sort((a, b) => a - b);
 
@@ -446,14 +552,29 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     floats.forEach((x, k) => sfx.push(...sfxFor('fact', x.s, style, vseed + 140 + k)));
     sides.forEach((x, k) => sfx.push(...sfxFor('headline', x.words[0].f, style, vseed + 120 + k)));
     crashes.forEach((c, k) => sfx.push(...sfxFor('bigword', c.f, style, vseed + 41 + k)));
+    focus.forEach((x, k) => sfx.push(...sfxFor('bigword', x.f, style, vseed + 191 + k)));
+    smashes.forEach((x, k) => sfx.push(...sfxFor('stamp', x.f, style, vseed + 261 + k)));
+    behinds.forEach((x, k) => sfx.push(...sfxFor('bigword', x.s, style, vseed + 281 + k)));
+    spots.forEach((x, k) => sfx.push(...sfxFor('zoom', x.s, style, vseed + 291 + k)));
+    tilts.forEach((x, k) => sfx.push(...sfxFor('zoom', x.f, style, vseed + 271 + k)));
+    banners.forEach((x, k) => sfx.push(...sfxFor('fact', x.s, style, vseed + 201 + k)));
+    scenes.forEach((sc, k) => {
+      (sc.chat?.msgs ?? []).forEach((m, j) => sfx.push(...sfxFor(sc.chat?.style === 'notif' ? 'fact' : 'note', m.f, style, vseed + 210 + k * 7 + j)));
+      (sc.sides ?? []).forEach((sd, si) => sd.items.forEach((it, j) => sfx.push(...sfxFor('check', it.f + 3, style, vseed + 230 + k * 9 + si * 4 + j))));
+      (sc.notes ?? []).forEach((n, j) => sfx.push(...sfxFor(n.mark === 'circle' ? 'circle' : n.mark === 'box' ? 'scribble' : 'underline', n.f, style, vseed + 250 + k * 7 + j)));
+      (sc.places ?? []).forEach((pl, j) => sfx.push(...sfxFor('point', pl.f, style, vseed + 300 + k * 7 + j)));
+      (sc.receipt?.items ?? []).forEach((it, j) => sfx.push(...sfxFor('tape', it.f, style, vseed + 320 + k * 7 + j)));
+      if (sc.receipt?.total) sfx.push(...sfxFor('counter', sc.receipt.total.f, style, vseed + 340 + k));
+      if (sc.receipt?.stamp) sfx.push(...sfxFor('stamp', sc.receipt.stamp.f, style, vseed + 350 + k));
+    });
     whips.forEach((w, k) => sfx.push(...sfxFor('broll_full', w.f - 4, style, vseed + 53 + k)));
 
     return {
-      look, faces, placed, slots, zooms, broll, scenes, floats, sides, shakes, flashes, breaks, confetti, cutFrames, bumps, crashes, punches, whips, sfx, hookEnd, ctaStart,
-      pages: cap.on ? toPages(words, Math.min(6, Math.max(1, cap.maxWords || 3))) : [],
+      look, faces, placed, slots, zooms, broll, scenes, floats, sides, banners, focus, tilts, smashes, cuts, behinds, spots, shakes, flashes, breaks, confetti, cutFrames, bumps, crashes, punches, whips, sfx, hookEnd, ctaStart,
+      pages: cap.on ? toPages(words, Math.min(6, Math.max(1, capLook ? CAP_LOOKS[capLook].maxWords : cap.maxWords || 3))) : [],
     };
   }, [p.words, p.overlays, p.zooms, p.hook, p.facts, p.rehook, p.cta, p.broll, p.faces, p.cuts, p.hookSfx, p.keywords, p.music, p.musicBpm,
-    p.lookSeed, p.direction, accent, fps, durationInFrames, cap.on, cap.maxWords, cap.style, capCenter, style, gempak]);
+    p.lookSeed, p.direction, accent, fps, durationInFrames, cap.on, cap.maxWords, cap.style, capCenter, style, gempak, capLook]);
   const look = plan.look;
   const cam = look.camera;
 
@@ -506,6 +627,15 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     whipX = w.dir * 240 * w.k * ph * (d < 4 ? 1 : -1);
     whipBlur = 18 * ph;
   }
+  // dutch tilt accent: in over 5 frames, hold, out over 7 (scaled so no corner shows)
+  let tilt = 0;
+  for (const tl of plan.tilts) {
+    const d = frame - tl.f;
+    if (d < 0 || d > 30) continue;
+    const v = d < 5 ? smooth(d / 5) : d < 23 ? 1 : 1 - smooth((d - 23) / 7);
+    tilt = tl.dir * 4 * v;
+  }
+  const tiltK = 1 + 0.122 * (Math.abs(tilt) / 4);
   // emphasis bump: up in 3 frames (overshoot), back over 12
   let bump = 1;
   for (const bf of plan.bumps) {
@@ -524,18 +654,49 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
   const hy = cam.drift * oct('cam-y', 1.3);
   const hr = cam.drift * 0.3 * noise2D('cam-r', t * 0.22, 7.1);
 
+  const camTransform = `translate(${hx.toFixed(2)}px, ${hy.toFixed(2)}px) rotate(${(hr + tilt).toFixed(3)}deg) scale(${(z * push * bump * crash * punch * tiltK * OVERSCAN).toFixed(4)})`;
   const shake = gempak ? shakeOffset(frame, plan.shakes, 14) : { x: 0, y: 0, r: 0 };
+  // cut-out effects at this frame
+  const behind = plan.behinds.find((x) => frame >= x.s && frame < x.e);
+  const spot = plan.spots.find((x) => frame >= x.s - 2 && frame < x.e + 6);
+  const spotK = spot ? Math.min(interpolate(frame, [spot.s - 2, spot.s + 5], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }),
+    interpolate(frame, [spot.e - 2, spot.e + 6], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })) : 0;
+  const stickerScene = plan.scenes.find((sc) => sc.speaker && frame >= sc.s && frame < sc.e);
+  const camCut = !stickerScene && (!!behind || spotK > 0);
+  const stickerFace = (() => {
+    const fc = stickerScene ? faceAt(p.faces, stickerScene.s / fps) : undefined;
+    return { x: fc ? (fc.x + fc.w / 2) * 1080 : 540, y: fc ? (fc.y + fc.h / 2) * 1920 : 760 };
+  })();
   const faceTop = (faceAt(plan.faces, 1)?.y ?? 0.38) * 1920;
   const ctaFace = (faceAt(plan.faces, Math.max(0, plan.ctaStart) / fps)?.y ?? 0.38) * 1920;
 
   return (
     <AbsoluteFill style={{ background: '#000' }}>
       <AbsoluteFill style={{ transform: `translate(${shake.x}px, ${shake.y}px) rotate(${shake.r}deg)` }}>
-        <AbsoluteFill style={{ transform: `translate(${hx.toFixed(2)}px, ${hy.toFixed(2)}px) rotate(${hr.toFixed(3)}deg) scale(${(z * push * bump * crash * punch * OVERSCAN).toFixed(4)})`,
-          transformOrigin: origin, filter: whipBlur > 0.5 ? `${look.grade.filter} blur(${whipBlur.toFixed(1)}px)` : look.grade.filter }}>
-          <OffthreadVideo src={p.video} toneMapped={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        {/* a whip streaks along its motion only (horizontal blur) */}
+        {whipBlur > 0.5 && (
+          <svg width={0} height={0} style={{ position: 'absolute' }}>
+            <filter id="hf-whip" x="-10%" y="0%" width="120%" height="100%"><feGaussianBlur stdDeviation={`${(whipBlur * 2.2).toFixed(1)} 0`} /></filter>
+          </svg>
+        )}
+        <AbsoluteFill style={{ transform: camTransform, transformOrigin: origin, filter: whipBlur > 0.5 ? `${look.grade.filter} url(#hf-whip)` : look.grade.filter }}>
+          <OffthreadVideo src={p.video} toneMapped={false} style={{ width: '100%', height: '100%', objectFit: 'cover', ...(spotK > 0.02 ? { filter: `blur(${(12 * spotK).toFixed(1)}px)` } : {}) }} />
           <TapeLayer tracks={p.tapes} />
+          {spotK > 0 && <AbsoluteFill style={{ background: `radial-gradient(ellipse 70% 55% at 50% 40%, rgba(0,0,0,${(0.35 * spotK).toFixed(3)}) 0%, rgba(0,0,0,${(0.72 * spotK).toFixed(3)}) 100%)` }} />}
+          {behind && <BehindText text={behind.text} d={frame - behind.s} out={interpolate(frame, [behind.e - 6, behind.e], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })}
+            headTop={behind.headTop} face={look.display} color={behind.tone ? (behind.tone === 'white' ? '#fff' : behind.tone === 'yellow' ? '#FFD93B' : behind.tone === 'red' ? '#F2443F' : behind.tone === 'green' ? '#3DDC97' : behind.tone === 'blue' ? '#4FB3FF' : look.hi) : '#fff'} />}
         </AbsoluteFill>
+        {/* the speaker cut out (one element per window, never re-parented): on the speaker shot it takes the camera's exact
+            transform and is drawn over the word behind / the dimmed room; during a "speaker" scene it is a die-cut sticker over it */}
+        {plan.cuts.map((c, i) => (
+          <Sequence key={`cut${i}`} from={c.s} durationInFrames={c.e - c.s}>
+            <AbsoluteFill style={stickerScene
+              ? { ...stickerStyle(stickerScene.speaker as 'left' | 'right', stickerFace.x, stickerFace.y, frame - stickerScene.s), zIndex: 5 }
+              : { transform: camTransform, transformOrigin: origin, filter: look.grade.filter, opacity: camCut ? 1 : 0 }}>
+              <OffthreadVideo src={c.src} muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            </AbsoluteFill>
+          </Sequence>
+        ))}
         {look.grade.lift && <AbsoluteFill style={{ background: look.grade.lift, pointerEvents: 'none' }} />}
         <AbsoluteFill style={{ background: `radial-gradient(ellipse 78% 62% at 50% 44%, rgba(0,0,0,0) 58%, rgba(0,0,0,${look.grade.vignette}) 100%)`, pointerEvents: 'none' }} />
 
@@ -545,6 +706,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
           <HookPro text={p.hook.text} sub={p.hook.sub} frame={frame} end={plan.hookEnd} look={look} faceTop={faceTop} />
         )}
 
+        {plan.focus.map((x, i) => (frame >= x.f && frame <= x.f + 22 ? <FocusLines key={`fl${i}`} cx={x.cx} cy={x.cy} r={x.r} d={frame - x.f} seed={x.f * 31 + 7} /> : null))}
         <BRollPipLayer items={plan.broll} />
         <SlotStack placed={plan.placed} slots={plan.slots} ink="#ffffff" accent={accent} style={style} lottie={p.lottie} />
         {gempak && <BreakFxLayer at={plan.breaks} kind={look.breakFx} />}
@@ -556,18 +718,32 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
                 return near.length >= 2 ? Math.min(...near.map((x) => x.y)) * 1920 : null;
               })()} /> : null))}
         {plan.floats.map((fc, i) => (frame >= fc.s && frame < fc.e ? <FloatCard key={`fc${i}`} sc={fc} frame={frame} look={look} /> : null))}
+        {plan.banners.map((b, i) => (frame >= b.s && frame < b.e
+          ? <NewsBanner key={`nb${i}`} tag={b.tag} text={b.text} ticker={b.ticker} d={frame - b.s} out={interpolate(frame, [b.e - 6, b.e], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })}
+              top={b.top} face={look.display} /> : null))}
         {plan.scenes.map((sc, i) => (frame >= sc.s && frame < sc.e ? <ScenePro key={`sc${i}`} sc={sc} frame={frame} look={look} accent={accent} lottie={p.lottie} /> : null))}
 
-        {cap.on && (
-          <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look} subtle={p.direction?.captions === 'subtle' || plan.scenes.some((sc) => frame >= sc.s && frame < sc.e)}
-            onLight={plan.scenes.some((sc) => frame >= sc.s && frame < sc.e && ['paper', 'yellow', 'notebook', 'grid'].includes(sc.bg))}
-            keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} />
-        )}
+        {cap.on && (() => {
+          const inSc = plan.scenes.some((sc) => frame >= sc.s && frame < sc.e);
+          // a low face pushes the captions down (the box the camera zoom makes of it)
+          const faceBottom = (tt: number) => { if (inSc) return null; const fc = faceAt(plan.faces, tt); return fc ? (fc.y + fc.h) * 1920 : null; };
+          return capLook && !inSc && p.direction?.captions !== 'subtle'
+            ? <CaptionsLook pages={plan.pages} lookId={capLook} look={look} centerY={capCenter} keywords={p.keywords} lottie={p.lottie} censor={p.censor} faceBottom={faceBottom} />
+            : <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look} subtle={p.direction?.captions === 'subtle' || inSc}
+                onLight={plan.scenes.some((sc) => frame >= sc.s && frame < sc.e && ['paper', 'yellow', 'notebook', 'grid'].includes(sc.bg))}
+                keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} faceBottom={faceBottom} avoid={stickerScene?.speaker} />;
+        })()}
         {p.cta?.text && plan.ctaStart >= 0 && look.endcard !== 'none' && (
           <EndCardPro text={p.cta.text} sub={p.cta.sub} start={plan.ctaStart} frame={frame} faceTop={ctaFace} look={look} />
         )}
       </AbsoluteFill>
 
+      {plan.smashes.map((x, i) => (frame >= x.f && frame < x.f + 12 ? (
+        <AbsoluteFill key={`sm${i}`} style={{ background: '#000', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontFamily: "'Anton', sans-serif", fontSize: Math.min(300, Math.floor(900 / Math.max(1, x.text.length * 0.47))), color: '#fff', lineHeight: 1,
+            letterSpacing: 2, transform: `scale(${(1.08 - 0.08 * Math.min(1, (frame - x.f) / 10)).toFixed(3)})`, textAlign: 'center', padding: '0 60px' }}>{x.text.toUpperCase()}</span>
+        </AbsoluteFill>
+      ) : null))}
       <AbsoluteFill style={{ pointerEvents: 'none' }}><TapeLayer tracks={p.patchTapes} /></AbsoluteFill>
       <ConfettiRain at={plan.confetti} colors={CONFETTI_COLORS(accent, look.second)} />
       {gempak && <Flash impacts={plan.flashes} />}
