@@ -911,6 +911,10 @@ export async function directEdit(opts: {
       ? `SELLER'S PRODUCT PHOTOS: ${uploads.length} uploaded. Product shots (the box, packshot, the item itself or in use) come ONLY from these — plan at most ${uploads.length} such B-roll moment${uploads.length === 1 ? "" : "s"}, their queries starting with the brand name. Generic shots (a body part, an action, a place, an object) come from a Google search — never name a brand in those queries.\n`
       : "") +
     (input.instructions ? `CLIENT PROMPT (follow it): ${clean(input.instructions, 900)}\n` : "") +
+    // CLIPPER: a clip cut from a longer video (podcast, talk, live) — not an ad
+    (input.clip
+      ? `CLIP CONTEXT: this is a clip cut from a longer video ("${clean(input.product ?? "", 120)}") for TikTok / Reels / Shorts — NOT an ad. Edit it so the speaker's point lands: the hook on the first line, keep the viewer to the payoff, words and scenes from what is said. No selling devices (no "beg kuning", no price / buy CTA, no product B-roll) unless the speaker sells something in this very clip; "cta" only when the speaker asks for an action, and no end card otherwise.\n`
+      : "") +
     (input.accent ? `PREFERRED ACCENT: ${input.accent}\n` : "") +
     (input.broll === false ? "B-ROLL: disabled — return \"broll\": [].\n" : "") +
     (input.facts === false ? "FACTS: disabled — return \"facts\": [].\n" : "") +

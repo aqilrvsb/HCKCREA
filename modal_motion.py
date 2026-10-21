@@ -2746,6 +2746,80 @@ YT_ID = re.compile(r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|live/|embed/)|
 GD_ID = re.compile(r"(?:/file/d/|[?&]id=|/open\?id=)([A-Za-z0-9_-]{20,})")
 
 
+# YouTube flags some cloud IPs ("Sign in to confirm you're not a bot") — per container, not per account: every YouTube
+# read runs in yt_task, a small container that retires itself when flagged, so the retry lands on a fresh machine.
+yt_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg", "curl", "unzip", "ca-certificates")
+    .run_commands("curl -fsSL -o /tmp/deno.zip https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
+                  " && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && deno --version")
+    .pip_install("yt-dlp[default]", "yt-dlp-ejs", "requests==2.31.0")
+)
+
+
+def _yt_blocked(msg: str) -> bool:
+    m = msg.lower()
+    return "confirm you" in m or "not a bot" in m or "page needs to be reloaded" in m or "http error 429" in m
+
+
+@app.function(image=yt_image, cpu=2.0, memory=4096, timeout=1800)
+def yt_task(kind: str, url: str, args: dict) -> dict:
+    """kind "info": title / heatmap / captions (lines); "segment": one clip as MP4 bytes; "audio": the soundtrack (Opus)."""
+    import shutil
+    import modal.experimental
+    d = Path(tempfile.mkdtemp(prefix="yt_"))
+    try:
+        if kind == "info":
+            info = _yt_info(url)
+            lines, lang = _yt_captions(info, args.get("want"))
+            heat = [{"start": round(float(h.get("start_time") or 0), 2), "end": round(float(h.get("end_time") or 0), 2), "value": round(float(h.get("value") or 0), 3)}
+                    for h in (info.get("heatmap") or [])]
+            meta = {"title": info.get("title"), "channel": info.get("channel") or info.get("uploader"), "duration": float(info.get("duration") or 0),
+                    "thumb": info.get("thumbnail"), "video_id": info.get("id"), "live": bool(info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming")),
+                    "spoken": (info.get("language") or "").split("-")[0] or None}
+            return {"ok": True, "meta": meta, "heat": heat, "lines": lines, "lang": lang}
+        if kind == "segment":
+            out = d / "segment.mp4"
+            _yt_segment(url, float(args["start"]), float(args["end"]), out)
+            return {"ok": True, "data": out.read_bytes()}
+        if kind == "audio":
+            src = _yt_audio(url, d)
+            out = d / "audio.ogg"
+            _run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k", str(out)], "audio", 1500)
+            return {"ok": True, "data": out.read_bytes()}
+        return {"ok": False, "error": f"unknown kind {kind}"}
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        if _yt_blocked(msg):
+            # this container's IP is flagged: take no more work, the next call starts a fresh one
+            try:
+                modal.experimental.stop_fetching_inputs()
+            except Exception:  # noqa: BLE001
+                pass
+            return {"ok": False, "blocked": True, "error": msg[:300]}
+        return {"ok": False, "error": msg[:600]}
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _yt_call(kind: str, url: str, args: dict | None = None, tries: int = 6) -> dict:
+    last: dict = {}
+    for i in range(tries):
+        try:
+            last = yt_task.remote(kind, url, args or {})
+        except Exception as e:  # noqa: BLE001
+            last = {"ok": False, "error": str(e)[:300]}
+        if last.get("ok"):
+            return last
+        if not last.get("blocked"):
+            break
+        print(f"youtube blocked this container ({kind}), retrying on a fresh one", flush=True)
+        time.sleep(1.5 * (i + 1))
+    if last.get("blocked"):
+        raise RuntimeError("YouTube menyekat bacaan video ini buat masa ini — cuba lagi beberapa minit lagi, atau upload videonya.")
+    raise RuntimeError(str(last.get("error") or "YouTube gagal")[:400])
+
+
 def _yt_dl_opts(extra: dict | None = None) -> dict:
     o = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20, "retries": 3}
     o.update(extra or {})
@@ -2755,16 +2829,18 @@ def _yt_dl_opts(extra: dict | None = None) -> dict:
 def _yt_info(url: str) -> dict:
     import yt_dlp
     last = None
-    for attempt in range(3):
+    for attempt in range(2):
         try:
             with yt_dlp.YoutubeDL(_yt_dl_opts({"skip_download": True})) as y:
                 return y.extract_info(url, download=False)
         except Exception as e:  # noqa: BLE001
             last = e
+            if _yt_blocked(str(e)):
+                break  # a flagged IP stays flagged: hand over to a fresh container
             time.sleep(2 + attempt * 3)
     msg = str(last)
-    if "Sign in to confirm" in msg or "bot" in msg.lower():
-        raise RuntimeError("YouTube menyekat bacaan video ini buat masa ini — cuba lagi sebentar, atau upload videonya.")
+    if _yt_blocked(msg):
+        raise RuntimeError(msg)
     if "Private video" in msg or "unavailable" in msg.lower():
         raise RuntimeError("Video YouTube ini peribadi / tidak tersedia.")
     raise RuntimeError(f"Tak dapat baca video YouTube: {msg[:200]}")
@@ -2988,21 +3064,22 @@ def _clip_analyze(p: dict, d: Path) -> dict:
     lines, lang, heat, cap_src, media_url = [], None, [], "", None
     _progress("source", 4)
     if kind == "youtube":
-        info = _yt_info(url)
-        if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
+        yi = _yt_call("info", url, {"want": want})
+        m = yi["meta"]
+        if m.get("live"):
             raise RuntimeError("Siaran langsung belum tamat — cuba bila live sudah habis.")
-        meta.update(title=info.get("title"), channel=info.get("channel") or info.get("uploader"), duration=float(info.get("duration") or 0),
-                    thumb=info.get("thumbnail"), video_id=info.get("id"))
-        heat = [{"start": round(float(h.get("start_time") or 0), 2), "end": round(float(h.get("end_time") or 0), 2), "value": round(float(h.get("value") or 0), 3)}
-                for h in (info.get("heatmap") or [])]
+        meta.update(title=m.get("title"), channel=m.get("channel"), duration=float(m.get("duration") or 0), thumb=m.get("thumb"), video_id=m.get("video_id"))
+        heat = yi.get("heat") or []
         _progress("transcript", 15)
-        lines, lang = _yt_captions(info, want)
+        lines, lang = yi.get("lines") or [], yi.get("lang")
         cap_src = "youtube" if lines else ""
         wav = None
         if not lines:
             _progress("audio", 20)
-            audio = _yt_audio(url, d)
+            audio = d / "yt_audio.ogg"
+            audio.write_bytes(_yt_call("audio", url)["data"])
             wav = _audio16k(str(audio), d / "audio16k.wav")
+            lang = lang or (want if want != "auto" else None) or m.get("spoken")
     else:
         if kind == "gdrive":
             _progress("download", 6)
@@ -3260,7 +3337,7 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     _progress("download", 3)
     seg = d / "segment.mp4"
     if c.get("source_type") == "youtube":
-        _yt_segment(str(c.get("url")), start, end, seg)
+        seg.write_bytes(_yt_call("segment", str(c.get("url")), {"start": start, "end": end})["data"])
     else:
         _media_segment(str(c.get("media_url") or c.get("url")), start, end, seg)
     _progress("reframe", 8)
