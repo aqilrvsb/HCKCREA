@@ -145,6 +145,9 @@ export type EditInput = {
   /** engine "custom": the client's Custom Style prompt + materials, built after the script is approved */
   custom?: { prompt: string; title: string; stepId: string; materials: { url: string; name: string }[] };
   engine?: MotionEngine;
+  /** CLIPPER: a clip of a long video. mode "captions" = the clip with captions + its hook (no AI edit plan);
+   *  "auto" / "style" = the full AI edit (AI Auto, or one of the 40 styles via locks.styleId). */
+  clip?: { mode: "captions" | "auto" | "style"; title: string; hook?: string; job_id?: string; start?: number; end?: number };
 };
 
 // ── config + Modal client ─────────────────────────────────────────────────────
@@ -322,7 +325,7 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
  *  Vercel caps request bodies at 4.5MB, so the file never touches Next. */
 const VGC_EXTS = ["jpg", "jpeg", "png", "webp", "mp4", "mov", "webm", "m4v", "mp3", "wav", "m4a", "aac", "ogg"];
 
-export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" | "vgc" = "video"): Promise<{ uploadUrl: string; key: string } | null> {
+export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" | "vgc" | "clip" = "video"): Promise<{ uploadUrl: string; key: string } | null> {
   const cfg = await getMotionConfig();
   if (!cfg) return null;
   const extRaw = (fileName.split(".").pop() || "").toLowerCase();
@@ -333,7 +336,8 @@ export async function signMotionUpload(userId: string, fileName: string, kind: "
     : kind === "vgc"
       ? (VGC_EXTS.includes(extRaw) ? extRaw : "bin")
       : (["mp4", "mov", "webm", "m4v"].includes(extRaw) ? extRaw : "mp4");
-  const folder = kind === "image" ? "motion-images" : kind === "vgc" ? "vgc-uploads" : "motion-uploads";
+  // CLIPPER sources (long videos, ≤ 1 GB) → clipper-uploads/
+  const folder = kind === "image" ? "motion-images" : kind === "vgc" ? "vgc-uploads" : kind === "clip" ? "clipper-uploads" : "motion-uploads";
   const key = `${folder}/${userId.replace(/[^A-Za-z0-9_-]/g, "")}/${randomUUID().replace(/-/g, "")}.${ext}`;
   const exp = String(Math.floor(Date.now() / 1000) + 3600);
   const sig = createHmac("sha256", cfg.secret).update(`${key}|${exp}`).digest("hex");

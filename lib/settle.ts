@@ -878,9 +878,15 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   // /check endpoint, and billed by their own reserve → true-up logic. Checked
   // before the task_id guard: a Buat Iklan row has no task_id while its
   // script + voice are still being made.
-  if (hist.tab === "motion") {
+  if (hist.tab === "motion" || hist.tab === "clipper") {
     const { settleMotionRow } = await import("@/lib/motion");
     return settleMotionRow(hist);
+  }
+  // CLIPPER analyses (a Modal job + the director): settled into metadata.analysis
+  if (hist.tab === "clipper-job") {
+    const { settleClipperJob } = await import("@/lib/clipper");
+    const r = await settleClipperJob(hist as any);
+    return r.state === "settled" ? { state: "settled", status: r.status as any } : { state: "pending", p2Status: "analyse" } as any;
   }
 
   if (!hist.task_id) {

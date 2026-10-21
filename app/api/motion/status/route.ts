@@ -27,7 +27,7 @@ export async function GET(req: Request) {
     .select("id, user_id, type, tab, status, task_id, duration, cost, metadata, error_message, output_url, created_at")
     .in("id", ids)
     .eq("user_id", user.id)
-    .eq("tab", "motion");
+    .in("tab", ["motion", "clipper"]);
 
   const jobs = await Promise.all((rows || []).map(async (row: any) => {
     let progress: { stage?: string; pct?: number } | null = null;

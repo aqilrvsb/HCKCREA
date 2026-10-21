@@ -52,6 +52,7 @@ export const PARTNER_TABS: { key: string; label: string }[] = [
   { key: "video", label: "Dialog UGC" },
   { key: "original-video", label: "Original Video" },
   { key: "motion", label: "Motion" },
+  { key: "clipper", label: "Clipper" },
   { key: "auto", label: "Auto Content" },
   { key: "auto-ugc", label: "Auto UGC" },
   { key: "editor", label: "Editor" },

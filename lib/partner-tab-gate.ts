@@ -12,7 +12,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export async function isTabAllowedForUser(userId: string, tabKey: string): Promise<boolean> {
   const admin = createAdminClient();
   const { data } = await admin.from("profiles").select("settings, is_admin").eq("id", userId).maybeSingle();
-  if (tabKey === "motion" && !(await motionAccessAllowed(userId, !!data?.is_admin))) return false;
+  // CLIPPER renders on the Motion engine: the same access list applies
+  if ((tabKey === "motion" || tabKey === "clipper") && !(await motionAccessAllowed(userId, !!data?.is_admin))) return false;
   const vt = (data?.settings as any)?.visible_tabs;
   if (!Array.isArray(vt) || vt.length === 0) return true; // no restriction
   return vt.includes(tabKey);

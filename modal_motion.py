@@ -113,6 +113,15 @@ hf_render_image = (
     .run_commands(
         f"curl -fsSL -o /usr/local/bin/deep-filter {DEEP_FILTER_URL} && chmod +x /usr/local/bin/deep-filter && /usr/local/bin/deep-filter --version",
     )
+    # CLIPPER: yt-dlp (YouTube needs a JS runtime: Deno) and YuNet (OpenCV Zoo, MIT) for faces in wide shots
+    .apt_install("unzip")
+    .run_commands(
+        "curl -fsSL -o /tmp/deno.zip https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
+        " && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && deno --version",
+        "curl -fsSL -o /models/yunet.onnx https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+        " && test $(stat -c%s /models/yunet.onnx) -gt 100000",
+    )
+    .pip_install("yt-dlp[default]", "yt-dlp-ejs")
     .env({"HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1", "HYPERFRAMES_SKIP_SKILLS": "1"})
     .add_local_dir("motion-hf", HF_DIR, copy=True, ignore=["node_modules", "dist"])
     .run_commands(
@@ -2662,13 +2671,26 @@ def run_job(payload: dict) -> dict:
     # No phase = everything at once.
     phase = str(payload.get("phase") or "")
     try:
-        if flow != "ad" and phase == "draft":
+        if flow == "clip-analyze":
+            res = _clip_analyze(payload, d)
+            _progress("done", 100)
+            return {**res, "render_sec": round(time.time() - t0, 1)}
+        if flow == "clip":
+            # CLIPPER: the clip's segment, reframed + transcribed, then the Edit Video pipeline as usual
+            res = _edit_finish(payload, d, srv, _edit_direct(payload, d, srv, _clip_prepare(payload, d)))
+            wm = (payload.get("clip") or {}).get("watermark")
+            if isinstance(wm, dict) and (wm.get("text") or wm.get("image")):
+                try:
+                    _clip_watermark(Path(res["out"]), wm, d)
+                except Exception as e:  # noqa: BLE001
+                    print("watermark failed:", str(e)[:300], flush=True)
+        elif flow != "ad" and phase == "draft":
             st = _edit_script(payload, d, srv)
             st.pop("_src", None)
             st.pop("_info", None)
             _progress("review", 100)
             return {"ok": True, "draft": st, "duration_sec": round(float(st["kept"]), 2), "render_sec": round(time.time() - t0, 1)}
-        if flow != "ad" and phase == "render":
+        elif flow != "ad" and phase == "render":
             st = dict(payload.get("draft") or {})
             if isinstance(st.get("plan"), dict) and st.get("video_url"):
                 # a draft made before step 1 was slimmed down: the video was
@@ -2678,7 +2700,7 @@ def run_job(payload: dict) -> dict:
                 res = _edit_finish(payload, d, srv, st)
             else:
                 res = _edit_finish(payload, d, srv, _edit_direct(payload, d, srv, st))
-        else:
+        elif flow != "clip":
             res = _flow_ad(payload, d, srv) if flow == "ad" else _flow_edit(payload, d, srv)
         _progress("upload", 96)
         # a re-render of the same History card gets its own file name — the
@@ -2713,6 +2735,605 @@ def run_job(payload: dict) -> dict:
 
 
 
+# ── CLIPPER: long video → viral clips ─────────────────────────────────────────
+# "clip-analyze": read a YouTube / Google Drive / uploaded video (title, transcript, "most replayed" heatmap),
+# then the director (Sonnet 5.5, /api/clipper/plan on Vercel) picks the clips. "clip": one chosen clip — the
+# segment is fetched, reframed to 9:16 around the speaker (shot by shot), transcribed word by word, and handed to
+# the Edit Video pipeline (voice clean-up, face-safe captions, HyperFrames render) like any Motion edit.
+CLIP_MAX_SOURCE_SEC = 4 * 3600
+YUNET_MODEL = "/models/yunet.onnx"
+YT_ID = re.compile(r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|live/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})")
+GD_ID = re.compile(r"(?:/file/d/|[?&]id=|/open\?id=)([A-Za-z0-9_-]{20,})")
+
+
+def _yt_dl_opts(extra: dict | None = None) -> dict:
+    o = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20, "retries": 3}
+    o.update(extra or {})
+    return o
+
+
+def _yt_info(url: str) -> dict:
+    import yt_dlp
+    last = None
+    for attempt in range(3):
+        try:
+            with yt_dlp.YoutubeDL(_yt_dl_opts({"skip_download": True})) as y:
+                return y.extract_info(url, download=False)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            time.sleep(2 + attempt * 3)
+    msg = str(last)
+    if "Sign in to confirm" in msg or "bot" in msg.lower():
+        raise RuntimeError("YouTube menyekat bacaan video ini buat masa ini — cuba lagi sebentar, atau upload videonya.")
+    if "Private video" in msg or "unavailable" in msg.lower():
+        raise RuntimeError("Video YouTube ini peribadi / tidak tersedia.")
+    raise RuntimeError(f"Tak dapat baca video YouTube: {msg[:200]}")
+
+
+def _words_to_lines(words: list, max_words: int = 14, max_sec: float = 9.0, gap: float = 0.75) -> list:
+    """Timed words → transcript lines (sentence ends, pauses, ≤ max_words / max_sec)."""
+    lines, cur = [], []
+    for w in words:
+        if cur and (len(cur) >= max_words or w["t"] - cur[-1]["e"] > gap or w["e"] - cur[0]["t"] > max_sec):
+            lines.append(cur)
+            cur = []
+        cur.append(w)
+        if re.search(r"[.!?…]$", w["w"]) and len(cur) >= 4:
+            lines.append(cur)
+            cur = []
+    if cur:
+        lines.append(cur)
+    return [{"start": round(c[0]["t"], 2), "end": round(c[-1]["e"], 2), "text": " ".join(x["w"] for x in c)} for c in lines]
+
+
+def _json3_words(data: dict) -> list:
+    """YouTube json3 captions → timed words (auto captions carry word offsets; manual lines are spread evenly)."""
+    words = []
+    for ev in data.get("events") or []:
+        segs = ev.get("segs") or []
+        t0 = (ev.get("tStartMs") or 0) / 1000.0
+        dur = (ev.get("dDurationMs") or 0) / 1000.0
+        parts = [(s.get("utf8") or "", s.get("tOffsetMs")) for s in segs]
+        text = "".join(p for p, _ in parts).replace("\n", " ").strip()
+        if not text or text in ("[Music]", "[Muzik]", "[Musik]"):
+            continue
+        if any(o is not None for _, o in parts[1:]):
+            for i, (p, o) in enumerate(parts):
+                tok = p.strip()
+                if not tok:
+                    continue
+                t = t0 + (o or 0) / 1000.0
+                nxt = next((t0 + (parts[j][1] or 0) / 1000.0 for j in range(i + 1, len(parts)) if parts[j][1] is not None), t0 + max(dur, 0.3))
+                for k, wtok in enumerate(tok.split()):
+                    words.append({"w": wtok, "t": round(t, 3), "e": round(max(t + 0.05, nxt), 3)})
+        else:
+            toks = text.split()
+            step = max(dur, 0.3 * len(toks)) / max(1, len(toks))
+            for k, wtok in enumerate(toks):
+                words.append({"w": wtok, "t": round(t0 + k * step, 3), "e": round(t0 + (k + 1) * step, 3)})
+    words.sort(key=lambda w: w["t"])
+    return words
+
+
+def _yt_captions(info: dict, want: str | None) -> tuple:
+    """The spoken-language caption track of a YouTube video → (lines, language) or ([], None)."""
+    import requests
+    subs = info.get("subtitles") or {}
+    auto = info.get("automatic_captions") or {}
+    spoken = (info.get("language") or "").split("-")[0] or None
+    orig = next((k[:-5] for k in auto if k.endswith("-orig")), None)
+    lang = want if want and want != "auto" else (spoken or orig)
+    order = []
+    if lang:
+        order += [("s", k) for k in subs if k == lang or k.startswith(lang + "-")]
+        order += [("a", f"{lang}-orig"), ("a", lang)]
+    if orig:
+        order.append(("a", f"{orig}-orig"))
+    for pref in ("ms", "id", "en"):
+        order += [("s", k) for k in subs if k.startswith(pref)]
+    for kind, key in order:
+        tracks = (subs if kind == "s" else auto).get(key) or []
+        fmt = next((t for t in tracks if t.get("ext") == "json3"), None)
+        if not fmt:
+            continue
+        try:
+            r = requests.get(fmt["url"], timeout=30, headers={"User-Agent": UA})
+            if not r.ok:
+                continue
+            words = _json3_words(r.json())
+            if len(words) >= 20:
+                return _words_to_lines(words), key.split("-")[0]
+        except Exception as e:  # noqa: BLE001
+            print("caption track failed:", key, str(e)[:200], flush=True)
+    return [], None
+
+
+def _yt_audio(url: str, d: Path) -> Path:
+    out = d / "yt_audio.%(ext)s"
+    _run(["yt-dlp", "--no-playlist", "-f", "ba[ext=m4a]/ba/b[height<=480]/b", "-o", str(out), "--no-progress", url], "youtube audio", 1800)
+    got = sorted(d.glob("yt_audio.*"))
+    if not got:
+        raise RuntimeError("Tak dapat muat turun audio YouTube.")
+    return got[0]
+
+
+def _gdrive_download(url: str, dest: Path) -> Path:
+    """A Google Drive file shared as "Anyone with the link" → local file."""
+    import requests
+    m = GD_ID.search(url)
+    if not m:
+        raise RuntimeError("Pautan Google Drive tidak sah.")
+    fid = m.group(1)
+    s = requests.Session()
+    r = s.get("https://drive.usercontent.google.com/download", params={"id": fid, "export": "download", "confirm": "t"},
+              stream=True, timeout=60, headers={"User-Agent": UA})
+    ctype = r.headers.get("content-type", "")
+    if r.ok and "text/html" not in ctype:
+        n = 0
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(1 << 20):
+                n += len(chunk)
+                if n > 4 * 1024 ** 3:
+                    raise RuntimeError("Fail Google Drive terlalu besar (maks 4GB).")
+                f.write(chunk)
+        if n > 500_000:
+            return dest
+    # fallback: yt-dlp's Drive extractor
+    tmpl = dest.with_name("gd.%(ext)s")
+    try:
+        _run(["yt-dlp", "-f", "bv*+ba/b", "--merge-output-format", "mp4", "-o", str(tmpl), "--no-progress", url], "gdrive", 1800)
+        got = sorted(dest.parent.glob("gd.*"))
+        if got:
+            got[0].rename(dest)
+            return dest
+    except Exception as e:  # noqa: BLE001
+        print("gdrive yt-dlp failed:", str(e)[:300], flush=True)
+    raise RuntimeError("Tak dapat muat turun dari Google Drive — pastikan fail dikongsi \"Anyone with the link\".")
+
+
+def _audio16k(src: str, out: Path, start: float | None = None, length: float | None = None) -> Path:
+    cmd = ["ffmpeg", "-v", "error", "-y"]
+    if start:
+        cmd += ["-ss", f"{start:.2f}"]
+    cmd += ["-i", src]
+    if length:
+        cmd += ["-t", f"{length:.2f}"]
+    _run(cmd + ["-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(out)], "audio", 1800)
+    return out
+
+
+def _pcm_raw(wav: Path) -> Path:
+    """16 kHz mono s16le with no header (numpy reads it straight from disk)."""
+    raw = wav.with_suffix(".raw")
+    if not raw.exists():
+        _run(["ffmpeg", "-v", "error", "-y", "-i", str(wav), "-f", "s16le", "-ac", "1", "-ar", "16000", str(raw)], "pcm", 900)
+    return raw
+
+
+def _energy_heatmap(wav: Path, buckets: int = 100) -> list:
+    """Loudness over the video as a stand-in for YouTube's "most replayed" (100 points, 0.1–1)."""
+    import numpy as np
+    pcm = np.memmap(str(_pcm_raw(wav)), dtype=np.int16, mode="r")
+    n = len(pcm)
+    if n < buckets * 160:
+        return []
+    size = n // buckets
+    rms = np.array([float(np.sqrt(np.mean(np.square(pcm[i * size:(i + 1) * size].astype(np.float32))))) for i in range(buckets)])
+    lo, hi = float(rms.min()), float(rms.max())
+    dur = n / 16000.0
+    if hi - lo < 1e-6:
+        return []
+    return [{"start": round(i * dur / buckets, 2), "end": round((i + 1) * dur / buckets, 2), "value": round(0.1 + 0.9 * (v - lo) / (hi - lo), 3)}
+            for i, v in enumerate(rms)]
+
+
+def _detect_language(wav: Path) -> str | None:
+    import numpy as np
+    pcm = np.memmap(str(_pcm_raw(wav)), dtype=np.int16, mode="r")
+    mid = len(pcm) // 2
+    sample = np.asarray(pcm[max(0, mid - 16000 * 15): mid + 16000 * 15], dtype=np.float32) / 32768.0
+    try:
+        _segs, info = _whisper().transcribe(sample, language=None, beam_size=1)
+        return info.language
+    except Exception as e:  # noqa: BLE001
+        print("language detect failed:", str(e)[:200], flush=True)
+        return None
+
+
+@app.function(image=hf_render_image, cpu=8.0, memory=8192, timeout=1800, volumes={JOBS_ROOT: JOBS})
+def clip_asr(rel: str, language: str | None, offset: float, keep_from: float, keep_to: float) -> list:
+    """Whisper on one chunk of a long source (on the jobs Volume); words in source time, only [keep_from, keep_to)."""
+    JOBS.reload()
+    words = _transcribe(Path(JOBS_ROOT) / rel, language or None, vad=True)
+    out = []
+    for w in words:
+        t, e = w["t"] + offset, w["e"] + offset
+        if keep_from <= t < keep_to:
+            out.append({"w": w["w"], "t": round(t, 3), "e": round(e, 3)})
+    return out
+
+
+def _asr_long(wav: Path, d: Path, language: str | None) -> list:
+    """Whisper over a long source: ~10-minute chunks (with overlap) transcribed in parallel containers."""
+    dur = _probe(wav)["duration"]
+    if dur <= 720:
+        return _transcribe(wav, language or None, vad=True)
+    CH, PAD = 600.0, 4.0
+    jobs = []
+    rel_root = d.relative_to(JOBS_ROOT)
+    k, t = 0, 0.0
+    while t < dur:
+        a, b = max(0.0, t - PAD), min(dur, t + CH + PAD)
+        part = d / f"asr_{k:03d}.wav"
+        _audio16k(str(wav), part, a, b - a)
+        jobs.append((str(rel_root / part.name), a, t, min(dur, t + CH) if t + CH < dur else dur + 1))
+        t += CH
+        k += 1
+    JOBS.commit()
+    calls = [clip_asr.spawn(rel, language, off, kf, kt) for rel, off, kf, kt in jobs]
+    words = []
+    for c in calls:
+        words += c.get(timeout=1700)
+    words.sort(key=lambda w: w["t"])
+    return words
+
+
+def _clip_analyze(p: dict, d: Path) -> dict:
+    import requests
+    src = p.get("source") or {}
+    kind, url = str(src.get("type") or ""), str(src.get("url") or "")
+    want = str((p.get("options") or {}).get("language") or "auto")
+    uid, hid = str(p.get("user_id") or "anon"), str(p.get("history_id") or "job")
+    meta = {"source_type": kind}
+    lines, lang, heat, cap_src, media_url = [], None, [], "", None
+    _progress("source", 4)
+    if kind == "youtube":
+        info = _yt_info(url)
+        if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
+            raise RuntimeError("Siaran langsung belum tamat — cuba bila live sudah habis.")
+        meta.update(title=info.get("title"), channel=info.get("channel") or info.get("uploader"), duration=float(info.get("duration") or 0),
+                    thumb=info.get("thumbnail"), video_id=info.get("id"))
+        heat = [{"start": round(float(h.get("start_time") or 0), 2), "end": round(float(h.get("end_time") or 0), 2), "value": round(float(h.get("value") or 0), 3)}
+                for h in (info.get("heatmap") or [])]
+        _progress("transcript", 15)
+        lines, lang = _yt_captions(info, want)
+        cap_src = "youtube" if lines else ""
+        wav = None
+        if not lines:
+            _progress("audio", 20)
+            audio = _yt_audio(url, d)
+            wav = _audio16k(str(audio), d / "audio16k.wav")
+    else:
+        if kind == "gdrive":
+            _progress("download", 6)
+            local = _gdrive_download(url, d / "gdrive_src")
+            info = _probe(local)
+            if not info.get("w"):
+                raise RuntimeError("Fail Google Drive itu bukan video.")
+            _progress("upload", 12)
+            media_url = _upload_b2(local, f"users/{uid}/clipper/{hid}-source.mp4", "video/mp4")
+            src_for_audio = str(local)
+        elif kind == "upload":
+            media_url, src_for_audio = url, url
+            info = _probe_url(url)
+        else:
+            raise RuntimeError("Sumber video tidak dikenali.")
+        meta.update(title=str(src.get("name") or "Video"), channel=None, duration=float(info.get("duration") or 0), thumb=None, video_id=None)
+        wav = _audio16k(src_for_audio, d / "audio16k.wav")
+    if meta["duration"] > CLIP_MAX_SOURCE_SEC:
+        raise RuntimeError("Video terlalu panjang (maks 4 jam).")
+    if not lines:
+        lang = (want if want != "auto" else None) or _detect_language(wav)
+        _progress("transcript", 30)
+        words = _asr_long(wav, d, lang)
+        lines = _words_to_lines(words)
+        cap_src = "whisper"
+        if not heat:
+            heat = _energy_heatmap(wav)
+    if len(lines) < 3:
+        raise RuntimeError("Tiada percakapan yang boleh dibaca dalam video ini.")
+    meta["language"] = lang
+    _progress("director", 70)
+    plan, err = None, ""
+    try:
+        r = requests.post(p["plan_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "meta": meta,
+                                               "heatmap": heat, "segments": lines}, timeout=295)
+        j = r.json()
+        if r.ok and j.get("ok"):
+            plan = j
+        else:
+            err = str(j.get("error") or r.status_code)[:300]
+    except Exception as e:  # noqa: BLE001
+        err = str(e)[:300]
+    _progress("save", 95)
+    seg_url = None
+    try:
+        tf = d / "transcript.json"
+        tf.write_text(json.dumps(lines, ensure_ascii=False), encoding="utf-8")
+        seg_url = _upload_b2(tf, f"users/{uid}/clipper/{hid}-transcript.json", "application/json")
+    except Exception as e:  # noqa: BLE001
+        print("transcript upload failed:", str(e)[:200], flush=True)
+    return {"ok": True, "analysis": {**meta, "media_url": media_url, "heatmap": heat, "caption_source": cap_src, "transcript_url": seg_url,
+                                     "lines": len(lines), "summary": (plan or {}).get("summary") or "", "clips": (plan or {}).get("clips") or [],
+                                     "director": (plan or {}).get("director"), "plan_error": err or None}}
+
+
+def _probe_url(url: str) -> dict:
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", url],
+                       capture_output=True, text=True, timeout=120)
+    try:
+        j = json.loads(r.stdout or "{}")
+    except Exception:  # noqa: BLE001
+        j = {}
+    v = next((s for s in j.get("streams", []) if s.get("codec_type") == "video"), {})
+    return {"duration": float((j.get("format") or {}).get("duration") or 0), "w": v.get("width"), "h": v.get("height")}
+
+
+YT_FORMAT = "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b"
+
+
+def _yt_segment(url: str, start: float, end: float, out: Path) -> Path:
+    """One clip of a YouTube video, frame-accurate, ≤ 1080p: yt-dlp's section download (cut points re-encoded),
+    else the stream URLs read by ffmpeg."""
+    def hms(x: float) -> str:
+        return f"{int(x // 3600):02d}:{int(x % 3600 // 60):02d}:{x % 60:06.3f}"
+    tmpl = out.with_name("ytseg.%(ext)s")
+    try:
+        _run(["yt-dlp", "--no-playlist", "--no-progress", "-f", YT_FORMAT, "--download-sections", f"*{hms(start)}-{hms(end)}",
+              "--force-keyframes-at-cuts", "--merge-output-format", "mp4", "-o", str(tmpl), url], "youtube clip", 900)
+        got = sorted(out.parent.glob("ytseg.*"))
+        if got:
+            got[0].replace(out)
+            if _probe(out)["duration"] > (end - start) * 0.8:
+                return out
+    except Exception as e:  # noqa: BLE001
+        print("yt-dlp section download failed, trying stream URLs:", str(e)[:300], flush=True)
+    r = subprocess.run(["yt-dlp", "--no-playlist", "-g", "-f", YT_FORMAT, url],
+                       capture_output=True, text=True, timeout=180)
+    urls = [u for u in (r.stdout or "").split("\n") if u.startswith("http")]
+    if not urls:
+        msg = (r.stderr or "")[-300:]
+        raise RuntimeError("YouTube menyekat muat turun buat masa ini — cuba lagi sebentar." if "Sign in" in msg else f"Tak dapat ambil video YouTube: {msg}")
+    pad = 0.0
+    cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{max(0.0, start - pad):.3f}", "-i", urls[0]]
+    if len(urls) > 1:
+        cmd += ["-ss", f"{max(0.0, start - pad):.3f}", "-i", urls[1], "-map", "0:v:0", "-map", "1:a:0"]
+    cmd += ["-t", f"{end - start:.3f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-c:a", "aac", "-b:a", "192k", str(out)]
+    _run(cmd, "youtube clip", 900)
+    return out
+
+
+def _media_segment(url: str, start: float, end: float, out: Path) -> Path:
+    _run(["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.3f}", "-i", url, "-t", f"{end - start:.3f}",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-c:a", "aac", "-b:a", "192k", str(out)], "clip", 900)
+    return out
+
+
+def _faces_wide(video: Path, fps_s: int = 4) -> list:
+    """Every face per sample of a (wide) video, YuNet: [{t, faces: [{cx, cy, w, h, s}]}] (0..1)."""
+    import numpy as np
+    import cv2
+    info = _probe(video)
+    W0, H0 = info["w"] or 1920, info["h"] or 1080
+    W = 640
+    H = max(2, int(round(W * H0 / W0 / 2)) * 2)
+    det = cv2.FaceDetectorYN.create(YUNET_MODEL, "", (W, H), 0.6, 0.3, 5000)
+    proc = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(video), "-vf", f"fps={fps_s},scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+                            stdout=subprocess.PIPE)
+    out, i, size = [], 0, W * H * 3
+    while True:
+        buf = proc.stdout.read(size)
+        if not buf or len(buf) < size:
+            break
+        frame = np.frombuffer(buf, np.uint8).reshape(H, W, 3)
+        _n, faces = det.detect(frame)
+        fl = []
+        for f in (faces if faces is not None else []):
+            x, y, w, h, score = float(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[-1])
+            if w / W < 0.025:
+                continue
+            fl.append({"cx": (x + w / 2) / W, "cy": (y + h / 2) / H, "w": w / W, "h": h / H, "s": score})
+        out.append({"t": round(i / fps_s, 3), "faces": fl})
+        i += 1
+    proc.wait(timeout=120)
+    return out
+
+
+def _lerp_expr(keys: list) -> str:
+    """Piecewise-linear x(t) for ffmpeg from [(t, x), …]."""
+    keys = [(round(t, 3), round(x, 1)) for t, x in keys]
+    expr = f"{keys[-1][1]}"
+    for (t0, x0), (t1, x1) in reversed(list(zip(keys, keys[1:]))):
+        seg = f"{x0}" if abs(x1 - x0) < 0.5 or t1 - t0 < 1e-3 else f"{x0}+({x1 - x0})*(t-{t0})/{round(t1 - t0, 3)}"
+        expr = f"if(lt(t,{t1}),{seg},{expr})"
+    return expr
+
+
+def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
+    """A wide clip → 9:16 1080x1920, shot by shot: the camera follows the main speaker (dead zone + eased pans);
+    two people far apart in one shot → stacked halves; no face → the whole frame over a blurred copy."""
+    info = _probe(src)
+    W, H, dur = info["w"] or 1920, info["h"] or 1080, info["duration"] or 0
+    if not dur or mode == "fit" or W / H <= 0.62:
+        return {"mode": "as-is"}  # _normalise fits it (a vertical source, or the client asked for the whole frame)
+    cw = H * 9 / 16
+    if cw > W:
+        return {"mode": "as-is"}
+    fps = 30
+    samples = _faces_wide(src) if mode == "face" else []
+    cuts = [c for c in _scene_cuts(src, 0.3) if 0.6 < c < dur - 0.6]
+    edges = [0.0] + cuts + [dur]
+    shots = []
+    for a, b in zip(edges, edges[1:]):
+        if shots and b - a < 0.8:
+            shots[-1] = (shots[-1][0], b)
+        else:
+            shots.append((a, b))
+    parts, report = [], []
+    for k, (a, b) in enumerate(shots):
+        fa, fb = round(a * fps), round(b * fps)
+        if fb - fa < 2:
+            continue
+        ss = [s for s in samples if a <= s["t"] < b]
+        withf = [s for s in ss if s["faces"]]
+        layout, vf = "center", None
+        if mode == "face" and len(withf) >= max(1, len(ss) * 0.3):
+            # face clusters across the shot (by x position)
+            clusters: list = []
+            for s in withf:
+                for f in s["faces"]:
+                    c = next((c for c in clusters if abs(c["cx"] - f["cx"]) < 0.12), None)
+                    if c:
+                        c["n"] += 1
+                        c["area"] += f["w"] * f["h"]
+                        c["cx"] = c["cx"] * 0.8 + f["cx"] * 0.2
+                    else:
+                        clusters.append({"cx": f["cx"], "n": 1, "area": f["w"] * f["h"]})
+            clusters.sort(key=lambda c: -c["area"])
+            main = clusters[0]
+            two = [c for c in clusters[:2] if c["n"] >= len(withf) * 0.55]
+            if len(two) == 2 and abs(two[0]["cx"] - two[1]["cx"]) > 0.38 and min(two[0]["area"], two[1]["area"]) > 0.4 * max(two[0]["area"], two[1]["area"]):
+                # a two-shot: each person in their own half (left on top)
+                left, right = sorted(two, key=lambda c: c["cx"])
+                hh = H * 0.62
+                ww = hh * 9 / 8
+                if ww <= W / 2 + 40:
+                    def box(cx):
+                        x = min(max(cx * W - ww / 2, 0), W - ww)
+                        return f"crop={ww:.0f}:{hh:.0f}:{x:.0f}:{(H - hh) * 0.35:.0f},scale=1080:960:flags=lanczos"
+                    vf = f"split=2[a][b];[a]{box(left['cx'])}[t];[b]{box(right['cx'])}[u];[t][u]vstack"
+                    layout = "split"
+            if vf is None:
+                track = []
+                prev = main["cx"]
+                for s in ss:
+                    near = [f for f in s["faces"] if abs(f["cx"] - prev) < 0.15]
+                    if near:
+                        prev = max(near, key=lambda f: f["w"] * f["h"])["cx"]
+                    track.append((s["t"] - a, prev))
+                xs = [min(max(cx * W - cw / 2, 0), W - cw) for _, cx in track]
+                # median smoothing, then a dead zone: the camera moves only when the face leaves it, easing over 0.6 s
+                med = [sorted(xs[max(0, i - 2): i + 3])[len(xs[max(0, i - 2): i + 3]) // 2] for i in range(len(xs))]
+                keys = [(0.0, med[0] if med else (W - cw) / 2)]
+                pos = keys[0][1]
+                for (t, _), x in zip(track, med):
+                    if abs(x - pos) > cw * 0.12 and t - keys[-1][0] > 0.7:
+                        keys.append((t, pos))
+                        keys.append((t + 0.6, x))
+                        pos = x
+                expr = _lerp_expr(keys) if len(keys) > 1 else f"{keys[0][1]:.1f}"
+                vf = f"crop={cw:.0f}:{H}:x='{expr}':y=0,scale=1080:1920:flags=lanczos"
+                layout = "follow" if len(keys) > 1 else "face"
+        if vf is None:
+            if mode == "center":
+                vf = f"crop={cw:.0f}:{H}:{(W - cw) / 2:.0f}:0,scale=1080:1920:flags=lanczos"
+            else:  # no face in this shot: the whole frame over a blurred copy of itself
+                vf = ("split=2[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=28:6,eq=brightness=-0.08[bg];"
+                      "[b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2")
+                layout = "fit"
+        part = d / f"shot_{k:03d}.mp4"
+        script = d / f"shot_{k:03d}.txt"
+        script.write_text(f"[0:v]fps={fps},{vf},setsar=1,format=yuv420p[v]", encoding="utf-8")
+        _run(["ffmpeg", "-v", "error", "-y", "-ss", f"{fa / fps:.3f}", "-i", str(src), "-frames:v", str(fb - fa), "-an",
+              "-filter_complex_script", str(script), "-map", "[v]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-r", str(fps), str(part)],
+             f"reframe shot {k}", 600)
+        parts.append(part)
+        report.append({"s": round(a, 2), "e": round(b, 2), "layout": layout})
+    if not parts:
+        return {"mode": "as-is"}
+    lst = d / "shots.txt"
+    lst.write_text("".join(f"file '{p.name}'\n" for p in parts), encoding="utf-8")
+    vid = d / "framed_v.mp4"
+    _run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(vid)], "reframe concat", 300)
+    cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(vid), "-i", str(src), "-map", "0:v:0"]
+    cmd += (["-map", "1:a:0", "-c:a", "aac", "-b:a", "192k"] if info.get("audio") else [])
+    _run(cmd + ["-c:v", "copy", "-shortest", str(out)], "reframe mux", 300)
+    return {"mode": mode, "shots": report}
+
+
+def _clip_prepare(p: dict, d: Path) -> dict:
+    """CLIPPER render, before the Edit Video pipeline: the clip's segment, reframed, with its own word timings."""
+    c = p.get("clip") or {}
+    start, end = float(c.get("start") or 0), float(c.get("end") or 0)
+    if not (end - start >= 3):
+        raise RuntimeError("Klip terlalu pendek.")
+    _progress("download", 3)
+    seg = d / "segment.mp4"
+    if c.get("source_type") == "youtube":
+        _yt_segment(str(c.get("url")), start, end, seg)
+    else:
+        _media_segment(str(c.get("media_url") or c.get("url")), start, end, seg)
+    _progress("reframe", 8)
+    framed = d / "framed.mp4"
+    rep = _reframe(seg, framed, d, str(c.get("frame") or "face"))
+    src = framed if framed.exists() else seg
+    _progress("transcribe", 14)
+    lang = c.get("language") or p.get("language")
+    words = _transcribe(src, lang if lang in ("ms", "en", "id") else None, vad=True)
+    # the captions' spelling, cleaned like an Edit Video draft (one fast AI call; timing untouched)
+    if p.get("captions") is not False and words:
+        _progress("captions", 18)
+        for fx in _caption_fixes(words, p):
+            try:
+                i, w = int(fx[0]), str(fx[1]).strip()
+                if 0 <= i < len(words) and w and len(w) <= 40:
+                    words[i]["w"] = w
+            except Exception:  # noqa: BLE001
+                continue
+    info = _probe(src)
+    return {"_src": str(src), "_info": info, "words": words, "segs": None, "span": info["duration"],
+            "captions": p.get("captions"), "reframe": rep}
+
+
+def _clip_watermark(video: Path, wm: dict, d: Path) -> None:
+    """The client's @handle (or logo) burned in, top right, after the render."""
+    import requests
+    text = re.sub(r"[^\w@.\- ]", "", str(wm.get("text") or ""))[:40].strip()
+    logo = str(wm.get("image") or "")
+    if not text and not logo.startswith("https://"):
+        return
+    out = video.with_name("wm_" + video.name)
+    if logo.startswith("https://"):
+        lp = d / "wm_logo.png"
+        r = requests.get(logo, timeout=30)
+        if not r.ok:
+            return
+        lp.write_bytes(r.content)
+        fc = "[1:v]scale=200:-1,format=rgba,colorchannelmixer=aa=0.85[l];[0:v][l]overlay=W-w-40:150[v]"
+        cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-i", str(lp), "-filter_complex", fc, "-map", "[v]", "-map", "0:a?"]
+    else:
+        font = "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
+        safe = text.replace(":", r"\:").replace("'", "")
+        vf = f"drawtext=fontfile={font}:text='{safe}':fontsize=40:fontcolor=white@0.85:shadowcolor=black@0.6:shadowx=2:shadowy=2:x=w-tw-44:y=160"
+        cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vf", vf, "-map", "0:v", "-map", "0:a?"]
+    _run(cmd + ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "copy", "-movflags", "+faststart", str(out)], "watermark", 600)
+    out.replace(video)
+
+
+# image = upload_image's spec (that name is defined further down)
+@app.function(image=web_image.pip_install("boto3==1.34.0"), secrets=SECRETS, timeout=900)
+def clip_zip(items: list, key: str) -> str:
+    """The client's rendered clips in one ZIP on B2 (stored, not compressed: MP4s don't shrink)."""
+    import shutil
+    import urllib.request
+    import zipfile
+    tmp = Path(tempfile.mkdtemp(prefix="zip_")) / "clips.zip"
+    used = set()
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as z:
+        for it in items[:40]:
+            url = str(it.get("url") or "")
+            if not url.startswith("https://"):
+                continue
+            base = re.sub(r"[^\w\- ]", "", str(it.get("name") or "klip")).strip()[:60] or "klip"
+            name, n = f"{base}.mp4", 2
+            while name in used:
+                name, n = f"{base} ({n}).mp4", n + 1
+            used.add(name)
+            with urllib.request.urlopen(url, timeout=120) as r, z.open(name, "w", force_zip64=True) as f:
+                shutil.copyfileobj(r, f, 1 << 20)
+    return _upload_b2(tmp, key, "application/zip")
+
+
 def _authorised(secret: str) -> bool:
     import hmac
     want = os.environ.get("MOTION_SECRET") or ""
@@ -2740,6 +3361,7 @@ def _upload_sig_ok(key: str, exp: str, sig: str) -> bool:
 
 
 MAX_UPLOAD = 300 * 1024 * 1024
+MAX_CLIP_UPLOAD = 1024 * 1024 * 1024
 MAX_IMAGE_UPLOAD = 12 * 1024 * 1024
 upload_image = web_image.pip_install("boto3==1.34.0")
 
@@ -2769,8 +3391,8 @@ def api():
     async def start(payload: dict):
         if not _authorised(str(payload.get("secret") or "")):
             return JSONResponse({"ok": False, "error": "unauthorised"}, status_code=401)
-        if payload.get("flow") not in ("ad", "edit"):
-            return {"ok": False, "error": "flow must be ad or edit"}
+        if payload.get("flow") not in ("ad", "edit", "clip-analyze", "clip"):
+            return {"ok": False, "error": "unknown flow"}
         job = {k: v for k, v in payload.items() if k != "secret"}
         call = await run_job.spawn.aio(job)
         return {"ok": True, "call_id": call.object_id}
@@ -2797,6 +3419,19 @@ def api():
             return {"status": "done", "result": res}
         return {"status": "failed", "error": (res or {}).get("error") if isinstance(res, dict) else "unknown"}
 
+    @web.post("/zip")
+    async def zip_(payload: dict):
+        if not _authorised(str(payload.get("secret") or "")):
+            return JSONResponse({"ok": False, "error": "unauthorised"}, status_code=401)
+        key = str(payload.get("key") or "")
+        if not re.fullmatch(r"users/[A-Za-z0-9_-]+/clipper/zips/[A-Za-z0-9_-]+\.zip", key):
+            return JSONResponse({"ok": False, "error": "bad key"}, status_code=400)
+        try:
+            url = await clip_zip.remote.aio(list(payload.get("items") or []), key)
+            return {"ok": True, "url": url}
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
+
     @web.post("/upload")
     async def upload(request: Request, key: str = "", exp: str = "", sig: str = ""):
         import asyncio
@@ -2806,14 +3441,16 @@ def api():
         # vgc-uploads/… = Custom Style (VGC) material: images, footage or a voice-over
         is_image = key.startswith("motion-images/")
         is_vgc = key.startswith("vgc-uploads/")
+        is_clip = key.startswith("clipper-uploads/")  # CLIPPER: a long source video
         ctype = (request.headers.get("content-type") or ("image/jpeg" if is_image else "video/mp4")).split(";")[0].strip()
         if is_vgc:
             if not ctype.startswith(("image/", "video/", "audio/")):
                 return JSONResponse({"ok": False, "error": "image, video or audio files only"}, status_code=415)
         elif not ctype.startswith("image/" if is_image else "video/"):
             return JSONResponse({"ok": False, "error": "image files only" if is_image else "video files only"}, status_code=415)
-        limit = MAX_IMAGE_UPLOAD if is_image else MAX_UPLOAD
-        too_big = "image too large (max 12MB)" if is_image else "file too large (max 300MB)" if is_vgc else "video too large (max 300MB)"
+        limit = MAX_IMAGE_UPLOAD if is_image else MAX_CLIP_UPLOAD if is_clip else MAX_UPLOAD
+        too_big = ("image too large (max 12MB)" if is_image else "file too large (max 300MB)" if is_vgc
+                   else "video too large (max 1GB)" if is_clip else "video too large (max 300MB)")
         declared = int(request.headers.get("content-length") or 0)
         if declared > limit:
             return JSONResponse({"ok": False, "error": too_big}, status_code=413)

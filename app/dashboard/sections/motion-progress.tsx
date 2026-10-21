@@ -42,6 +42,12 @@ export const MOTION_STAGE_LABEL: Record<string, string> = {
   critic: "AI pengkritik nilai video",
   revise: "AI baiki ikut pengkritik",
   master: "Seimbangkan audio",
+  // CLIPPER
+  reframe: "Susun semula ke 9:16 (ikut muka)",
+  source: "Baca video",
+  transcript: "Baca transkrip",
+  director: "AI director pilih klip viral",
+  save: "Simpan hasil",
   done: "Siap",
   failed: "Gagal",
 };

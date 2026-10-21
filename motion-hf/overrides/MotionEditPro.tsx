@@ -159,13 +159,13 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       return { it, s, e, key: k };
     }).filter((pl) => ctaStart < 0 || pl.s < ctaStart - 6).map((pl) => (ctaStart >= 0 && pl.e > ctaStart ? { ...pl, e: Math.max(pl.s + 14, ctaStart) } : pl));
 
-    // B-roll windows (no overlaps, never in the hook's first second, cleared for the end card);
+    // B-roll windows (no overlaps, never while the hook title is up — a card over the title hid it — cleared for the end card);
     // a card with no room above the face goes full-screen
     const broll: PlacedBRoll[] = [];
     for (const [k, b] of (p.broll ?? []).slice(0, 16).entries()) {
       let s = onBeat(fr(cue(b.at, 0)));
       let e = b.to !== undefined ? fr(cue(b.to, s / fps + BROLL_DUR)) : s + fr(BROLL_DUR);
-      s = Math.max(s, fr(1));
+      s = Math.max(s, fr(1), p.hook?.text ? hookEnd + 2 : 0);
       e = Math.min(Math.max(e, s + fr(1.2)), s + fr(4), durationInFrames - 2, ctaStart >= 0 ? ctaStart : durationInFrames - 2);
       const prev = broll[broll.length - 1];
       if (prev && s < prev.e + 4) s = prev.e + 4;

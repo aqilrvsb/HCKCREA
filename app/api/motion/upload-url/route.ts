@@ -12,19 +12,23 @@ export async function POST(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!(await isTabAllowedForUser(user.id, "motion"))) {
+  const b = await req.json().catch(() => ({} as any));
+  // kind "clip" = a CLIPPER source video (long: ≤ 1 GB), from the CLIPPER tab
+  if (!(await isTabAllowedForUser(user.id, b?.kind === "clip" ? "clipper" : "motion"))) {
     return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
   }
-  const b = await req.json().catch(() => ({} as any));
   const size = Number(b?.size) || 0;
   // kind "image" = the seller's product photos (Edit Video) — same browser →
   // Modal → B2 path as the video, so it doesn't depend on any third party.
   // kind "vgc" = Custom Style material (image, footage or voice-over).
-  const kind = b?.kind === "image" ? "image" : b?.kind === "vgc" ? "vgc" : "video";
+  const kind = b?.kind === "image" ? "image" : b?.kind === "vgc" ? "vgc" : b?.kind === "clip" ? "clip" : "video";
   if (kind === "image" && size > 12 * 1024 * 1024) {
     return NextResponse.json({ error: "Gambar terlalu besar (maks 12MB)." }, { status: 413 });
   }
-  if (kind !== "image" && size > MOTION_EDIT_MAX_MB * 1024 * 1024) {
+  if (kind === "clip" && size > 1024 * 1024 * 1024) {
+    return NextResponse.json({ error: "Video terlalu besar (maks 1GB) — untuk video lebih panjang, guna pautan YouTube atau Google Drive." }, { status: 413 });
+  }
+  if (kind !== "image" && kind !== "clip" && size > MOTION_EDIT_MAX_MB * 1024 * 1024) {
     return NextResponse.json({ error: `Video terlalu besar (maks ${MOTION_EDIT_MAX_MB}MB).` }, { status: 413 });
   }
   const signed = await signMotionUpload(user.id, String(b?.name || (kind === "image" ? "photo.jpg" : "video.mp4")), kind);

@@ -16,6 +16,7 @@ import {
   Scissors,
   Send,
   Clapperboard,
+  ScissorsLineDashed,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import ImageTabWithMode from "./tabs/image-with-mode";
@@ -25,6 +26,7 @@ import GrokTab from "./tabs/grok";
 import Sora2Tab from "./tabs/sora2";
 import OriginalVideoTab from "./tabs/original-video";
 import MotionTab from "./tabs/motion";
+import ClipperTab from "./tabs/clipper";
 import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
@@ -68,7 +70,8 @@ type TabKey =
   | "transfer-affiliate"
   | "fairytale"
   | "original-video"
-  | "motion";
+  | "motion"
+  | "clipper";
 
 // Auto UGC — opened to EVERYONE per user direction 2026-07-06 (was gated
 // to nl@/admin@ during the pilot). Gate machinery kept so it can be
@@ -95,6 +98,8 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Motion — AI motion-graphics video: "Buat Iklan" (ad from scratch) +
   // "Edit Video" (animated captions/overlays on an uploaded clip).
   { key: "motion",    label: "Motion",       icon: Clapperboard, tag: "03b" },
+  // CLIPPER — a long video (YouTube / Google Drive / upload) → its most viral clips, rendered 9:16 by the Motion engine
+  { key: "clipper",   label: "Clipper",      icon: ScissorsLineDashed, tag: "03c" },
   { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "04" },
   // Auto UGC — Grok-Imagine avatar UGC with 30s split into Seg 1/Seg 2.
   // Open to everyone (canSeeAutoUgc gate kept for easy re-restriction).
@@ -208,7 +213,7 @@ export default function DashboardShell({
   // project tabs their partner ticked). The "image" tab row is shown when EITHER
   // its Image or Storyboard sub-mode is allowed. null/empty = no restriction.
   const visibleTabs = (() => {
-    const base = TABS.filter((t) => (t.key !== "auto-ugc" || canAutoUgc) && (t.key !== "motion" || motionAllowed));
+    const base = TABS.filter((t) => (t.key !== "auto-ugc" || canAutoUgc) && (t.key !== "motion" || motionAllowed) && (t.key !== "clipper" || motionAllowed));
     if (partnerRestricted) {
       return base.filter((t) =>
         t.key === "image"
@@ -600,6 +605,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       "original-video": "story",
       // Motion reuses Story SOP for now (no dedicated SOP yet).
       motion: "story",
+      clipper: "story",
     };
     key = map[activeTab];
   } else if (view.kind === "billing") key = "billing";
@@ -803,6 +809,14 @@ function ProjectView({
                 <MotionTab projectId={project.id} />
               </div>
               <HistoryGrid tab="motion" title={`Motion — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "clipper" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <ClipperTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="clipper" title={`Clipper — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "sora2" && (

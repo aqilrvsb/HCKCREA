@@ -89,6 +89,8 @@ function modelLabel(item: HistoryItem): string {
   // Motion tab (AI motion-graphics). metadata.model may carry the planner LLM
   // id (e.g. a gemini model), so claim these rows BEFORE any model-string
   // matching below. metadata.feature distinguishes the two flows.
+  // CLIPPER clips (a long video cut into clips, rendered by the Motion engine)
+  if (item.tab === "clipper") return "Clipper";
   if (item.tab === "motion") {
     const feature = (item.metadata as any)?.feature;
     if (feature === "motion-ad") return "Motion · Iklan";
@@ -169,7 +171,7 @@ function videoModeLabel(item: HistoryItem): string | null {
     return null;
   // Motion rows aren't t2v/i2v generations — the badge from modelLabel()
   // ("Motion · Iklan" / "Motion · Edit") already says what they are.
-  if (item.tab === "motion") return null;
+  if (item.tab === "motion" || item.tab === "clipper") return null;
   const meta = item.metadata?.imageMode;
   // Video generated FROM a storyboard (🎬 Generate Video) — carry the sub
   // (and campaign position) label over from the storyboard so the Original
@@ -242,7 +244,8 @@ export default function HistoryGrid({
     | "auto-ugc"
     | "fairytale"
     | "original-video"
-    | "motion";
+    | "motion"
+    | "clipper";
   title: string;
   projectId?: string;
   /** Legacy flag — Original Video used to share the cinema grid and
@@ -349,7 +352,7 @@ export default function HistoryGrid({
   const edAddLog = (m: string) => setEdLog((l) => [m, ...l].slice(0, 40));
   // Video tabs share the Editor's denser layout (6 per row). Image / Clone /
   // Storytelling keep the roomier 4-per-row grid.
-  const isVideoTab = ["video", "original-video", "auto", "auto-ugc", "cinema", "grok", "seedance", "sora2", "motion"].includes(tab);
+  const isVideoTab = ["video", "original-video", "auto", "auto-ugc", "cinema", "grok", "seedance", "sora2", "motion", "clipper"].includes(tab);
   const sixPerRow = editorMode || donePostMode || transferAffiliateMode || isVideoTab;
   // 6-per-row grids = 6 columns × 4 rows = 24 per page. 4-per-row grids = 12.
   // Editor, Ready Affiliate AND Done Post all use the client-chosen page size
@@ -1999,7 +2002,7 @@ function dupTokens(prompt: string | null): string[] {
 function dupKind(it: HistoryItem): "sb" | "vid" | null {
   // Motion edits each start from the client's own video — their "prompt" is the
   // shared edit preset, so comparing it would flag every one as a copy.
-  if (it.tab === "motion") return null;
+  if (it.tab === "motion" || it.tab === "clipper") return null;
   if (it.metadata?.feature === "storyboard") return "sb";
   if (it.type === "video") return "vid";
   return null;
@@ -2072,6 +2075,7 @@ function sourceTabLabel(item: HistoryItem): string {
   if (t === "grok") return "Grok";
   if (t === "auto") return "Auto Content";
   if (t === "motion") return "Motion";
+  if (t === "clipper") return "Clipper";
   return t ? t.replace(/(^|[-_])(\w)/g, (_m, _s, c) => " " + c.toUpperCase()).trim() : "Video";
 }
 
@@ -2371,7 +2375,7 @@ function HistoryCardInner({
   // not a video model — none of the model-based actions apply. Extend, Improve,
   // Pindah ke Editor and Resubmit are all hidden for them (Resubmit for Motion
   // will be wired separately). Play / Save / Download / Delete stay.
-  const isMotionRow = item.tab === "motion";
+  const isMotionRow = item.tab === "motion" || item.tab === "clipper";
   // Extend + Improve are available on every completed Veo video — fal.ai
   // extracts the last frame from the output URL and feeds it to Veo i2v
   // for the continuation. Cinema (Viral) cards get a Merge action
@@ -3563,8 +3567,8 @@ function HistoryCardInner({
           <>
             {/* Motion jobs: live stage + progress over a preview of the source. */}
             {isMotionRow && item.status === "pending" && (
-              <MotionProgress id={item.id} preview={item.reference_url}
-                isVideo={(item.metadata as any)?.feature === "motion-edit"} />
+              <MotionProgress id={item.id} preview={item.tab === "clipper" ? (item.thumbnail_url || undefined) : item.reference_url}
+                isVideo={item.tab !== "clipper" && (item.metadata as any)?.feature === "motion-edit"} />
             )}
             {!isMotionRow && <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-400 text-xs font-bold gap-2 px-2 text-center">
               <Loader2 className="w-5 h-5 animate-spin" />

@@ -5,6 +5,29 @@ import { directEdit, directionSummary, type ProDirection } from "@/lib/motion-di
 import { getSetting } from "@/lib/settings";
 import { fixTranscript } from "@/lib/motion-captions";
 import { withDeadline } from "@/lib/openrouter";
+import { HOOK_SOUND_COUNT } from "@/lib/motion-hook-sounds";
+
+/** CLIPPER "captions" mode: the clip with its hook title and creator captions — no AI edit plan (no stickers,
+ *  scenes or B-roll), so it renders fast and stays true to the source. */
+function clipCaptionPlan(input: EditInput) {
+  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
+  const look = input.locks?.captionLook && input.locks.captionLook !== "tiktok" ? input.locks.captionLook : pick(["hormozi", "karaoke", "beast", "popline", "fill", "sweep"]);
+  return {
+    hook: input.clip?.hook ? { text: input.clip.hook } : null,
+    accent: "#FFD93B",
+    mood: "upbeat" as const,
+    captions: { on: input.captions !== false, style: input.locks?.captionLook === "tiktok" ? "tiktok" : "pop", pos: input.captionPos ?? "low", maxWords: 3 },
+    overlays: [], zooms: [], broll: [], facts: [], keywords: [],
+    music: !!input.music,
+    energy: "gempak",
+    ...(input.sfx && input.clip?.hook ? { hookSound: Math.floor(Math.random() * HOOK_SOUND_COUNT) } : {}),
+    direction: {
+      caption_look: look, hook_style: pick(["headline", "slam", "blocks"]), font: pick(["montserrat", "archivo", "anton"]),
+      end_card: "none", progress: "none", fx: "light", captions: "big", camera: "calm",
+    },
+    director: "clipper-captions",
+  };
+}
 
 // POST /api/motion/plan — called BY the Modal Edit Video job once it has the
 // (jump-cut) transcript. Auth = the per-row plan_token minted at submit (only
@@ -30,7 +53,8 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
   const { data: row } = await admin.from("history").select("id, user_id, tab, status, metadata").eq("id", id).maybeSingle();
-  if (!row || row.tab !== "motion" || !tokenMatches(token, row.metadata?.plan_token)) {
+  // Motion edits, and CLIPPER clips (rendered by the same pipeline)
+  if (!row || (row.tab !== "motion" && row.tab !== "clipper") || !tokenMatches(token, row.metadata?.plan_token)) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
   if (row.status !== "pending") return NextResponse.json({ ok: false, error: "row not pending" }, { status: 409 });
@@ -50,6 +74,15 @@ export async function POST(req: Request) {
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
     await admin.from("history").update({ metadata: { ...(cur?.metadata || {}), caption_fixes: fixes.slice(0, 40) } }).eq("id", id);
     return NextResponse.json({ ok: true, fixes });
+  }
+  // CLIPPER "captions" mode: no director — the clip, its hook and the captions
+  if (input?.clip?.mode === "captions") {
+    const plan = clipCaptionPlan(input);
+    const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
+    await admin.from("history").update({
+      metadata: { ...(cur?.metadata || {}), stage: "render", plan: { hook: plan.hook, words: words.length, director: plan.director, direction: plan.direction, ms: Date.now() - t0 } },
+    }).eq("id", id);
+    return NextResponse.json({ ok: true, plan: { ...plan, fixes: [] } });
   }
   // Caption spelling fixes are returned even when the director fails, so the
   // captions-only fallback still reads in the video's language.
