@@ -348,23 +348,6 @@ export default function AdminSettings() {
       setMotionAdMsg("✗ Gagal simpan.");
     }
   }
-  // Default · Padat for clients — app_settings.motion_padat = { on } (unset → hidden; admins always see it)
-  const [motionPadatOn, setMotionPadatOn] = useState(false);
-  const [motionPadatMsg, setMotionPadatMsg] = useState<string | null>(null);
-  async function saveMotionPadat(on: boolean) {
-    setMotionPadatMsg(null);
-    const res = await fetch("/api/admin/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "motion_padat", value: { on } }),
-    }).catch(() => null);
-    if (res?.ok) {
-      setMotionPadatOn(on);
-      setMotionPadatMsg(on ? "✓ Padat ditunjuk kepada pelanggan." : "✓ Padat disorok (admin masih nampak).");
-    } else {
-      setMotionPadatMsg("✗ Gagal simpan.");
-    }
-  }
   // Motion Default (Laju) renderer — app_settings.motion_renderer = { renderer, ads }.
   // "hyperframes" falls back to Remotion by itself if a render fails; Buat Iklan follows it only with ads: true.
   const [motionRenderer, setMotionRenderer] = useState<"remotion" | "hyperframes">("remotion");
@@ -568,7 +551,6 @@ export default function AdminSettings() {
         if (row.key === "model_motion") setMotionKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "model_motion_guard") setMotionGuardKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "motion_features") setMotionAdOn(row.value?.ad !== false);
-        if (row.key === "motion_padat") setMotionPadatOn(row.value?.on === true);
         if (row.key === "motion_renderer") {
           setMotionRenderer(row.value?.renderer === "hyperframes" ? "hyperframes" : "remotion");
           setMotionRendererAds(row.value?.ads === true);
@@ -582,7 +564,9 @@ export default function AdminSettings() {
           setSavedMediaKeys({
             pexels: keyOf(row.value?.video_providers, "pexels"),
             pixabay: keyOf(row.value?.video_providers, "pixabay"),
-            giphy: keyOf(row.value?.sticker_providers, "giphy"),
+            // GIPHY may hold several keys (each free key = 100 searches / hour): kept comma-joined here
+            giphy: (Array.isArray(row.value?.sticker_providers) ? row.value.sticker_providers : [])
+              .filter((x: any) => x?.provider === "giphy" && x?.key).map((x: any) => String(x.key)).join(", "),
           });
         }
         if (row.key === "model_viral") setViralKnob(parseKnob(row.value, VIRAL_MAX_FB));
@@ -1407,7 +1391,8 @@ export default function AdminSettings() {
             video_providers: (["pexels", "pixabay"] as const)
               .map((p) => ({ provider: p, key: mediaKeys[p].trim() || savedMediaKeys[p] }))
               .filter((x) => x.key),
-            sticker_providers: [{ provider: "giphy", key: mediaKeys.giphy.trim() || savedMediaKeys.giphy }].filter((x) => x.key),
+            sticker_providers: [...new Set((mediaKeys.giphy.trim() || savedMediaKeys.giphy).split(/[\s,]+/).map((k) => k.trim()).filter(Boolean))]
+              .map((key) => ({ provider: "giphy", key })),
           },
         }),
       });
@@ -2957,12 +2942,6 @@ export default function AdminSettings() {
           <span className="text-sm font-bold text-[var(--color-text-primary)]">Buka &quot;Buat Iklan&quot; untuk semua</span>
         </label>
         {motionAdMsg && <p className="text-xs mt-2 text-[var(--color-text-secondary)]">{motionAdMsg}</p>}
-        <label className="flex items-center gap-3 cursor-pointer select-none mt-3">
-          <input type="checkbox" checked={motionPadatOn} onChange={(e) => saveMotionPadat(e.target.checked)} className="w-4 h-4" />
-          <span className="text-sm font-bold text-[var(--color-text-primary)]">Tunjuk &quot;💎 Padat&quot; kepada pelanggan</span>
-        </label>
-        <p className="text-xs text-[var(--color-text-secondary)] mt-1">Bila disorok, pelanggan hanya nampak Laju (admin masih nampak Padat untuk ujian). Custom Style tidak terjejas.</p>
-        {motionPadatMsg && <p className="text-xs mt-2 text-[var(--color-text-secondary)]">{motionPadatMsg}</p>}
         <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
           <div className="text-sm font-bold text-[var(--color-text-primary)] mb-1">Enjin render Default (Laju)</div>
           <p className="text-xs text-[var(--color-text-secondary)] mb-2">
@@ -3104,14 +3083,16 @@ export default function AdminSettings() {
             {([
               ["pexels", "Pexels API key — klip video stok (utama). Percuma: pexels.com/api — lesen OK untuk iklan, tiada kredit diperlukan."],
               ["pixabay", "Pixabay API key — klip video stok (fallback). Percuma: pixabay.com/api/docs"],
-              ["giphy", "GIPHY API key — sticker / GIF reaksi (pilihan). Nota: terma API GIPHY tak meliputi simpan fail di server / video komersial — guna atas risiko sendiri. Kosong = guna emoji animasi."],
+              ["giphy", "GIPHY API key — sticker / GIF reaksi (pilihan). Boleh lebih dari satu kunci, pisahkan dengan koma (setiap kunci percuma = 100 carian / jam; sistem bergilir antara kunci). Kosong = guna emoji animasi."],
             ] as const).map(([k, hint]) => (
               <div key={k}>
                 <input
                   type="password"
                   value={mediaKeys[k]}
                   onChange={(e) => setMediaKeys((m) => ({ ...m, [k]: e.target.value }))}
-                  placeholder={savedMediaKeys[k] ? `•••• ${k} key set — taip kunci baru untuk tukar` : `${k[0].toUpperCase()}${k.slice(1)} API key`}
+                  placeholder={savedMediaKeys[k]
+                    ? `•••• ${k === "giphy" ? `${savedMediaKeys[k].split(/[\s,]+/).filter(Boolean).length} ` : ""}${k} key set — taip kunci baru untuk tukar`
+                    : `${k[0].toUpperCase()}${k.slice(1)} API key`}
                   className="input w-full text-xs"
                   autoComplete="off"
                   style={{ color: "var(--color-text-primary)" }}

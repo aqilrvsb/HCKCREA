@@ -154,12 +154,10 @@ export async function motionAdEnabled(): Promise<boolean> {
 /** Default · "Padat" (Claude Code on HyperFrames) for this user: hidden from
  *  clients unless app_settings.motion_padat = { on: true }; admins always keep
  *  it (to compare). A hidden engine request runs as Laju. */
-export async function padatAllowed(userId: string | null | undefined): Promise<boolean> {
-  const s = await getSetting<{ on?: boolean }>("motion_padat").catch(() => null);
-  if (s?.on === true) return true;
-  if (!userId) return false;
-  const { data } = await createAdminClient().from("profiles").select("is_admin").eq("id", userId).maybeSingle();
-  return !!data?.is_admin;
+export async function padatAllowed(_userId: string | null | undefined): Promise<boolean> {
+  // "Padat · Lambat" is retired (2026-10-21): the Motion tab offers Default (HyperFrames) and Custom Style only.
+  // Every request, an old saved choice and a resubmit of an old Padat card all run on Default.
+  return false;
 }
 
 /** The engine a request may use: Padat only where it is allowed. */

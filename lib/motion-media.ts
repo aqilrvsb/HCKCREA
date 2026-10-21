@@ -131,7 +131,9 @@ export async function searchStickers(query: string): Promise<StickerHit[]> {
   const provs = await providers("sticker_providers", ["giphy"]);
   if (!provs.length) return [];
   return cached<StickerHit>("stickers", query, async () => {
-    for (const p of provs) {
+    // several keys: start on a different one each minute (spreads the 100 / hour free limit), the rest are fallbacks
+    const start = Math.floor(Date.now() / 60_000) % provs.length;
+    for (const p of [...provs.slice(start), ...provs.slice(0, start)]) {
       try {
         const hits = await giphy(query, p.key);
         if (hits.length) return { provider: p.provider, hits };
