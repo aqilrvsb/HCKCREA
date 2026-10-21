@@ -3321,13 +3321,17 @@ def _yt_segment(url: str, start: float, end: float, out: Path) -> Path:
             if _probe(out)["duration"] > (end - start) * 0.8:
                 return out
     except Exception as e:  # noqa: BLE001
+        if _yt_blocked(str(e)):
+            raise RuntimeError("not a bot: YouTube bot-checked this exit") from None
         print("yt-dlp section download failed, trying stream URLs:", str(e)[:300], flush=True)
     r = subprocess.run(["yt-dlp", *_yt_cli_auth(), "--no-playlist", "-g", "-f", YT_FORMAT, url],
                        capture_output=True, text=True, timeout=180)
     urls = [u for u in (r.stdout or "").split("\n") if u.startswith("http")]
     if not urls:
-        msg = (r.stderr or "")[-300:]
-        raise RuntimeError("YouTube menyekat muat turun buat masa ini — cuba lagi sebentar." if "Sign in" in msg else f"Tak dapat ambil video YouTube: {msg}")
+        err = r.stderr or ""
+        if _yt_blocked(err):  # the whole stderr: the "not a bot" line sits before a long tail of help links
+            raise RuntimeError("not a bot: YouTube bot-checked this exit")  # → yt_task marks it blocked → a fresh one
+        raise RuntimeError(f"Tak dapat ambil video YouTube: {err[-300:]}")
     pad = 0.0
     cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{max(0.0, start - pad):.3f}", "-i", urls[0]]
     if len(urls) > 1:
