@@ -3033,7 +3033,7 @@ def _energy_heatmap(wav: Path, buckets: int = 100) -> list:
     dur = n / 16000.0
     if hi - lo < 1e-6:
         return []
-    return [{"start": round(i * dur / buckets, 2), "end": round((i + 1) * dur / buckets, 2), "value": round(0.1 + 0.9 * (v - lo) / (hi - lo), 3)}
+    return [{"start": round(i * dur / buckets, 2), "end": round((i + 1) * dur / buckets, 2), "value": round(float(0.1 + 0.9 * (v - lo) / (hi - lo)), 3)}
             for i, v in enumerate(rms)]
 
 
