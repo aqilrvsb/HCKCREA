@@ -5,6 +5,7 @@ import { MOTION_EDIT_MAX_SEC, motionStart, siteUrl, type EditInput } from "@/lib
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { styleEnergy } from "@/lib/motion-styles";
 import { startPadatEdit } from "@/lib/motion-padat";
+import { startCustomEdit } from "@/lib/motion-custom";
 import { applyDraftEdits, type DraftEdits, type DraftPlan, type DraftWord } from "@/lib/motion-review";
 
 // POST /api/motion/render { id, edits } — step 2 of the Edit Video 2-step
@@ -97,9 +98,14 @@ export async function POST(req: Request) {
   // Padat: Claude Code builds it on HyperFrames from the reviewed cut + words
   // (a resubmitted job renders to its own file name and a fresh workspace)
   const suffix = typeof meta.out_suffix === "string" ? meta.out_suffix : "";
+  // Custom Style · Edit Footage Sendiri: the VGC build (Sonnet 5.5) from the client's prompt + this approved script
   const padat = input.engine === "padat";
-  const start = padat
-    ? await startPadatEdit({ id, userId: row.user_id, input, draft: latest, step: suffix ? suffix.replace(/^-/, "") : "v1", ws: id + suffix })
+  const custom = input.engine === "custom";
+  const vgcRun = { id, userId: row.user_id, input, draft: latest, step: suffix ? suffix.replace(/^-/, "") : "v1", ws: id + suffix };
+  const start = custom
+    ? await startCustomEdit(vgcRun)
+    : padat
+    ? await startPadatEdit(vgcRun)
     : await motionStart({
       flow: "edit",
       phase: "render",
@@ -131,6 +137,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Gagal mula render: ${start.error}` }, { status: 502 });
   }
   const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
-  await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), provider: padat ? "modal-vgc" : "modal-motion" } }).eq("id", id);
+  await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), provider: padat || custom ? "modal-vgc" : "modal-motion" } }).eq("id", id);
   return NextResponse.json({ ok: true });
 }

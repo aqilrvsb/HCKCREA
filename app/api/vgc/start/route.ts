@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { refundReserved, reserveCredit } from "@/lib/deduct";
-import { MOTION_VOICES, newPlanToken, siteUrl, vgcStart } from "@/lib/motion";
+import { MOTION_EDIT_MAX_SEC, MOTION_VOICES, motionStart, newPlanToken, siteUrl, vgcStart, type EditInput } from "@/lib/motion";
+import { customDirectorPlaybook } from "@/lib/motion-director";
 import { vgcFlow, vgcPricing, vgcStepRendersVideo, type VgcMeta } from "@/lib/vgc";
 
 // POST /api/vgc/start — Motion "Custom Style": run one VGC vault step directly.
@@ -56,6 +57,12 @@ export async function POST(req: Request) {
   const { data: me } = await admin.from("profiles").select("is_admin").eq("id", user.id).maybeSingle();
   const pricing = await vgcPricing();
   const price = me?.is_admin ? 0 : video ? pricing.video : pricing.text;
+
+  // Custom Style · Edit Footage Sendiri: script first, like Default — Default's own script step makes a "motion-edit"
+  // card ("Semak skrip"); the VGC build starts when the client approves it (/api/motion/render → lib/motion-custom.ts)
+  if (b?.script_first === true) {
+    return startCustomScript({ userId: user.id, b, prompt, title, stepId, materials, price });
+  }
 
   // the client's material is listed in the prompt so Claude Code knows what's in ./bahan/
   const bahanNote = materials.length
@@ -148,7 +155,8 @@ VOICE-OVER AI (izin klien diberi untuk suara ini): Klien memilih suara AI "${voi
   const start = await vgcStart({
     history_id: id,
     user_id: user.id,
-    prompt: prompt + bahanNote + voiceNote,
+    // a video run also gets PeningLab's master director (Default's latest playbook; the VGC style keeps the look)
+    prompt: prompt + bahanNote + voiceNote + (video ? customDirectorPlaybook(/FOOTAGE/i.test(title) ? "footage" : "motion") : ""),
     materials,
     expect_video: video,
     ...(voice ? { tts: { url: `${siteUrl()}/api/vgc/tts`, token: ttsToken, voice: voice.key } } : {}),
@@ -164,4 +172,100 @@ VOICE-OVER AI (izin klien diberi untuk suara ini): Klien memilih suara AI "${voi
   const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
   await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), provider: "modal-vgc" } }).eq("id", id);
   return NextResponse.json({ ok: true, id, video, price });
+}
+
+/** Step 1 of a Custom Style footage edit: Default's script step on a "motion-edit" card that carries the VGC prompt. */
+async function startCustomScript(o: {
+  userId: string; b: Record<string, unknown>; prompt: string; title: string; stepId: string;
+  materials: { url: string; name: string }[]; price: number;
+}) {
+  const f = (o.b.footage ?? {}) as { url?: unknown; name?: unknown; dur?: unknown };
+  const url = String(f.url ?? "");
+  if (!MATERIAL_HOST.test(url)) return NextResponse.json({ error: "Tambah footage (video) di Bahan / Folder dulu." }, { status: 400 });
+  const dur = Number(f.dur) || 0;
+  if (!(dur > 0.5)) return NextResponse.json({ error: "Tak dapat baca tempoh footage — cuba upload semula." }, { status: 400 });
+  const product = String(o.b.product ?? "").replace(/\s+/g, " ").trim().slice(0, 80) || o.title.slice(0, 80) || "Custom Style";
+  const others = o.materials.filter((m) => m.url !== url);
+  const input: EditInput = {
+    videoUrl: url,
+    durationSec: Math.min(dur, MOTION_EDIT_MAX_SEC),
+    language: "ms",
+    product,
+    productImages: others.filter((m) => /\.(jpe?g|png|webp)$/i.test(m.url)).map((m) => m.url).slice(0, 5),
+    captions: true,
+    captionStyle: "pop",
+    captionPos: "low",
+    music: false,
+    sfx: true,
+    style: "gempak",
+    resolution: "1080",
+    jumpcut: true,
+    broll: false,
+    facts: false,
+    guard: true,
+    auto: true,
+    engine: "custom",
+    custom: { prompt: o.prompt, title: o.title, stepId: o.stepId, materials: others },
+  };
+  const projectId = typeof o.b.project_id === "string" && /^[0-9a-f-]{36}$/i.test(o.b.project_id) ? o.b.project_id : null;
+  const planToken = newPlanToken();
+  const admin = createAdminClient();
+  const { data: hist, error } = await admin
+    .from("history")
+    .insert({
+      user_id: o.userId,
+      project_id: projectId,
+      type: "video",
+      tab: "motion",
+      status: "pending",
+      prompt: o.title || product,
+      reference_url: url,
+      task_id: null,
+      cost: o.price,
+      duration: Math.round(input.durationSec),
+      metadata: {
+        feature: "motion-edit", model: "motion", stage: "queued", rate: 0, reserved: o.price,
+        // the price of a Custom Style video: settled as the run's minimum (like the old Padat)
+        ...(o.price > 0 ? { padat_min: o.price } : {}),
+        input, plan_token: planToken, aspectRatio: "9:16", review: true,
+      },
+    })
+    .select("id")
+    .single();
+  if (error || !hist) return NextResponse.json({ error: error?.message || "Gagal cipta kad" }, { status: 500 });
+  if (o.price > 0 && !(await reserveCredit(o.userId, "motion", o.price, hist.id))) {
+    await admin.from("history").delete().eq("id", hist.id);
+    return NextResponse.json({ error: `Kredit tidak mencukupi — perlu RM${o.price.toFixed(2)}.`, needed: o.price }, { status: 402 });
+  }
+  const start = await motionStart({
+    flow: "edit",
+    phase: "draft",
+    history_id: hist.id,
+    user_id: o.userId,
+    video_url: url,
+    plan_url: `${siteUrl()}/api/motion/plan`,
+    qa_url: `${siteUrl()}/api/motion/qa`,
+    guard_url: `${siteUrl()}/api/motion/guard`,
+    guard: true,
+    plan_token: planToken,
+    style: "gempak",
+    look: "gempak",
+    resolution: "1080",
+    jumpcut: true,
+    language: "ms",
+    hint: product.slice(0, 120),
+    music: false,
+    sfx: true,
+    max_sec: MOTION_EDIT_MAX_SEC,
+    auto: true,
+    captions: true,
+  });
+  if (!start.ok) {
+    await admin.from("history").update({ status: "failed", error_message: start.error, cost: 0 }).eq("id", hist.id);
+    if (o.price > 0) await refundReserved(o.userId, "motion", o.price, hist.id);
+    return NextResponse.json({ error: `Gagal mula: ${start.error}` }, { status: 502 });
+  }
+  const { data: cur } = await admin.from("history").select("metadata").eq("id", hist.id).maybeSingle();
+  await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), stage: "queued", provider: "modal-motion" } }).eq("id", hist.id);
+  return NextResponse.json({ ok: true, id: hist.id, video: true, price: o.price, script: true });
 }

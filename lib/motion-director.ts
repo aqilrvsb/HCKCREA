@@ -169,6 +169,69 @@ const shuffle = <T,>(a: readonly T[]): T[] => {
 const firstSentence = (s: string) => (s.split(/(?<=[.!?:])\s/)[0] || s).slice(0, 150);
 
 /** The AUTO section of the director prompt — a fresh random shortlist every call. */
+/** The FYP playbook (TikTok Shop Academy 2026 + TikTok Creative Center) — AI Auto's brief and Custom Style's master director. */
+const FYP_PLAYBOOK = `- Hook: land the video's strongest promise by 2.5 s — hook text, the spoken line and the visual say the same thing, tied to the product; hook sound + a zoom or text pop make something move in the first second. Build the hook from what is said: problem → fix, before / after, a price or promo shock (show a spoken price within 3 s), a pain-point question, first try / unboxing.
+- Payoff early: show the benefit or result within 10–15 s — never save the product for the end; name / point at the product by ~3 s.
+- Rhythm: fast hook, steadier middle, fast peak, quick ending. Change something on screen at the chosen look's pace; zoom at sentence turns and key words, the biggest zoom on the main claim or the price.
+- Re-hook (videos > 30 s) at 40–50 % with an open loop ("tapi yang paling best…", a twist, a counter).
+- Readability: every sticker enters on its spoken word and leaves before the next idea; on screen ≥ (its words ÷ 3 + 0.5) s, headlines and prices ≥ 2 s; ≤ 2 overlays at once; never over the face or the product.
+- B-roll: 1.5–2.5 s each on the noun or claim being spoken, never two back to back, the speaker on screen most of the time (cutaways ≤ 40 % of the runtime).
+- Trust sells in Malaysia: give real proof the speaker mentions (counter for "dah guna X", a verdict stamp, a check list) — never invented.
+- CTA in the last 3–5 s, text + arrow down to the beg kuning; real urgency only. If the hook is about price / promo, a soft early "beg kuning" chip is fine.
+- Music off when the product makes its own satisfying sound, for a heartfelt testimonial or very dense fast talk.
+- TikTok Shop now pushes down near-identical videos — this one must not look like a template.`;
+
+/** How a top editor uses the kit, beat by beat — the PRO direction and Custom Style's master director. */
+const TOOL_PLAYBOOK = `- HOOK (0–2.5 s): hook title (headline / slam / blocks…), a crash zoom or "lines" on the hook word; a float card with a badge when there is a product / source picture; a gif reaction only for an emotional hook.
+- THE SPEAKER'S STRONGEST LINE ON CAMERA: side words (small lead-in + big word) or ONE "behind" word (product name, result, verdict) — between scenes only.
+- PAIN / PROBLEM: a red build that strikes the wrong belief; "lines" or a shake on the shock word; a gif (shocked face) at most once.
+- MYTH vs FACT · DO vs DON'T · BEFORE vs AFTER · OLD vs NEW: split.
+- BENEFITS · WHERE · WHAT'S INSIDE (a list): checklist. HOW TO USE · ROUTINE · PROCESS: steps. THINGS OVER TIME / DATES: timeline.
+- NUMBERS: one big number → stat build (count / roll); a percentage → ring; two numbers → compare; several values over time → chart; a price → burst in a collage or a roll line; a bundle / what you get for the price → receipt (+ stamp).
+- A RULE · LABEL · CLAIM · QUOTE the speaker unpacks: annotate (mark the words, handwritten notes). NEWS · REGULATION · SOURCE: article card, or a banner over the speaker.
+- A QUESTION VIEWERS ASK (read out / answered): chat "comments". A CONVERSATION RECOUNTED: chat "chat". ORDERS / REMINDERS MENTIONED: chat "notif".
+- PLACES · DELIVERY · STOCKISTS · BRANCHES: map.
+- THE PRODUCT SHOWN TO CAMERA: a punch-in or "spotlight" (the room dims, the speaker stays lit); a product picture → polaroid / phone card or B-roll.
+- RE-HOOK at 40–50 %: a "smash" cut on ONE word, or a swap line ("MURAH? MAHAL?" → "BERBALOI"), or a tilt.
+- EMOTIONAL / PERSONAL MOMENT: stay on the speaker (spotlight allowed), no scene.
+- A LONG SCENE (> ~6 s) WHERE TRUST MATTERS: give it "speaker": "left" | "right" (the face stays on screen as a sticker).
+- CLOSING: a question build ("JADI KORANG RASA…?" → "KOMEN KAT BAWAH") right before the CTA; then the end card or the spoken CTA with side words.
+- CAPTION LOOK by energy: hard sell → hormozi / beast; tutorial → popline / deep / pill; playful product → sticker / karaoke; fast talker → fill; drama / night → neon; podcast / talk → pod; TikTok-native → sweep; a scene-heavy news explainer → "captions": "subtle".
+- Signature moments (behind, smash, spotlight, lines, crash) land hardest when rare: 2–4 per video, each on a different beat.`;
+
+/**
+ * Custom Style (Claude Code on HyperFrames, Sonnet 5.5) gets the same master director as Default: the client's VGC
+ * prompt / chosen style still decides the LOOK; this decides the structure, the strategy and the selling craft, with
+ * the rules Default's edits learned (grounding, layout safety). One source: Default's playbooks above.
+ */
+export function customDirectorPlaybook(source: "motion" | "footage"): string {
+  const footage = source === "footage";
+  return `
+
+--- MASTER DIRECTOR (PeningLab) ---
+You are also the master director of this video — the same director PeningLab's Default edits use. The VGC brief and the
+chosen style above decide the LOOK (palette, type, motion feel); this decides the STRUCTURE, the strategy and the
+selling craft. Where they disagree on look, the style wins; on structure, timing and facts, this wins.
+1. Plan first: write ./video/STORYBOARD.md as a beat sheet before building — every beat in time order with the viewer's
+   job (hook · pain · myth · benefits · how · proof · number · price · place · question · product · rehook · emotion ·
+   close · cta), what is ${footage ? "said" : "said / shown"} there, and the device from the TOOL PLAYBOOK that tells it
+   best. Build from that plan.
+2. FYP PLAYBOOK:
+${FYP_PLAYBOOK}
+3. TOOL PLAYBOOK (device names as in the workspace's explainer rules — scenes, side words, text behind the speaker, split,
+   checklist, steps, timeline, stat build, ring, compare, chart, annotate, article card, chat / comments, map, receipt,
+   spotlight, smash cut, caption looks):
+${TOOL_PLAYBOOK}
+4. Ground rules:
+- Only words, numbers and prices that are ${footage ? "spoken in the footage" : "in the client's brief"} or given by the client reach the screen — never invented.
+${footage
+    ? "- The voice is 100 % the speaker's own (./bahan/footage.mp4); no AI voice-over. Keep the speaker on screen most of the time: full-screen scenes about 45–70 % of a talking explainer, less for a personal story."
+    : "- No footage: the product, the hook, the benefits, the proof, the price and the CTA carry the beats; a chosen AI voice-over carries the words."}
+- Stickers and text never cover the speaker's eyes (forehead, hijab, chin are fine), never overlap each other or the captions;
+  captions sit below a low face; the CTA card sits above the face or below it, never on the eyes; big text behind or over the
+  head stays inside the frame at the camera's zoom.`;
+}
+
 function autoBrief(input?: EditInput): string {
   const locks = input?.locks;
   const lookOpts = locks?.look ? [motionStyle(locks.look)] : shuffle(MOTION_STYLES).slice(0, 2);
@@ -197,16 +260,7 @@ This generation's options were drawn at random — choose ONLY from them, the be
 6. "music": true when a music bed lifts it (selling energy, montage feel, light talk with breathing gaps); false when the voice must carry it alone (emotional story, dense fast talk, ASMR, a detailed tutorial). "mood" sets its feel.
 7. Then the edit itself — stickers, B-roll, zooms, keywords, re-hook, CTA — built around the angle and the look.
 FYP PLAYBOOK (TikTok Shop Academy 2026 + TikTok Creative Center):
-- Hook: land the video's strongest promise by 2.5 s — hook text, the spoken line and the visual say the same thing, tied to the product; hook sound + a zoom or text pop make something move in the first second. Build the hook from what is said: problem → fix, before / after, a price or promo shock (show a spoken price within 3 s), a pain-point question, first try / unboxing.
-- Payoff early: show the benefit or result within 10–15 s — never save the product for the end; name / point at the product by ~3 s.
-- Rhythm: fast hook, steadier middle, fast peak, quick ending. Change something on screen at the chosen look's pace; zoom at sentence turns and key words, the biggest zoom on the main claim or the price.
-- Re-hook (videos > 30 s) at 40–50 % with an open loop ("tapi yang paling best…", a twist, a counter).
-- Readability: every sticker enters on its spoken word and leaves before the next idea; on screen ≥ (its words ÷ 3 + 0.5) s, headlines and prices ≥ 2 s; ≤ 2 overlays at once; never over the face or the product.
-- B-roll: 1.5–2.5 s each on the noun or claim being spoken, never two back to back, the speaker on screen most of the time (cutaways ≤ 40 % of the runtime).
-- Trust sells in Malaysia: give real proof the speaker mentions (counter for "dah guna X", a verdict stamp, a check list) — never invented.
-- CTA in the last 3–5 s, text + arrow down to the beg kuning; real urgency only. If the hook is about price / promo, a soft early "beg kuning" chip is fine.
-- Music off when the product makes its own satisfying sound, for a heartfelt testimonial or very dense fast talk.
-- TikTok Shop now pushes down near-identical videos — this one must not look like a template.
+${FYP_PLAYBOOK}
 THINK IT UP FRESH: treat this video as a brand-new creative brief — no default template, no safe go-to look, no stock hook line. Find the idea that is special about THIS footage and build the whole edit around it. Creative spark for this edit: "${spark}" — use it for one signature move only if it fits the content honestly; ignore it if it doesn't.
 
 LOOKS — pick ${lookOpts.length === 1 ? "this one (the client chose it)" : "one of these 2"} (id — feel — pace rules — palette — max gap — music mood):
@@ -441,22 +495,7 @@ HOW A TOP EXPLAINER EDITOR BUILDS THIS VIDEO — this is the default bar for eve
 - Open with the hook title and, when there is a product / source picture, a float card with a badge under it; keep the speaker on screen for the hook, the moments they hold the product up to camera, emotional lines and the CTA — and cut to scenes for everything they explain around those moments.
 - Subtle captions and fx "light" are the reference look (the scenes carry the message); end on a closing question scene and the spoken CTA (no end card, or a quiet one).
 TOOL PLAYBOOK — how a top editor uses this kit (plan the beats first, then give every beat the tool that tells it best; vary, never the same device twice in a row; only what the speaker actually says):
-- HOOK (0–2.5 s): hook title (headline / slam / blocks…), a crash zoom or "lines" on the hook word; a float card with a badge when there is a product / source picture; a gif reaction only for an emotional hook.
-- THE SPEAKER'S STRONGEST LINE ON CAMERA: side words (small lead-in + big word) or ONE "behind" word (product name, result, verdict) — between scenes only.
-- PAIN / PROBLEM: a red build that strikes the wrong belief; "lines" or a shake on the shock word; a gif (shocked face) at most once.
-- MYTH vs FACT · DO vs DON'T · BEFORE vs AFTER · OLD vs NEW: split.
-- BENEFITS · WHERE · WHAT'S INSIDE (a list): checklist. HOW TO USE · ROUTINE · PROCESS: steps. THINGS OVER TIME / DATES: timeline.
-- NUMBERS: one big number → stat build (count / roll); a percentage → ring; two numbers → compare; several values over time → chart; a price → burst in a collage or a roll line; a bundle / what you get for the price → receipt (+ stamp).
-- A RULE · LABEL · CLAIM · QUOTE the speaker unpacks: annotate (mark the words, handwritten notes). NEWS · REGULATION · SOURCE: article card, or a banner over the speaker.
-- A QUESTION VIEWERS ASK (read out / answered): chat "comments". A CONVERSATION RECOUNTED: chat "chat". ORDERS / REMINDERS MENTIONED: chat "notif".
-- PLACES · DELIVERY · STOCKISTS · BRANCHES: map.
-- THE PRODUCT SHOWN TO CAMERA: a punch-in or "spotlight" (the room dims, the speaker stays lit); a product picture → polaroid / phone card or B-roll.
-- RE-HOOK at 40–50 %: a "smash" cut on ONE word, or a swap line ("MURAH? MAHAL?" → "BERBALOI"), or a tilt.
-- EMOTIONAL / PERSONAL MOMENT: stay on the speaker (spotlight allowed), no scene.
-- A LONG SCENE (> ~6 s) WHERE TRUST MATTERS: give it "speaker": "left" | "right" (the face stays on screen as a sticker).
-- CLOSING: a question build ("JADI KORANG RASA…?" → "KOMEN KAT BAWAH") right before the CTA; then the end card or the spoken CTA with side words.
-- CAPTION LOOK by energy: hard sell → hormozi / beast; tutorial → popline / deep / pill; playful product → sticker / karaoke; fast talker → fill; drama / night → neon; podcast / talk → pod; TikTok-native → sweep; a scene-heavy news explainer → "captions": "subtle".
-- Signature moments (behind, smash, spotlight, lines, crash) land hardest when rare: 2–4 per video, each on a different beat.
+${TOOL_PLAYBOOK}
 CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): does your strategy name a beat for every part of the speech, and does each beat use the playbook tool that fits it (not just builds)? do the scenes cover between ~45 % and 70 % of the runtime (never more — the speaker must be seen: trust sells)? is every side word, behind word, banner, sticker (overlay) and camera move ("punch", "crash", "spotlight", "lines", "tilt", "shake", "bump", "whip") placed in a gap BETWEEN your scenes (inside a scene's at…to the speaker is hidden, so they never show)? is every number / price on screen one the speaker actually says? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours? is every "behind" word's index OUTSIDE every scene's at…to range (a word inside a scene can't show)?
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
 VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;

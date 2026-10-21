@@ -1361,7 +1361,9 @@ def run_vgc(payload: dict) -> dict:
             shutil.copytree(skill_src, skill_dst)
         if not (ws / "CLAUDE.md").exists():
             (ws / "CLAUDE.md").write_text(WORKSPACE_RULES, encoding="utf-8")
-    if mode == "edit":
+    # "vgc-edit" = Custom Style · Edit Footage Sendiri after its script was approved: the VGC workspace above plus the
+    # same footage prep as a Padat edit (the cut footage + the approved words in ./bahan/)
+    if mode in ("edit", "vgc-edit"):
         _progress("normalise", 4)
         try:
             print("[footage]", _prepare_footage(ws, payload), flush=True)
@@ -1405,8 +1407,8 @@ def run_vgc(payload: dict) -> dict:
             tool.write_text(body, encoding="utf-8")
             tool.chmod(0o755)
     # an Edit Video on Padat keeps 100 % the speaker's own voice: never an AI voice tool there
-    tts = (payload.get("tts") or {}) if mode != "edit" else {}
-    if mode == "edit":
+    tts = (payload.get("tts") or {}) if mode not in ("edit", "vgc-edit") else {}
+    if mode in ("edit", "vgc-edit"):
         Path("/usr/local/bin/pl-tts").unlink(missing_ok=True)
         for k in [k for k in env if k.startswith("PL_TTS")]:
             env.pop(k, None)

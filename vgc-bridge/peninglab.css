@@ -70,3 +70,24 @@ html.pl-embed .editor-panel > .panel-heading, html.pl-embed .edit-guidance, html
 html.pl-embed .preview-controls, html.pl-embed #prompt-editor, html.pl-embed #char-count, html.pl-embed #reset { display: none !important; }
 html.pl-embed .editor-panel { background: transparent !important; }
 html.pl-embed #edit-status { border-radius: 10px; border: 1px solid; margin: 0 0 10px; }
+
+/* 📎 Bahan / Folder: an attach picker like Default's product photos (the field's text is written from it) */
+.pl-picker { display: flex; flex-direction: column; gap: 8px; }
+.pl-pick-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.pl-thumb, .pl-pick-add { position: relative; width: 88px; height: 88px; border-radius: 12px; overflow: hidden; flex: 0 0 auto; }
+.pl-thumb { border: 1px solid rgba(168, 85, 247, 0.45); background: #0c0a12; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.pl-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-thumb-ico { font-size: 22px; line-height: 1; }
+.pl-thumb-name { font-size: 10px; max-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.8; }
+.pl-thumb-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 700 12px system-ui, sans-serif; color: #fff; background: rgba(0, 0, 0, 0.55); }
+.pl-thumb button { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 999px; border: 0; background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 11px; line-height: 20px; padding: 0; cursor: pointer; }
+.pl-pick-add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; border: 1.5px dashed rgba(168, 85, 247, 0.6); color: #d8ccef; font-size: 12px; }
+.pl-pick-add b { font-weight: 700; }
+.pl-pick-ico { font-size: 18px; line-height: 1; color: #c084fc; }
+.pl-pick-add input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.pl-gallery-btn { align-self: flex-start; padding: 7px 12px; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.45); background: rgba(168, 85, 247, 0.12); color: #f1ecfa; font-size: 12px; font-weight: 700; cursor: pointer; }
+.pl-gallery { display: flex; flex-wrap: wrap; gap: 8px; }
+.pl-gallery-item { width: 64px; height: 64px; padding: 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(168, 85, 247, 0.4); background: #0c0a12; cursor: pointer; }
+.pl-gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-pick-help { margin: 0; font-size: 11px; line-height: 1.45; opacity: 0.75; }
+html.pl-embed #prompt-kicker { display: none !important; }

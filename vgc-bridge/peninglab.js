@@ -158,6 +158,30 @@
   const cur = () => { try { return current; } catch { return null; } };
   // Edit Footage Sendiri: the voice is the footage's own — no AI voice-over there (100% Motion Ad only)
   const footage = () => { try { return ideaSource === 'footage'; } catch { return false; } };
+  // Edit Footage Sendiri on Fast Track goes script first, like Default (100% Motion Ad: straight to the video)
+  const scriptFirstNow = () => { const c = cur(); return !!c && c.id === 'fast-track' && footage(); };
+  const fieldValue = (re) => {
+    const f = Array.from(document.querySelectorAll('#fields .field')).find((x) => re.test((x.querySelector('label') || {}).textContent || ''));
+    const el = f && f.querySelector('textarea, input, select');
+    return el ? String(el.value || '').trim().slice(0, 80) : '';
+  };
+  const readDur = (file) => new Promise((resolve) => {
+    const v = document.createElement('video');
+    const url = URL.createObjectURL(file);
+    let done = false;
+    const finish = (d) => { if (done) return; done = true; clearTimeout(t); URL.revokeObjectURL(url); v.remove(); resolve(Number.isFinite(d) && d > 0 ? d : 0); };
+    const t = setTimeout(() => finish(v.duration), 12000);
+    v.preload = 'metadata';
+    v.muted = true;
+    v.playsInline = true;
+    v.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+    v.onloadedmetadata = () => finish(v.duration);
+    v.ondurationchange = () => { if (Number.isFinite(v.duration) && v.duration > 0) finish(v.duration); };
+    v.onerror = () => finish(0);
+    document.body.appendChild(v);
+    v.src = url;
+    v.load();
+  });
   const flowOf = (id) => (id === 'fast-track' ? 'fast' : /^step-\d$/.test(id) ? 'guided' : /^reference-\d$/.test(id) ? 'reference' : '');
   const rendersVideo = (c) => !!c && (c.id === 'fast-track' || /\b(bina\s*(v1|preview)|improve\s*v2)\b/i.test(c.title || ''));
   const isFirstStep = (c) => !!c && (c.id === 'fast-track' || c.id === 'step-1' || c.id === 'reference-1');
@@ -175,23 +199,58 @@
     refreshAction();
   }).catch(() => {});
 
-  // ── 📎 Bahan ──
+  // ── 📎 Bahan: an attach picker in the vault's own "Bahan / Folder" field (like Default's product photos) ──
+  // The field's text is written from the attached files (./bahan/<name> — the names modal_vgc saves them as),
+  // so the prompt the vault builds always lists exactly what was attached.
+  let gallery = [];
+  let showGallery = false;
+  const safeName = (name, i) => (String(name || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 80) || `bahan-${i + 1}`);
+  const bahanField = () => Array.from(document.querySelectorAll('#fields .field')).find((f) => /bahan/i.test((f.querySelector('label') || {}).textContent || ''));
+  fetch('/api/motion/photos').then((r) => r.json()).then((d) => { gallery = Array.isArray(d && d.photos) ? d.photos : []; renderMaterials(); }).catch(() => {});
+
+  function syncField() {
+    const f = bahanField();
+    const input = f && f.querySelector('textarea, input');
+    if (!input) return;
+    const used = new Set();
+    const names = mats.filter((m) => m.url).map((m, i) => {
+      let n = safeName(m.name, i);
+      while (used.has(n)) n = n.replace(/(\.[^.]*)?$/, (ext) => `-${i + 1}${ext || ''}`);
+      used.add(n);
+      return `./bahan/${n}`;
+    });
+    const value = names.length ? `Fail dilampirkan (${names.length}): ${names.join(', ')}` : '';
+    if (input.value === value) return;
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function mountPicker() {
+    const f = bahanField();
+    if (!f || f.querySelector('.pl-picker')) return;
+    const input = f.querySelector('textarea, input');
+    if (input) input.style.display = 'none';
+    const box = document.createElement('div');
+    box.className = 'pl-picker';
+    box.innerHTML =
+      '<div class="pl-pick-row" id="pl-pick-row"></div>' +
+      '<div id="pl-gallery-wrap"></div>' +
+      '<p class="pl-pick-help">Gambar produk, logo, footage atau voice-over — AI guna terus fail ini (masuk ke prompt automatik).</p>';
+    f.append(box);
+    renderMaterials();
+  }
+
   function mount() {
+    mountPicker();
     const footer = document.querySelector('.editor-panel .editor-footer');
     if (!footer || document.getElementById('pl-materials')) return;
     const box = document.createElement('div');
     box.id = 'pl-materials';
     box.className = 'pl-materials';
     box.innerHTML =
-      '<div class="pl-mat-head"><strong>📎 Bahan untuk AI</strong><span>Gambar produk, logo, footage atau voice-over. AI terus guna fail ini — tak perlu attach di tempat lain.</span></div>' +
-      '<div class="pl-mat-list" id="pl-mat-list"></div>' +
-      '<label class="pl-mat-add"><input type="file" multiple accept="image/*,video/*,audio/*" id="pl-mat-input">+ Tambah bahan</label>' +
       '<div class="pl-voice"><div class="pl-mat-head"><strong>🎙️ Voice-over AI</strong><span>Tiada VO sendiri? Pilih suara — AI tulis skrip VO & jana suara terus.</span></div><div class="pl-voice-list" id="pl-voice-list"></div></div>';
     footer.before(box);
-    box.querySelector('#pl-mat-input').addEventListener('change', (e) => {
-      for (const f of Array.from(e.target.files || [])) void upload(f);
-      e.target.value = '';
-    });
 
     const actions = footer.querySelector('.editor-actions');
     const copy = document.getElementById('copy');
@@ -214,7 +273,7 @@
   }
 
   function renderVoices() {
-    const box = document.querySelector('.pl-voice');
+    const box = document.getElementById('pl-materials');
     if (box) box.hidden = footage();
     const list = document.getElementById('pl-voice-list');
     if (!list) return;
@@ -229,21 +288,51 @@
   }
 
   function renderMaterials() {
-    const list = document.getElementById('pl-mat-list');
-    if (!list) return;
-    list.innerHTML = mats.length
-      ? mats.map((m, i) => `<span class="pl-chip${m.url ? '' : ' pl-chip-busy'}" title="${esc(m.name)}"><b>${esc(m.kind)}</b> ${esc(m.name)}${m.url ? '' : ` · ${m.pct || 0}%`}${m.url ? `<button type="button" data-rm="${i}" aria-label="Buang">✕</button>` : ''}</span>`).join('')
-      : '<span class="pl-mat-empty">Belum ada bahan.</span>';
-    list.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { mats.splice(Number(b.dataset.rm), 1); renderMaterials(); }));
+    const row = document.getElementById('pl-pick-row');
+    const wrap = document.getElementById('pl-gallery-wrap');
+    if (row) {
+      row.innerHTML = mats.map((m, i) => {
+        const pic = m.url && m.kind === 'Gambar' ? m.url : m.preview;
+        const face = pic ? `<img src="${esc(pic)}" alt="">` : `<span class="pl-thumb-ico">${m.kind === 'Video' ? '🎬' : m.kind === 'Audio' ? '🎵' : '📄'}</span><span class="pl-thumb-name">${esc(m.name)}</span>`;
+        const busyCover = m.url ? '' : `<span class="pl-thumb-busy">${m.pct || 0}%</span>`;
+        return `<div class="pl-thumb" title="${esc(m.name)}">${face}${busyCover}${m.url ? `<button type="button" data-rm="${i}" aria-label="Buang">✕</button>` : ''}</div>`;
+      }).join('') +
+        '<label class="pl-pick-add"><input type="file" multiple accept="image/*,video/*,audio/*"><span class="pl-pick-ico">⬆</span><b>Bahan</b></label>';
+      row.querySelectorAll('[data-rm]').forEach((btn) => btn.addEventListener('click', () => { mats.splice(Number(btn.dataset.rm), 1); renderMaterials(); }));
+      row.querySelector('.pl-pick-add input').addEventListener('change', (e) => {
+        for (const f of Array.from(e.target.files || [])) void upload(f);
+        e.target.value = '';
+      });
+    }
+    if (wrap) {
+      const free = gallery.filter((p) => !mats.some((m) => m.url === p.url));
+      wrap.innerHTML = gallery.length
+        ? `<button type="button" class="pl-gallery-btn" id="pl-gallery-btn">🖼️ Guna gambar lama (${gallery.length}) ${showGallery ? '▲' : '▼'}</button>` +
+          (showGallery ? `<div class="pl-gallery">${free.length ? free.map((p) => `<button type="button" class="pl-gallery-item" data-url="${esc(p.url)}"><img src="${esc(p.url)}" alt=""></button>`).join('') : '<span class="pl-pick-help">Semua gambar lama sudah dipilih.</span>'}</div>` : '')
+        : '';
+      const gb = document.getElementById('pl-gallery-btn');
+      if (gb) gb.addEventListener('click', () => { showGallery = !showGallery; renderMaterials(); });
+      wrap.querySelectorAll('[data-url]').forEach((btn) => btn.addEventListener('click', () => {
+        const url = btn.dataset.url;
+        const n = mats.filter((m) => m.kind === 'Gambar').length + 1;
+        const ext = (/\.(jpe?g|png|webp)$/i.exec(url) || ['', 'jpg'])[1];
+        mats.push({ name: `produk-${n}.${ext}`, kind: 'Gambar', size: 0, url, pct: 100 });
+        renderMaterials();
+        refreshAction();
+      }));
+    }
+    syncField();
   }
 
   async function upload(file) {
-    const m = { name: file.name, kind: kindOf(file), size: file.size, url: '', pct: 0 };
+    const isImg = file.type.startsWith('image/') && file.size <= 12 * 1024 * 1024;
+    const m = { name: file.name, kind: kindOf(file), size: file.size, url: '', pct: 0, preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '', dur: 0 };
+    if (file.type.startsWith('video/')) readDur(file).then((d) => { m.dur = d; });
     mats.push(m);
     uploading++;
     renderMaterials();
     try {
-      const r = await fetch('/api/motion/upload-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: file.name, size: file.size, kind: 'vgc' }) });
+      const r = await fetch('/api/motion/upload-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: file.name, size: file.size, kind: isImg ? 'image' : 'vgc' }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.upload_url) throw new Error(d?.error || 'Tak dapat link upload');
       m.url = await new Promise((resolve, reject) => {
@@ -255,6 +344,11 @@
         xhr.onerror = () => reject(new Error('Upload gagal — semak sambungan internet.'));
         xhr.send(file);
       });
+      // a product photo joins the client's gallery (the same one Default's "Guna gambar lama" shows)
+      if (isImg) {
+        fetch('/api/motion/photos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: m.url }) })
+          .then((r) => r.json()).then((d) => { if (d && d.photo) gallery = [d.photo, ...gallery.filter((p) => p.url !== m.url)]; renderMaterials(); }).catch(() => {});
+      }
     } catch (e) {
       mats.splice(mats.indexOf(m), 1);
       say(`${file.name}: ${e.message || 'gagal upload'}`);
@@ -274,11 +368,14 @@
     const video = rendersVideo(c);
     const flow = flowOf(c.id);
     const card = flow && flow !== 'fast' && !isFirstStep(c) ? cards[flow] : null;
-    go.textContent = busy ? 'Menghantar…' : video ? '🎬 Jana Video' : '✨ Jana Jawapan';
+    const scriptFirst = scriptFirstNow();
+    go.textContent = busy ? 'Menghantar…' : scriptFirst ? '📝 Jana Skrip' : video ? '🎬 Jana Video' : '✨ Jana Jawapan';
     go.disabled = busy || uploading > 0;
     const price = pricing ? (video ? pricing.video : pricing.text) : null;
     const parts = [];
-    parts.push(video ? 'AI bina, render & semak (AI pengkritik) preview MP4 terus dalam PeningLab (~20–40 min).' : 'AI jawab langkah ini terus dalam PeningLab — baca jawapan dalam kad History.');
+    parts.push(scriptFirst
+      ? 'Macam Default: AI potong senyap & tulis skrip dari footage dulu (~1–2 min). Bila kad History bertukar kuning, tekan <b>Semak skrip</b>, betulkan, kemudian <b>Jana Video</b> — barulah AI bina, render & semak video (~20–40 min).'
+      : video ? 'AI bina, render & semak (AI pengkritik) preview MP4 terus dalam PeningLab (~20–40 min).' : 'AI jawab langkah ini terus dalam PeningLab — baca jawapan dalam kad History.');
     if (price !== null) parts.push(price > 0 ? `Caj RM${price.toFixed(2)}.` : 'Percuma.');
     const vo = footage() ? null : voices.find((v) => v.key === voice);
     if (vo) parts.push(`Voice-over AI: <b>${esc(vo.label)}</b>.`);
@@ -299,6 +396,10 @@
     if (/\[EDIT:/.test(text) && !confirm('Masih ada ruang [EDIT] yang belum diisi. Teruskan juga?')) return;
     const flow = flowOf(c.id);
     const card = flow && flow !== 'fast' && !isFirstStep(c) ? cards[flow] : null;
+    const scriptFirst = scriptFirstNow();
+    const clip = scriptFirst ? mats.find((m) => m.url && m.kind === 'Video') : null;
+    if (scriptFirst && !clip) return say('Tambah footage (video) anda di Bahan / Folder dulu.');
+    if (scriptFirst && !(clip.dur > 0.5)) return say('Tak dapat baca tempoh footage — buang dan upload semula video itu.');
     busy = true;
     refreshAction();
     try {
@@ -310,12 +411,15 @@
           materials: mats.filter((m) => m.url).map((m) => ({ url: m.url, name: m.name })),
           card_id: card?.id,
           voice: (!footage() && voice) || undefined,
+          ...(scriptFirst ? { script_first: true, footage: { url: clip.url, name: clip.name, dur: clip.dur }, product: fieldValue(/produk|servis|topik/i) } : {}),
         }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) { say(d?.error || `Gagal hantar (HTTP ${r.status})`); return; }
       if (flow && flow !== 'fast') { cards[flow] = { id: d.id, title: card?.title || c.title }; saveCards(); }
-      say(d.video ? '🎬 Dihantar! AI sedang bina video — lihat kad dalam History.' : '✨ Dihantar! Jawapan AI akan muncul dalam kad History.');
+      say(d.script
+        ? '📝 Dihantar! AI sedang tulis skrip dari footage — bila kad History bertukar kuning, tekan "Semak skrip", kemudian "Jana Video".'
+        : d.video ? '🎬 Dihantar! AI sedang bina video — lihat kad dalam History.' : '✨ Dihantar! Jawapan AI akan muncul dalam kad History.');
       refreshParent();
     } catch {
       say('Gagal hantar — semak sambungan internet.');
@@ -330,7 +434,7 @@
     const set = (sel, from, to) => { const el = document.querySelector(sel); if (el && el.textContent.includes(from)) el.textContent = el.textContent.replace(from, to); };
     set('.editor-panel .panel-heading h3', 'Prompt untuk copy', 'Prompt untuk AI');
     set('#asset-note strong', 'Sebelum paste', 'Sebelum jana');
-    set('#input-help', 'Attach fail sebenar dalam chat AI.', 'Fail sebenar: tambah di 📎 Bahan untuk AI (bawah).');
+    set('#input-help', 'Attach fail sebenar dalam chat AI.', 'Fail sebenar: tambah di Bahan / Folder di bawah.');
     // PeningLab always runs Claude Code: the prompt is written for it, never for Codex
     const claude = document.querySelector('[data-idea-destination="claude"]');
     if (claude && claude.getAttribute('aria-pressed') !== 'true') claude.click();

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MOTION_EDIT_MAX_SEC, allowedEngine, costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { padatMin, startPadatEdit } from "@/lib/motion-padat";
+import { startCustomEdit } from "@/lib/motion-custom";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { styleEnergy } from "@/lib/motion-styles";
@@ -51,9 +52,11 @@ export async function POST(req: Request) {
     .map((u: unknown) => String(u ?? "").trim())
     .filter((u: string) => /^https:\/\/[^\s]+$/.test(u) && u.length <= 1000)
     .slice(0, 5);
-  if (!productImages.length) return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar produk." }, { status: 400 });
+  // a Custom Style footage card keeps its engine (its product photos are optional: the VGC brief carries the look)
+  const isCustom = oldInput.engine === "custom";
+  if (!productImages.length && !isCustom) return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar produk." }, { status: 400 });
   // the engine can be switched at resubmit (Laju <-> Padat); default: the job's own (Padat only where allowed)
-  const engine = await allowedEngine(b?.engine === undefined ? oldInput.engine : b.engine, user.id);
+  const engine = isCustom ? "custom" : await allowedEngine(b?.engine === undefined ? oldInput.engine : b.engine, user.id);
   const input: EditInput = { ...oldInput, product, productImages, engine };
   // the latest script; an older draft's plan is dropped so the director plans afresh
   const { plan: _dp, ...script } = (meta.draft ?? {}) as Record<string, unknown>;
@@ -67,7 +70,7 @@ export async function POST(req: Request) {
   const wasDone = row.status === "done";
   const done = Number(meta.resubmits) || 0;
   const rate = await priceFor(row.user_id, "motion", "motion");
-  const minCost = engine === "padat" ? await padatMin(rate) : 0;
+  const minCost = engine === "padat" || engine === "custom" ? await padatMin(rate) : 0;
   const estimate = round2(Math.max(costFor(Math.min(Number(oldInput.durationSec) || 0, MOTION_EDIT_MAX_SEC), rate), minCost));
 
   // Back to pending with a fresh plan token; the old result is kept so a failed
@@ -125,8 +128,12 @@ export async function POST(req: Request) {
   // Padat with a script: Claude Code rebuilds it on HyperFrames in a fresh
   // workspace; otherwise the Laju renderer (or, no script yet, step 1 first)
   const padat = fromScript && engine === "padat";
-  const start = padat
-    ? await startPadatEdit({ id, userId: row.user_id, input, draft: script as Parameters<typeof startPadatEdit>[0]["draft"], step: `r${n}`, ws: `${id}-r${n}` })
+  const custom = fromScript && engine === "custom";
+  const vgcRun = { id, userId: row.user_id, input, draft: script as Parameters<typeof startPadatEdit>[0]["draft"], step: `r${n}`, ws: `${id}-r${n}` };
+  const start = custom
+    ? await startCustomEdit(vgcRun)
+    : padat
+    ? await startPadatEdit(vgcRun)
     : await motionStart({
       flow: "edit",
       history_id: id,
@@ -157,6 +164,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Gagal mula render: ${start.error}` }, { status: 502 });
   }
   const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
-  await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), provider: padat ? "modal-vgc" : "modal-motion" } }).eq("id", id);
+  await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), provider: padat || custom ? "modal-vgc" : "modal-motion" } }).eq("id", id);
   return NextResponse.json({ ok: true });
 }

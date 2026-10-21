@@ -83,7 +83,8 @@ export type EditPlan = {
 
 /** Default Motion engine: "laju" = Remotion templates (fast, concise);
  *  "padat" = Claude Code builds the edit on HyperFrames (slower, richer). */
-export type MotionEngine = "laju" | "padat";
+// "custom" = Custom Style · Edit Footage Sendiri: Default's script step, then the VGC build (lib/motion-custom.ts)
+export type MotionEngine = "laju" | "padat" | "custom";
 export const asEngine = (v: unknown): MotionEngine => (v === "padat" ? "padat" : "laju");
 
 export type AdInput = {
@@ -141,6 +142,8 @@ export type EditInput = {
   auto?: boolean;
   /** "Saya nak pilih sendiri": AI Auto plus the client's picks as rules (lib/motion-manual.ts); unset = AI decides. */
   locks?: MotionLocks;
+  /** engine "custom": the client's Custom Style prompt + materials, built after the script is approved */
+  custom?: { prompt: string; title: string; stepId: string; materials: { url: string; name: string }[] };
   engine?: MotionEngine;
 };
 
@@ -985,6 +988,8 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
   if (meta.feature === "motion-vgc") return settleVgcRow(hist, r, createdMs);
   // a Default · Padat run (Claude Code on HyperFrames + critic rounds) takes longer
   const padatRun = hist.task_id.startsWith(VGC_TASK_PREFIX);
+  // the same Claude Code run serves a Custom Style footage card (engine "custom")
+  const runName = (meta.input as EditInput | undefined)?.engine === "custom" ? "Custom Style" : "Motion Padat";
   if (r.status === "running" || r.status === "unknown") {
     if (Date.now() - createdMs > (padatRun ? VGC_STALE_MS : RENDER_STALE_MS)) {
       await failMotionRow(hist, "Motion: render timed out — credit refunded.");
@@ -994,7 +999,7 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
   }
   if (r.status === "failed") {
     if (padatRun) await alertDragonFatal(r.apiError);
-    await failMotionRow(hist, (padatRun ? `Motion Padat: ${r.error} — kredit dipulangkan.` : `Motion render failed: ${r.error}`).slice(0, 500));
+    await failMotionRow(hist, (padatRun ? `${runName}: ${r.error} — kredit dipulangkan.` : `Motion render failed: ${r.error}`).slice(0, 500));
     return { state: "settled", status: "failed", error: r.error };
   }
 
@@ -1006,7 +1011,7 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
   // stopped): nothing to deliver — refund (a resubmit gets its old video back)
   if (padatRun && !res.url) {
     const why = String(res.error || res.summary || "tiada video dihasilkan").replace(/\s+/g, " ").slice(0, 300);
-    await failMotionRow(hist, `Motion Padat: ${why} — kredit dipulangkan.`.slice(0, 500));
+    await failMotionRow(hist, `${runName}: ${why} — kredit dipulangkan.`.slice(0, 500));
     return { state: "settled", status: "failed", error: why };
   }
 
