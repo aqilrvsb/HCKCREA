@@ -265,17 +265,49 @@ const PRO_FEEL: Record<string, Record<string, string>> = {
   progress: { bar: "thin top bar", thick: "rounded glowing bar", dots: "segmented dots", none: "no bar" },
 };
 /** n options drawn at random; `keep` is always among them (the reference-level choice stays on the menu). */
-const shortlist = (key: string, n: number, keep?: string) => {
+/** The options this call offered, per field (PRO_DIRECTION fills it; enforceShortlists holds the plan to it). */
+type Shortlists = Record<string, string[]>;
+let LISTS: Shortlists | null = null;
+const shortlist = (key: string, n: number, keep?: string, field: string = key) => {
   const rest = shuffle(Object.keys(PRO_FEEL[key]).filter((k) => k !== keep)).slice(0, keep ? n - 1 : n);
-  return shuffle(keep ? [keep, ...rest] : rest).map((k) => `"${k}" (${PRO_FEEL[key][k]})`).join(" | ");
+  const picked = shuffle(keep ? [keep, ...rest] : rest);
+  if (LISTS) LISTS[field] = picked;
+  return picked.map((k) => `"${k}" (${PRO_FEEL[key][k]})`).join(" | ");
 };
+/** PRO_DIRECTION plus the shortlists it drew. */
+export const proDirectionWithLists = (recent: string[]): { text: string; lists: Shortlists } => {
+  LISTS = {};
+  try { return { text: PRO_DIRECTION(recent), lists: LISTS }; } finally { LISTS = null; }
+};
+/** A choice outside this call's shortlist (the model drifting to a favourite) becomes the shortlist's first option:
+ *  the random draw is what keeps a client's videos from looking alike. */
+function enforceShortlists(d: ProDirection, lists: Shortlists): void {
+  const one = (field: keyof ProDirection, list?: string[]) => {
+    const v = d[field];
+    if (list?.length && typeof v === "string" && !list.includes(v)) (d as Record<string, unknown>)[field] = list[0];
+  };
+  one("hook_style", lists.hook_style);
+  one("font", lists.font);
+  one("caption_font", lists.caption_font);
+  one("caption_fx", lists.caption_fx);
+  one("caption_look", lists.caption_look);
+  one("grade", lists.grade);
+  one("camera", lists.camera);
+  one("break_fx", lists.break_fx);
+  one("end_card", lists.end_card);
+  one("progress", lists.progress);
+  if (Array.isArray(d.transitions) && lists.transition?.length) {
+    const t = d.transitions.filter((x) => lists.transition.includes(x));
+    d.transitions = t.length ? t : [lists.transition[0]];
+  }
+}
 
 export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also the MASTER DIRECTING EDITOR of this video's finish. The render engine (HyperFrames) gives you the craft below; nothing is preset. Decide the treatment that serves THIS footage, speaker, product and angle — the way a top human TikTok editor would — and return it in "direction". This generation's options were drawn at random (another generation of the same video gets different ones on purpose): choose the best of them for this footage.
 "direction": {
   "strategy": [{"at": CUE, "beat": "hook" | "pain" | "myth" | "benefits" | "how" | "proof" | "number" | "price" | "place" | "question" | "product" | "rehook" | "emotion" | "close" | "cta", "tool": ≤40 (the device you give it, e.g. "split MITOS|FAKTA", "behind PALSU", "checklist")}] (4–12) — WRITE THIS FIRST: the video's beat sheet in time order, each beat with the tool from the TOOL PLAYBOOK below that tells it best; everything after follows this plan,
   "hook_style": ${shortlist("hook_style", 3, "headline")},
   "font": face of the hook and end card — ${shortlist("font", 3)},
-  "caption_font": face of the captions — ${shortlist("font", 3)},
+  "caption_font": face of the captions — ${shortlist("font", 3, undefined, "caption_font")},
   "caption_fx": ${shortlist("caption_fx", 2)},
   "caption_look": the creator caption style of the big captions (it replaces caption_fx) — ${shortlist("caption_look", 4)},
   "marker": true | false (coloured keywords get a highlighter sweep), "emoji": "above" | "beside" (where a keyword's emoji pops),
@@ -318,7 +350,7 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
 Every scene / side word shows ONLY words, numbers and facts the speaker actually says — short, punchy, in their language.
 THE REFERENCE LEVEL (a top Malaysian news-explainer TikTok, the bar to reach when the content allows): a calm "headline" hook title with a float card of the source (badge "VIRAL") under it; the speaker states each point while side words land on the strongest words; every point then cuts (hard cut) to its own scene, numbered "1. … / 2. … / 3. …": a dark build whose lines slam in word by word ("TAKDE CHARGE" green → "BAYAR RM100" → "TOLAK RM100 JE" on a yellow box), a red stat build ("NAMA DIA" → "MDR" xl → "0.35%" count, yellow → "0.6%" → "KAD KREDIT" on a black box), a cork / paper collage (tag heading "CONTOHNYA", yellow note, starburst price, red strip), an article card of the news with its key words highlighted, a timeline of dates (green / red / yellow dots), a compare of two numbers; between scenes the speaker with side words; a closing question build right before the CTA ("JADI KORANG RASA…?" → "KOMEN KAT BAWAH" on a yellow box); "captions": "subtle", "fx": "light", no end card or a quiet one. For a selling / product video the same kit tells the product story (a stat build of the result, a compare of before → after or price vs value, a card of the product, a collage of variants / uses, a timeline of the routine) — still built from what is said.
 HOW A TOP EXPLAINER EDITOR BUILDS THIS VIDEO — this is the default bar for every talking video (selling, tutorial, review, tips, news); step away from it only for a purely emotional story or a clip under ~12 s. A client prompt or selling recipe (checklists, price tags, zooms, a CTA) is delivered INSIDE this structure — a checklist build with ticks, a price starburst in a collage, a compare of old vs new price, a punch-in while the product is shown — never instead of it:
-- The scenes are the main storytelling tool, not an extra. Whenever the speaker explains, teaches, lists, compares, gives steps, places, prices or numbers, cut to a scene that builds that point on screen as it is said — about 50–65 % of the runtime in scenes (the reference sits near 60 %), typically 4–8 scenes in 30–60 s, each a different kind / background (numbered "1. / 2." builds, a stat build, a collage of options, an article / polaroid card of the product or source, a timeline of steps, a compare of two numbers or choices, a split of myth vs fact or do vs don't, an annotated key sentence, a comment the speaker reads out and answers, a closing question before the CTA).
+- The scenes are the main storytelling tool, not an extra. Whenever the speaker explains, teaches, lists, compares, gives steps, places, prices or numbers, cut to a scene that builds that point on screen as it is said — about 45–70 % of the runtime in scenes (the reference sits near 60 %; never more than 70 %), typically 4–8 scenes in 30–60 s, each a different kind / background (numbered "1. / 2." builds, a stat build, a collage of options, an article / polaroid card of the product or source, a timeline of steps, a compare of two numbers or choices, a split of myth vs fact or do vs don't, an annotated key sentence, a comment the speaker reads out and answers, a closing question before the CTA).
 - Every scene keeps building like the reference: a new line / entry / sticker lands on its word every 1–2 spoken seconds, 3–7 of them per scene, filling the frame's upper two-thirds; never leave a scene sitting on one or two lines for more than ~2.5 s — add the next spoken phrase as a line, or end the scene and cut back to the speaker. Lines are short spoken phrases (1–4 words), mixed sizes (a small lead-in, then the big word, then what it means), colour and boxes for the key one.
 - While the speaker is on screen between scenes, side words land on the strongest line almost every time (small lead-in + big word, or one huge centred word on a punchline), with few stickers — never a sticker and side words at the same moment.
 - Open with the hook title and, when there is a product / source picture, a float card with a badge under it; keep the speaker on screen for the hook, the moments they hold the product up to camera, emotional lines and the CTA — and cut to scenes for everything they explain around those moments.
@@ -340,7 +372,7 @@ TOOL PLAYBOOK — how a top editor uses this kit (plan the beats first, then giv
 - CLOSING: a question build ("JADI KORANG RASA…?" → "KOMEN KAT BAWAH") right before the CTA; then the end card or the spoken CTA with side words.
 - CAPTION LOOK by energy: hard sell → hormozi / beast; tutorial → popline / deep / pill; playful product → sticker / karaoke; fast talker → fill; drama / night → neon; podcast / talk → pod; TikTok-native → sweep; a scene-heavy news explainer → "captions": "subtle".
 - Signature moments (behind, smash, spotlight, lines, crash) land hardest when rare: 2–4 per video, each on a different beat.
-CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): does your strategy name a beat for every part of the speech, and does each beat use the playbook tool that fits it (not just builds)? do the scenes cover about half the runtime or more? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours? is every "behind" word's index OUTSIDE every scene's at…to range (a word inside a scene can't show)?
+CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): does your strategy name a beat for every part of the speech, and does each beat use the playbook tool that fits it (not just builds)? do the scenes cover between ~45 % and 70 % of the runtime (never more — the speaker must be seen: trust sells)? is every side word, behind word, banner, sticker (overlay) and camera move ("punch", "crash", "spotlight", "lines", "tilt", "shake", "bump", "whip") placed in a gap BETWEEN your scenes (inside a scene's at…to the speaker is hidden, so they never show)? is every number / price on screen one the speaker actually says? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours? is every "behind" word's index OUTSIDE every scene's at…to range (a word inside a scene can't show)?
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
 VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
 
@@ -601,7 +633,7 @@ function cleanScene(sc: any, nWords: number, duration: number): Record<string, u
 
 /** One line per earlier edit (for the VARIETY note). */
 export const directionSummary = (d: ProDirection | undefined | null): string | null =>
-  d ? [d.hook_style, d.font, d.grade, d.end_card, d.caption_fx, d.camera,
+  d ? [d.hook_style, d.font, d.grade, d.end_card, d.caption_look ?? d.caption_fx, d.camera,
     Array.isArray(d.scenes) && d.scenes.length ? `scenes:${d.scenes.map((x) => `${x.kind}${x.style ? "-" + x.style : ""}/${x.bg ?? ""}`).join(",")}` : ""].filter(Boolean).join("/") || null : null;
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -715,10 +747,11 @@ export async function directEdit(opts: {
   let raw: any = null;
   let lastErr = "";
   let director = ""; // "<provider>/<model>" that wrote the plan
+  const proText = pro ? proDirectionWithLists(opts.recent ?? []) : null;
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
     const r = await orChat({
       modelKey: "model_motion",
-      systemPrompt: DIRECTOR_SYSTEM(style, !!input.guard, brief) + (pro ? `\n\n${PRO_DIRECTION(opts.recent ?? [])}\nInclude "direction" in the JSON object.` : ""),
+      systemPrompt: DIRECTOR_SYSTEM(style, !!input.guard, brief) + (proText ? `\n\n${proText.text}\nInclude "direction" in the JSON object.` : ""),
       userPrompt: attempt === 0 ? userPrompt : `${userPrompt}\n\nYour previous answer was not valid JSON (${lastErr}). Return ONLY the JSON object.`,
       temperature: auto ? 0.9 : 0.7, // AI Auto: fresher ideas from video to video
       maxTokens: pro ? 11000 : 7000,
@@ -742,8 +775,13 @@ export async function directEdit(opts: {
   const plan = validateDirectorPlan(raw, words.length, duration, input, lookOf(raw), auto);
   if (pro) {
     const direction = cleanDirection(raw?.direction, words.length, duration);
-    if (direction) plan.direction = direction;
+    if (direction) {
+      if (proText) enforceShortlists(direction, proText.lists);
+      plan.direction = direction;
+    }
   }
+  // only numbers the speaker says (or the client wrote) reach the screen; nothing that sits on the speaker hides inside a scene
+  groundPlan(plan, words, duration, [input.product, input.instructions].filter(Boolean).join(" "));
   const guard = !!input.guard;
   if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
 
@@ -760,6 +798,117 @@ export async function directEdit(opts: {
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
   return { ...plan, director, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
+}
+
+// ── grounding: numbers on screen are spoken; on-speaker pieces live between scenes; scenes ≤ ~70 % ─────────────
+
+const NUM = /\d+(?:[.,]\d+)*/g;
+/** "1,250" / "1.250" → "1250"; "0,35" → "0.35"; "08" → "8". */
+const normNum = (raw: string) => {
+  const t = raw.replace(/[.,]$/, "");
+  if (/^\d{1,3}([.,]\d{3})+$/.test(t)) return String(Number(t.replace(/[.,]/g, "")));
+  return String(Number(t.replace(",", ".")));
+};
+/** Every number the speaker says (as digits) or the client wrote, plus shares said as "X daripada Y" (→ percent). */
+function allowedNumbers(words: DirectorWord[], extra: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of words) for (const m of String(w.w).match(NUM) ?? []) out.add(normNum(m));
+  for (const m of extra.match(NUM) ?? []) out.add(normNum(m));
+  for (let i = 0; i + 2 < words.length; i++) {
+    if (/^daripada$/i.test(words[i + 1].w.replace(/[^\p{L}]/gu, ""))) {
+      const a = Number(normNum((words[i].w.match(NUM) ?? [""])[0] || "x"));
+      const b = Number(normNum((words[i + 2].w.match(NUM) ?? [""])[0] || "x"));
+      if (a > 0 && b > 0) out.add(String(Math.round((a / b) * 100)));
+    }
+  }
+  return out;
+}
+
+function groundPlan(plan: EditPlanV2, words: DirectorWord[], duration: number, brief: string): void {
+  const ok = allowedNumbers(words, brief);
+  // a leading step number ("1. Cara guna") is numbering, not a claim
+  const numsOk = (v: unknown) => typeof v !== "string" || (v.replace(/^\s*\d{1,2}[.)]\s+/, "").match(NUM) ?? []).every((m) => ok.has(normNum(m)));
+  const valOk = (v: unknown) => typeof v !== "number" || ok.has(normNum(String(v)));
+  const tOf = (c: unknown, end = false): number => {
+    if (typeof c === "number") return c;
+    const m = /^w(\d+)(\$)?([+-][\d.]+)?/i.exec(String(c ?? ""));
+    if (!m) return Number(c) || 0;
+    const w = words[Math.min(words.length - 1, Number(m[1]))];
+    return ((m[2] || end) ? (w?.e ?? w?.t ?? 0) : (w?.t ?? 0)) + (m[3] ? Number(m[3]) : 0);
+  };
+  let dropped = 0;
+  const why: string[] = [];
+  let reason = "";
+  const show = (x: any) => String(x?.text ?? x?.title ?? x?.label ?? x?.note ?? x?.move ?? (x?.words ?? []).map((w: any) => w.text).join(" ") ?? "").slice(0, 24);
+  const keep = <T,>(xs: T[] | undefined, test: (x: T) => boolean): T[] | undefined => {
+    if (!Array.isArray(xs)) return xs;
+    const k = xs.filter(test);
+    for (const x of xs) if (!k.includes(x)) why.push(`${reason}:${show(x)}`);
+    dropped += xs.length - k.length;
+    return k;
+  };
+
+  // stickers (overlays) with an unspoken number
+  reason = "number";
+  plan.overlays = keep(plan.overlays, (o) => numsOk(o.text) && numsOk(o.sub)) ?? [];
+  const d = plan.direction as Record<string, any> | undefined;
+  if (d) {
+    for (const sc of (d.scenes ?? []) as Record<string, any>[]) {
+      for (const f of ["heading", "kicker", "title", "caption", "text"]) if (!numsOk(sc[f])) { delete sc[f]; dropped++; }
+      sc.lines = keep(sc.lines, (l: any) => numsOk(l.text) && (l.options ?? []).every(numsOk));
+      sc.entries = keep(sc.entries, (e: any) => numsOk(e.date) && (e.lines ?? []).every(numsOk));
+      sc.stickers = keep(sc.stickers, (x: any) => numsOk(x.text) && numsOk(x.sub));
+      sc.bars = keep(sc.bars, (b: any) => numsOk(b.value) && numsOk(b.label));
+      sc.items = keep(sc.items, (it: any) => numsOk(it.text) && numsOk(it.label) && numsOk(it.value));
+      sc.steps = keep(sc.steps, (st: any) => numsOk(st.title) && numsOk(st.sub));
+      sc.rings = keep(sc.rings, (r: any) => valOk(r.value) && numsOk(r.label));
+      sc.messages = keep(sc.messages, (m: any) => numsOk(m.text));
+      sc.notes = keep(sc.notes, (n: any) => numsOk(n.note));
+      sc.places = keep(sc.places, (pl: any) => numsOk(pl.label));
+      if (sc.chart?.points) sc.chart.points = keep(sc.chart.points, (pt: any) => valOk(pt.value) && numsOk(pt.label));
+      if (Array.isArray(sc.sides)) for (const sd of sc.sides) sd.items = keep(sd.items, (it: any) => numsOk(it.text));
+      if (sc.total && !numsOk(sc.total.value)) { delete sc.total; dropped++; }
+      if (sc.stamp && !numsOk(sc.stamp.text)) { delete sc.stamp; dropped++; }
+    }
+    d.side = keep(d.side, (x: any) => (x.words ?? []).every((w: any) => numsOk(w.text)));
+    d.behind = keep(d.behind, (b: any) => numsOk(b.text));
+    d.banner = keep(d.banner, (b: any) => numsOk(b.text) && numsOk(b.ticker));
+    d.moves = keep(d.moves, (m: any) => numsOk(m.text));
+
+    // scenes ≤ ~70 % of the runtime: the thinnest scene (fewest items per second) goes first
+    reason = "over70";
+    const scenes = ((d.scenes ?? []) as Record<string, any>[]);
+    const full = () => scenes.filter((sc) => !(sc.kind === "card" && sc.style === "float"));
+    const span = (sc: any) => Math.max(0, tOf(sc.to ?? sc.at, true) - tOf(sc.at));
+    const itemsOf = (sc: any) => ["lines", "entries", "stickers", "bars", "items", "steps", "rings", "messages", "notes", "places"]
+      .reduce((n, k) => n + (Array.isArray(sc[k]) ? sc[k].length : 0), 0) + (sc.chart?.points?.length ?? 0) + (sc.sides ?? []).reduce((n: number, sd: any) => n + (sd.items?.length ?? 0), 0);
+    while (full().length > 2 && full().reduce((a, sc) => a + span(sc), 0) > duration * 0.72) {
+      const thin = full().sort((a, b) => itemsOf(a) / Math.max(0.5, span(a)) - itemsOf(b) / Math.max(0.5, span(b)))[0];
+      scenes.splice(scenes.indexOf(thin), 1);
+      why.push(`over70:${thin.kind}`);
+      dropped++;
+    }
+
+    // what sits on the speaker never lands inside a full-screen scene (it would never show)
+    // the composition ends a scene ~3.5 s after its last item (a card may hold 11 s): use that real end
+    const itemTimes = (sc: any) => ["lines", "entries", "stickers", "bars", "items", "steps", "rings", "messages", "notes", "places"]
+      .flatMap((k) => (Array.isArray(sc[k]) ? sc[k] : []).map((x: any) => tOf(x.at)))
+      .concat((sc.chart?.points ?? []).map((x: any) => tOf(x.at)), (sc.sides ?? []).flatMap((sd: any) => (sd.items ?? []).map((x: any) => tOf(x.at))));
+    const realEnd = (sc: any) => {
+      const to = tOf(sc.to ?? sc.at, true);
+      const ts = itemTimes(sc);
+      return sc.kind === "card" ? Math.min(to, tOf(sc.at) + 11) : ts.length ? Math.min(to, Math.max(...ts) + 3.5) : to;
+    };
+    const spans = full().map((sc) => [tOf(sc.at), realEnd(sc)] as const);
+    const inside = (c: unknown) => { const t = tOf(c); return spans.some(([a, b]) => t >= a - 0.05 && t < b); };
+    reason = "under-scene";
+    d.side = keep(d.side, (x: any) => !inside(x.at));
+    d.behind = keep(d.behind, (x: any) => !inside(x.at));
+    d.banner = keep(d.banner, (x: any) => !inside(x.at));
+    d.moves = keep(d.moves, (x: any) => !inside(x.at));
+    plan.overlays = keep(plan.overlays, (o) => o.t === "confetti" || !inside(o.at)) ?? [];
+  }
+  if (dropped) console.log(`[director] grounding dropped ${dropped}: ${why.join(" | ").slice(0, 900)}`);
 }
 
 /** Time kept for guard + B-roll + facts after the director answers. */
