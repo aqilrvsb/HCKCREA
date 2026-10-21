@@ -18,35 +18,22 @@
 import React from 'react';
 import { AbsoluteFill, Easing, Img, interpolate } from 'remotion';
 import { W, clamp, fitSize } from '../../motion/src/lib';
+import { tableWidth } from '../../motion/src/fontMetrics';
 import type { Look } from './look';
 import { LottieEmoji } from './emoji';
 import type { LottieMap } from '../../motion/src/types';
 
 // ── measuring and seeds ──────────────────────────────────────────────────────
 
-let ctx: CanvasRenderingContext2D | null | undefined;
 const widths = new Map<string, number>();
-/** Rendered width (px) of `text` in a face — measured with the page's own fonts, an estimate without a canvas. */
+/** Rendered width (px) of `text` in a face — from the measured font tables (fontMetrics.ts), so the Node planner and
+ *  every render chunk agree and nothing depends on a face having loaded; the char estimate for an unknown face. */
 export const textWidth = (text: string, face: Look['display'], size: number): number => {
   const key = `${face.family}|${face.weight}|${size}|${text}`;
   const hit = widths.get(key);
   if (hit !== undefined) return hit;
-  if (ctx === undefined) {
-    try { ctx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null; } catch { ctx = null; }
-  }
-  let w = text.length * size * face.charW;
-  if (ctx) {
-    const font = `${face.weight} ${size}px ${face.family}`;
-    ctx.font = font;
-    w = ctx.measureText(text).width + Math.max(0, text.length - 1) * (face.track || 0);
-    // a face that has not loaded yet measures in the fallback font: keep the estimate's worth of room and don't cache it
-    let ready = true;
-    try { ready = typeof document === 'undefined' || !document.fonts || document.fonts.check(font, text); } catch { ready = true; }
-    if (!ready) {
-      try { void document.fonts.load(font, text); } catch { /* ignore */ }
-      return Math.max(w, text.length * size * face.charW);
-    }
-  }
+  const m = tableWidth(text, face.family, face.weight, size) ?? text.length * size * face.charW;
+  const w = m + Math.max(0, text.length - 1) * (face.track || 0);
   widths.set(key, w);
   return w;
 };

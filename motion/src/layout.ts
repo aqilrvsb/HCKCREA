@@ -14,10 +14,12 @@
 // all it is skipped (no slot — the caller drops it).
 //
 // Sizes are measured, not guessed: each sticker's text is wrapped with the
-// real font widths (canvas), and the box reserves room for its tilt and the
+// real font widths (fontMetrics.ts — identical in the Node planner, which picks
+// the sound effects and GIFs, and in the browser), and the box reserves room for its tilt and the
 // idle "breathe" motion, so a tilted stamp or a headline that wraps to an
 // extra line can't spill onto the face or the next sticker.
 import { F, SAFE_X, W, fitSize, tilt, type Placed } from './lib';
+import { tableWidth } from './fontMetrics';
 import type { Face, Item, Zone } from './types';
 
 export type Slot = { y: number; scale: number };
@@ -29,7 +31,7 @@ const GAP = 18;
 const MAXW = W - SAFE_X * 2;
 const MIN_SCALE = 0.6;
 
-// ── real text widths (canvas, the page's own fonts) ─────────────────────────
+// ── real text widths (measured font tables, fontMetrics.ts) ─────────────────────────
 type Font = { family: string; weight: number; charW: number; track?: number };
 const FONT = {
   black: { family: F.black, weight: 400, charW: 0.68 },
@@ -39,24 +41,15 @@ const FONT = {
   inter8: { family: F.inter, weight: 800, charW: 0.58 },
 } satisfies Record<string, Font>;
 
-let ctx: CanvasRenderingContext2D | null | undefined;
 const widths = new Map<string, number>();
-const quote = (f: string) => (/["',]/.test(f) ? f : `"${f}"`);
 
-/** Width of `text` at 100 px in its real font, or null when it can't be measured (no canvas / font not loaded yet). */
+/** Width of `text` at 100 px in its real font (fontMetrics.ts — the same in the Node planner and the browser), or null for an unknown face. */
 function w100(text: string, f: Font): number | null {
   const key = `${f.family}|${f.weight}|${text}`;
   const hit = widths.get(key);
   if (hit !== undefined) return hit;
-  if (ctx === undefined) {
-    try { ctx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null; } catch { ctx = null; }
-  }
-  if (!ctx) return null;
-  const font = `${f.weight} 100px ${quote(f.family)}`;
-  try { if (document.fonts && !document.fonts.check(font, text)) return null; } catch { /* measure anyway */ }
-  ctx.font = font;
-  const w = ctx.measureText(text).width;
-  widths.set(key, w);
+  const w = tableWidth(text, f.family, f.weight, 100);
+  if (w !== null) widths.set(key, w);
   return w;
 }
 
@@ -79,7 +72,7 @@ function wrap(text: string, f: Font, size: number, width: number): { n: number; 
       line = word;
     } else line = cand;
   }
-  return { n, w: Math.min(width, Math.max(widest, textW(line, f, size))) };
+  return { n, w: Math.max(widest, textW(line, f, size)) }; // > width when one word is longer than the box
 }
 
 type Box = { h: number; w: number; tilt: number };
@@ -218,7 +211,10 @@ export function layoutEdit(placed: Placed[], o: {
     const boxes = group.map((q) => box(q.it, q.key));
     const over = boxes.map(overhang);
     const hs = boxes.map((b, i) => b.h + 2 * over[i] + GAP);
-    const h = hs.reduce((x, y) => x + y, 0);
+    // a sticker wider than the safe area (fitSize's char-count guess undershoots wide faces, e.g. Archivo Black
+    // capitals) is scaled down until it fits: every slot scale below includes this
+    const k0 = Math.min(1, ...boxes.map((b) => MAXW / Math.max(1, b.w)));
+    const h = hs.reduce((x, y) => x + y, 0) * k0;
     const s = p.s;
     const e = Math.max(...group.map((q) => q.e));
     const zone: Zone = p.it.zone ?? 'middle';
@@ -241,7 +237,7 @@ export function layoutEdit(placed: Placed[], o: {
     const fit = (g: Span, scale: number): Slot => {
       const hh = h * scale;
       const y = zone === 'bottom' ? g.b - hh : zone === 'middle' ? g.a + (g.b - g.a - hh) / 2 : g.a;
-      return { y, scale };
+      return { y, scale: scale * k0 };
     };
     const tryGaps = (gaps: Span[], homeScales: number[], anyScales: number[]): Slot | null => {
       const ord = order(gaps);

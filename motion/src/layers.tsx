@@ -7,6 +7,7 @@ import { noise2D } from '@remotion/noise';
 import { createRoundedTextBox } from '@remotion/rounded-text-box';
 import { EXIT, F, SAFE_X, W, clamp, fitSize, highlight, inkOn, popS, shade, type Placed, type Row } from './lib';
 import type { Slot } from './layout';
+import { tableWidth } from './fontMetrics';
 import type { SfxEvent } from './sfx';
 import type { Bg, CaptionKey, CaptionStyle, KeyColor, LottieMap, Style, Word, Zone } from './types';
 
@@ -138,16 +139,9 @@ const KEY_COLOR: Record<KeyColor, string> = { benefit: '#4ade80', price: '#FFD93
 const TT_FONT = 64;
 const TT_PAD = 26;
 const TT_LINE = Math.round(TT_FONT * 1.18);
-// Canvas text metrics with the font as loaded right now (measureText from
-// @remotion/layout-utils caches its first answer, which can predate the
-// Google font finishing loading → a box narrower than the text).
-let ttCtx: CanvasRenderingContext2D | null = null;
-const ttWidth = (text: string) => {
-  if (!ttCtx && typeof document !== 'undefined') ttCtx = document.createElement('canvas').getContext('2d');
-  if (!ttCtx) return text.length * TT_FONT * 0.6;
-  ttCtx.font = `800 ${TT_FONT}px ${F.caption}`;
-  return ttCtx.measureText(text).width;
-};
+// Text width from the measured font tables (fontMetrics.ts): @remotion/layout-utils caches its first answer, which can
+// predate the Google font finishing loading → a box narrower than the text.
+const ttWidth = (text: string) => tableWidth(text, F.caption, 800, TT_FONT) ?? text.length * TT_FONT * 0.62;
 const TikTokCaption: React.FC<{ page: Page; cur: number; centerY: number; hi: string; inS: number; taped: Set<number> }> = ({ page, cur, centerY, hi, inS, taped }) => {
   const shown = page.words.map((w) => (taped.has(w.gi) ? '▇▇▇' : w.w));
   const maxLine = W - 220;

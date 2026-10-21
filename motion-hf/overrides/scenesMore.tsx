@@ -535,10 +535,11 @@ export const NewsBanner: React.FC<{ tag: string; text: string; ticker?: string; 
 // ── speaker cut-out effects (props.cutouts: BiRefNet alpha video of the speaker) ─────────────────────
 
 /** A huge word behind the speaker's head (the cut-out of the speaker is drawn over it): its lower third behind the top of the head. */
-export const BehindText: React.FC<{ text: string; d: number; out: number; headTop: number; face: Face; color: string }> = ({ text, d, out, headTop, face, color }) => {
+export const BehindText: React.FC<{ text: string; d: number; out: number; headTop: number; face: Face; color: string; fitW?: number }> = ({ text, d, out, headTop, face, color, fitW = 1000 }) => {
   if (d < 0) return null;
   const t = face.upper ? text.toUpperCase() : text;
-  const size = Math.min(520, Math.floor((1000 * 100) / Math.max(1, textWidth(t, face, 100))));
+  // fitW: the width (camera space) that still fits the screen at the camera's zoom in this window
+  const size = Math.min(520, Math.floor((fitW * 100) / Math.max(1, textWidth(t, face, 100))));
   const p = interpolate(d, [0, 7], [0, 1], { ...clamp, easing: Easing.out(Easing.back(1.4)) });
   return (
     <div style={{ position: 'absolute', left: 0, right: 0, top: Math.max(220, headTop - size * 0.72), textAlign: 'center', fontFamily: face.family, fontWeight: face.weight, fontSize: size,

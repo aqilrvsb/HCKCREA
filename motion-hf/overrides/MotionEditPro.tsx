@@ -358,7 +358,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     const cuts = (p.cutouts ?? []).map((c) => ({ src: c.src, s: Math.round(c.s * fps), e: Math.round(c.e * fps), top: c.top })).filter((c) => c.src && c.e > c.s + 2);
     const covered = (s: number, e: number) => cuts.some((c) => c.s <= s && c.e >= e);
     for (const sc of scenes) if (sc.speaker && !covered(sc.s, sc.e)) sc.speaker = undefined;
-    const behinds: { s: number; e: number; text: string; tone?: Tone; headTop: number }[] = [];
+    const behinds: { s: number; e: number; text: string; tone?: Tone; headTop: number; fitW?: number }[] = [];
     for (const raw of arr((p.direction as Record<string, unknown> | null | undefined)?.behind).slice(0, 3)) {
       const s = fr(cue(raw.at as string | number, -1));
       const text = txt(raw.text, 14);
@@ -440,6 +440,22 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       const e = z.to !== undefined ? fr(cue(z.to, s / fps + 1.6)) : s + fr(1.6);
       return { s, e: Math.max(e, s + 10), k: Math.min(1.25, Math.max(1.04, z.scale ?? 1.14)) };
     });
+    const cutFrames = (p.cuts ?? []).map((c) => fr(c)).filter((c) => c > 0 && c < last).sort((a, b) => a - b);
+
+    // the text behind the speaker lives in the camera layer (it zooms with the head): sized so it still fits the
+    // screen at the camera's largest scale in its window (jump-cut zoom, planned zoom, push-in, bump, punch-type
+    // moves, overscan), scaled about the face it zooms around
+    const oddSeg = (f: number) => cutFrames.filter((c) => f >= c).length % 2 === 1;
+    for (const b of behinds) {
+      const base = oddSeg(b.s) || cutFrames.some((c) => c > b.s && c < b.e && oddSeg(c)) ? look.camera.jump : 1;
+      const zk = Math.max(base, ...zooms.filter((z) => z.s - 1 < b.e && z.e + 8 > b.s).map((z) => 1 + (z.k - 1) + (base - 1) * 0.5));
+      const moved = (p.direction?.moves ?? []).some((mv) => ['punch', 'crash', 'lines', 'smash', 'tilt'].includes(String(mv.move))
+        && fr(cue(mv.at, -1)) <= b.e && fr(cue(mv.at, -1)) + 26 >= b.s);
+      const k = zk * (1 + look.camera.push) * (1 + look.camera.bump) * (moved ? 1.15 : 1) * OVERSCAN;
+      const fc = faceAt(p.faces, b.s / fps);
+      const ox = fc ? (fc.x + fc.w / 2) * 1080 : 540;
+      b.fitW = Math.round(Math.max(480, Math.min(1000, 2 * Math.min(540 - ox + (ox - 24) / k, (1056 - ox) / k - (540 - ox)))));
+    }
 
     const capH = cap.style === 'tiktok' ? 220 : 250;
     const slots = layoutEdit(placed, {
@@ -458,8 +474,6 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         theme: { brand: look.hi, accent: look.second === '#111111' ? '#2EC4FF' : look.second, accent2: accent, font: look.display.family },
       });
     }
-
-    const cutFrames = (p.cuts ?? []).map((c) => fr(c)).filter((c) => c > 0 && c < last).sort((a, b) => a - b);
 
     // emphasis bumps: keyword words (≥ 2.4 s apart, not inside a zoom, the hook or the end card),
     // then one in the middle of every dead stretch
@@ -712,7 +726,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
           <TapeLayer tracks={p.tapes} />
           {spotK > 0 && <AbsoluteFill style={{ background: `radial-gradient(ellipse 70% 55% at 50% 40%, rgba(0,0,0,${(0.35 * spotK).toFixed(3)}) 0%, rgba(0,0,0,${(0.72 * spotK).toFixed(3)}) 100%)` }} />}
           {behind && <BehindText text={behind.text} d={frame - behind.s} out={interpolate(frame, [behind.e - 6, behind.e], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })}
-            headTop={behind.headTop} face={look.display} color={behind.tone ? (behind.tone === 'white' ? '#fff' : behind.tone === 'yellow' ? '#FFD93B' : behind.tone === 'red' ? '#F2443F' : behind.tone === 'green' ? '#3DDC97' : behind.tone === 'blue' ? '#4FB3FF' : look.hi) : '#fff'} />}
+            headTop={behind.headTop} fitW={behind.fitW} face={look.display} color={behind.tone ? (behind.tone === 'white' ? '#fff' : behind.tone === 'yellow' ? '#FFD93B' : behind.tone === 'red' ? '#F2443F' : behind.tone === 'green' ? '#3DDC97' : behind.tone === 'blue' ? '#4FB3FF' : look.hi) : '#fff'} />}
         </AbsoluteFill>
         {/* the speaker cut out (one element per window, never re-parented): on the speaker shot it takes the camera's exact
             transform and is drawn over the word behind / the dimmed room; during a "speaker" scene it is a die-cut sticker over it */}
