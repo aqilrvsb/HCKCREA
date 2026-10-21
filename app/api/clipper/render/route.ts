@@ -39,13 +39,14 @@ export async function POST(req: Request) {
   // settings
   const s = b?.settings ?? {};
   const mode: "captions" | "auto" | "style" = s.mode === "auto" || s.mode === "style" ? s.mode : "captions";
-  const frame = ["face", "fit", "center"].includes(s.frame) ? s.frame : "face";
+  const frame = ["face", "fit", "center", "split"].includes(s.frame) ? s.frame : "face";
   const captions = s.captions !== false;
   const captionLook = LOCK_CAPTION_LOOKS.some((c) => c.id === s.captionLook) ? String(s.captionLook) : undefined;
   const captionPos = s.captionPos === "mid" ? "mid" : "low";
   const hookOn = s.hook !== false;
   const music = s.music === true;
   const sfx = s.sfx !== false;
+  const jumpcut = s.jumpcut !== false; // long pauses inside the clip shortened
   const wmText = String(s.watermark?.text ?? "").replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
   const wmImage = /^https:\/\/[^\s]+$/.test(String(s.watermark?.image ?? "")) ? String(s.watermark.image).slice(0, 1000) : "";
   let styleId: string | undefined, styleName: string | undefined;
@@ -149,7 +150,7 @@ export async function POST(req: Request) {
       captions,
       ...(ytAuth ? { yt_auth: ytAuth } : {}),
       clip: {
-        source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language,
+        source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language, jumpcut,
         ...(wmText || wmImage ? { watermark: { ...(wmText ? { text: wmText } : {}), ...(wmImage ? { image: wmImage } : {}) } } : {}),
       },
     });

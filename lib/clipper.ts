@@ -143,7 +143,7 @@ CLIP LENGTH: ${durSay}. CLIP COUNT: ${cnt.say}.${o.focus ? `
 CLIENT FOCUS: the client wants clips about: "${o.focus}". Prefer moments that fit it — they must still work as strong standalone clips.` : ""}
 
 FIELDS PER CLIP:
-- "start" / "end": exact seconds copied from the transcript — "start" is the START of the line where the clip begins, "end" is the END of the line where it ends. Clips never overlap.
+- "from" / "to": the transcript line IDs (e.g. "L118") where the clip begins and ends — "from" is the line whose first words already pull (the hook / the setup the clip needs), "to" is the line where the payoff completes. Copy IDs exactly from the transcript. Clips never overlap.
 - "title": ≤ 8 words, the catchy post title. NEVER first person (no "saya / aku / gue / I / my") — the client posting it is not the speaker: name the speaker or their role from the video title / channel ("Dr. X dedah…", "Host bongkar…", "CEO explains…") or use curiosity framing ("Fakta sebenar tentang…", "Kenapa ramai gagal…").
 - "hook": ≤ 6 words, the on-screen hook text for the first 2.5 s — the clip's promise, punchy, in the speaker's words or meaning (not a copy of the title).
 - "score": 1–100, honest viral potential (hook strength × standalone payoff × emotion / value × audience interest).
@@ -152,10 +152,11 @@ FIELDS PER CLIP:
 - "caption": a 1–2 sentence social caption that makes people watch.
 - "hashtags": 3–6 relevant hashtags (lowercase, with #).
 
-Return ONLY JSON: {"summary": "1–2 sentences: what the video is about", "clips": [{"start": number, "end": number, "title": string, "hook": string, "score": number, "reason": string, "quote": string, "caption": string, "hashtags": [string]}]} — sorted by score, best first.`;
+Return ONLY JSON: {"summary": "1–2 sentences: what the video is about", "clips": [{"from": "L…", "to": "L…", "title": string, "hook": string, "score": number, "reason": string, "quote": string, "caption": string, "hashtags": [string]}]} — sorted by score, best first.`;
 
-/** Lines → the transcript block of the prompt (≤ ~4000 lines: longer sources are merged pairwise). */
-function transcriptBlock(lines: Line[], heat: HeatPoint[]): string {
+/** The lines the prompt shows (≤ ~4000: a longer source is merged pairwise) — their IDs (L1, L2, …) are what the
+ *  model answers with, so a boundary is always a real line (no invented seconds). */
+function promptLines(lines: Line[]): Line[] {
   let ls = lines;
   while (ls.length > 4000) {
     const m: Line[] = [];
@@ -165,11 +166,22 @@ function transcriptBlock(lines: Line[], heat: HeatPoint[]): string {
     }
     ls = m;
   }
-  return ls.map((l) => `${l.start.toFixed(1)}|${l.end.toFixed(1)}${heat.length ? `|${interestOf(heat, l.start, l.end).toFixed(2)}` : ""} ${l.text}`).join("\n");
+  return ls;
 }
 
+function transcriptBlock(ls: Line[], heat: HeatPoint[]): string {
+  return ls.map((l, i) => `L${i + 1} ${l.start.toFixed(1)}|${l.end.toFixed(1)}${heat.length ? `|${interestOf(heat, l.start, l.end).toFixed(2)}` : ""} ${l.text}`).join("\n");
+}
+
+const lineAt = (ls: Line[] | undefined, id: unknown): Line | null => {
+  const m = /^L?(\d+)$/i.exec(String(id ?? "").trim());
+  return ls && m ? ls[Number(m[1]) - 1] ?? null : null;
+};
+/** A line that continues a thought ("jadi…", "tapi…", "so…") can't open a clip: its setup is the line before. */
+const CONTINUES = /^(jadi|tapi|sebab|so|but|and|dan|lepas tu|pastu|then|because|kerana|oleh itu|maka|tu (la|lah)|haa?)\b/i;
+
 /** The model's clips held to the transcript: lines snapped, length bounds, no overlaps, best first. */
-export function validateClips(raw: any, lines: Line[], heat: HeatPoint[], o: ClipperOptions, dur: number): ClipperClip[] {
+export function validateClips(raw: any, lines: Line[], heat: HeatPoint[], o: ClipperOptions, dur: number, idLines?: Line[]): ClipperClip[] {
   const b = BOUNDS[o.duration];
   const lo = o.range ? o.range.start : 0;
   const hi = o.range ? Math.min(o.range.end, dur || o.range.end) : dur || Infinity;
@@ -178,12 +190,15 @@ export function validateClips(raw: any, lines: Line[], heat: HeatPoint[], o: Cli
   const txt = (v: unknown, n: number) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
   const out: ClipperClip[] = [];
   for (const c of Array.isArray(raw?.clips) ? raw.clips : []) {
-    const s0 = Number(c?.start), e0 = Number(c?.end);
+    const fl = lineAt(idLines, c?.from), tl = lineAt(idLines, c?.to);
+    const s0 = fl ? fl.start : Number(c?.start), e0 = tl ? tl.end : Number(c?.end);
     if (!Number.isFinite(s0) || !Number.isFinite(e0) || e0 <= s0) continue;
     // the line that starts nearest the given start, the line that ends nearest the given end
     let si = inRange.reduce((best, l, i) => (Math.abs(l.start - s0) < Math.abs(inRange[best].start - s0) ? i : best), 0);
     let ei = inRange.reduce((best, l, i) => (Math.abs(l.end - e0) < Math.abs(inRange[best].end - e0) ? i : best), 0);
     if (ei < si) continue;
+    // a clip can't open mid-thought: pull in the line before when it fits
+    if (si > 0 && CONTINUES.test(inRange[si].text) && inRange[ei].end - inRange[si - 1].start <= b.max) si--;
     // too long → drop lines from the end; too short → add the next lines
     while (ei > si && inRange[ei].end - inRange[si].start > b.max) ei--;
     while (ei < inRange.length - 1 && inRange[ei].end - inRange[si].start < b.min) ei++;
@@ -243,10 +258,11 @@ export async function directClips(opts: {
   const cnt = countTarget(o, meta.duration);
   const system = SYSTEM(o, langName, cnt, BOUNDS[o.duration].say, heatmap.length > 0);
   const ranged = o.range ? lines.filter((l) => l.start >= o.range!.start - 0.5 && l.end <= o.range!.end + 0.5) : lines;
+  const shown = promptLines(ranged);
   const user = `VIDEO: "${meta.title || "(no title)"}"${meta.channel ? ` — channel / host: ${meta.channel}` : ""}. Length ${Math.round(meta.duration)} s.${o.range ? ` Only use ${Math.round(o.range.start)}–${Math.round(o.range.end)} s.` : ""}
-TRANSCRIPT (start|end${heatmap.length ? "|interest" : ""} text):
+TRANSCRIPT (ID start|end${heatmap.length ? "|interest" : ""} text):
 ---
-${transcriptBlock(ranged, heatmap)}
+${transcriptBlock(shown, heatmap)}
 ---
 Find the clips now. JSON only.`;
   let raw: any = null;
@@ -260,15 +276,67 @@ Find the clips now. JSON only.`;
       maxTokens: 9000,
       timeoutMs: 200_000,
       stream: true,
-      validate: (c) => { try { return validateClips(extractJson(c), lines, heatmap, o, meta.duration).length > 0; } catch { return false; } },
+      validate: (c) => { try { return validateClips(extractJson(c), lines, heatmap, o, meta.duration, shown).length > 0; } catch { return false; } },
       ...(opts.deadline ? { deadline: opts.deadline } : {}),
     });
     if (!r.ok || !r.content) continue;
     try { raw = extractJson(r.content); director = `${(r as any).provider ?? "?"}/${(r as any).model ?? "?"}`; } catch { raw = null; }
   }
-  const clips = raw ? validateClips(raw, lines, heatmap, o, meta.duration) : [];
+  let clips = raw ? validateClips(raw, lines, heatmap, o, meta.duration, shown) : [];
+  // second pass (time allowing): a judge checks every clip's start / setup / payoff and repairs or rejects it
+  if (clips.length && (!opts.deadline || Date.now() < opts.deadline - 75_000)) {
+    clips = await repairClips(clips, lines, heatmap, o, meta.duration, langName, opts.deadline).catch(() => clips);
+  }
   if (clips.length) return { summary: String(raw?.summary ?? "").replace(/\s+/g, " ").trim().slice(0, 400), clips, director, fallback: false };
   return { summary: "", clips: fallbackClips(lines, heatmap, o, meta.duration, meta.title || "Klip"), director: null, fallback: true };
+}
+
+/** Judge → repair: each clip with a few lines of context either side; the model keeps, moves (line IDs) or rejects it.
+ *  Fixes move the START earlier for a missing setup rather than cutting the ending. A judge that rejects everything is
+ *  ignored (the first pass stands). */
+async function repairClips(clips: ClipperClip[], lines: Line[], heat: HeatPoint[], o: ClipperOptions, dur: number, langName: string,
+  deadline?: number): Promise<ClipperClip[]> {
+  const b = BOUNDS[o.duration];
+  const idx = (t: number, key: "start" | "end") => lines.reduce((best, l, i) => (Math.abs(l[key] - t) < Math.abs(lines[best][key] - t) ? i : best), 0);
+  const blocks = clips.map((c, k) => {
+    const si = idx(c.start, "start"), ei = idx(c.end, "end");
+    const from = Math.max(0, si - 4), to = Math.min(lines.length - 1, ei + 3);
+    const rows = [];
+    for (let i = from; i <= to; i++) rows.push(`${i >= si && i <= ei ? "*" : " "} L${i + 1} ${lines[i].text}`);
+    return `CLIP ${k} — "${c.title}" (now L${si + 1}–L${ei + 1}, ${Math.round(c.end - c.start)} s; lines inside the clip are marked *)\n${rows.join("\n")}`;
+  });
+  const r = await orChat({
+    modelKey: "model_motion",
+    systemPrompt: `You are PeningLab's master director checking viral clip candidates before they are rendered (video language: ${langName}). For each clip decide:
+- "ok": it opens on a line that already pulls (no "jadi / tapi / so…" mid-thought start), the setup it needs is inside, and it ends on the payoff (the answer, punchline, lesson or twist — a complete sentence, not an unanswered question or a trailing "and…").
+- "fix": give new "from" / "to" line IDs. A missing setup → move FROM earlier; an ending cut mid-thought → move TO to where the payoff completes. Keep the clip between ${b.min} and ${b.max} s.
+- "reject": no payoff exists or it doesn't stand alone — only when a fix can't save it.
+Return ONLY JSON: {"clips": [{"i": number, "verdict": "ok" | "fix" | "reject", "from"?: "L…", "to"?: "L…", "why": "≤ 12 words"}]}`,
+    userPrompt: blocks.join("\n\n") + "\n\nJudge every clip now. JSON only.",
+    temperature: 0.2,
+    maxTokens: 3000,
+    timeoutMs: 90_000,
+    stream: true,
+    ...(deadline ? { deadline: deadline - 10_000 } : {}),
+  });
+  if (!r.ok || !r.content) return clips;
+  const verdicts: any[] = extractJson(r.content)?.clips ?? [];
+  const out: ClipperClip[] = [];
+  for (const [k, c] of clips.entries()) {
+    const v = verdicts.find((x) => Number(x?.i) === k);
+    if (v?.verdict === "reject") continue;
+    if (v?.verdict === "fix") {
+      const fl = lineAt(lines, v.from), tl = lineAt(lines, v.to);
+      const fixed = fl && tl ? validateClips({ clips: [{ ...c, start: fl.start, end: tl.end, hashtags: c.hashtags }] }, lines, heat, o, dur)[0] : null;
+      if (fixed) { out.push({ ...fixed, reason: c.reason }); continue; }
+    }
+    out.push(c);
+  }
+  if (!out.length) return clips;
+  out.sort((a, z) => z.score - a.score);
+  const kept: ClipperClip[] = [];
+  for (const c of out) if (!kept.some((k) => c.start < k.end - 0.5 && c.end > k.start + 0.5)) kept.push(c);
+  return kept;
 }
 
 // ── settle an analysis job ───────────────────────────────────────────────────

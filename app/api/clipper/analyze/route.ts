@@ -25,8 +25,6 @@ export async function POST(req: Request) {
   }
   const b = await req.json().catch(() => ({} as any));
   const type = String(b?.source?.type || "");
-  // YouTube blocks our servers (2026): CLIPPER takes an upload or a Google Drive link
-  if (type === "youtube") return NextResponse.json({ error: "Pautan YouTube tidak disokong — upload video atau guna pautan Google Drive." }, { status: 400 });
   const src = cleanSource(type, b?.source?.url, b?.source?.name);
   if (!src) return NextResponse.json({ error: BAD_LINK[type] || "Pilih sumber video." }, { status: 400 });
   const options = cleanOptions(b?.options);

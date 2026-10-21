@@ -2754,7 +2754,62 @@ yt_image = (
     .run_commands("curl -fsSL -o /tmp/deno.zip https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
                   " && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && deno --version")
     .pip_install("yt-dlp[default]", "yt-dlp-ejs", "requests==2.31.0")
+    # Cloudflare WARP over MASQUE (usque, MIT): YouTube answers WARP exits where it bot-checks Modal's own IPs
+    # (measured 2026-10-22: every blocked test video read + downloaded through it). WireGuard WARP can't bind its UDP
+    # socket in Modal's sandbox; usque --http2 runs over TCP.
+    .run_commands("curl -fsSL -o /tmp/u.zip https://github.com/Diniboy1123/usque/releases/download/v4.2.1/usque_4.2.1_linux_amd64.zip"
+                  " && unzip -o /tmp/u.zip -d /tmp/usque && find /tmp/usque -name usque -type f -exec cp {} /usr/local/bin/usque \\;"
+                  " && chmod +x /usr/local/bin/usque && rm -rf /tmp/u.zip /tmp/usque")
 )
+WARP = modal.Dict.from_name("peninglab-yt-warp", create_if_missing=True)
+_WARP_PROC = None
+
+
+def _warp_proxy(fresh: bool = False) -> str | None:
+    """A local HTTP proxy through Cloudflare WARP (usque http-proxy --http2), started once per container. The WARP
+    identity is shared through a modal.Dict; fresh=True registers a new one (the old exit got flagged)."""
+    import subprocess as sp
+    import requests
+    global _WARP_PROC
+    url = "http://127.0.0.1:8085"
+    if _WARP_PROC is not None and _WARP_PROC.poll() is None and not fresh:
+        return url
+    if _WARP_PROC is not None:
+        _WARP_PROC.terminate()
+        _WARP_PROC = None
+    wd = Path("/tmp/warp")
+    wd.mkdir(exist_ok=True)
+    cfg = wd / "config.json"
+    saved = None if fresh else WARP.get("config")
+    if saved:
+        cfg.write_text(saved, encoding="utf-8")
+    else:
+        cfg.unlink(missing_ok=True)
+        r = sp.run(["usque", "register", "-c", str(cfg)], input="y\ny\n", capture_output=True, text=True, timeout=90, cwd=wd)
+        if r.returncode != 0 or not cfg.exists():
+            print("warp register failed:", (r.stdout + r.stderr)[-300:], flush=True)
+            return None
+        WARP["config"] = cfg.read_text(encoding="utf-8")
+    _WARP_PROC = sp.Popen(["usque", "http-proxy", "-c", str(cfg), "--http2", "-b", "127.0.0.1", "-p", "8085"], cwd=wd,
+                          stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+    for _ in range(30):
+        time.sleep(0.5)
+        if _WARP_PROC.poll() is not None:
+            break
+        try:
+            t = requests.get("https://www.cloudflare.com/cdn-cgi/trace", proxies={"http": url, "https": url}, timeout=8).text
+            if "warp=on" in t or "warp=plus" in t:
+                return url
+        except Exception:  # noqa: BLE001
+            continue
+    print("warp proxy did not come up", flush=True)
+    if _WARP_PROC is not None:
+        _WARP_PROC.terminate()
+        _WARP_PROC = None
+    if saved:  # a stale identity: register a new one once
+        WARP.pop("config", None)
+        return _warp_proxy(fresh=True)
+    return None
 
 
 _YT_AUTH: dict = {}
@@ -2791,6 +2846,12 @@ def yt_task(kind: str, url: str, args: dict) -> dict:
         _YT_AUTH["cookiefile"] = str(cf)
     if auth.get("proxy"):
         _YT_AUTH["proxy"] = str(auth["proxy"])
+    via = str(args.get("via") or "warp")
+    if via == "warp" and not _YT_AUTH.get("proxy"):
+        wp = _warp_proxy(fresh=bool(args.get("fresh")))
+        if not wp:
+            return {"ok": False, "error": "warp unavailable", "nowarp": True}
+        _YT_AUTH["proxy"] = wp
     try:
         if kind == "info":
             info = _yt_info(url)
@@ -2828,20 +2889,24 @@ def yt_task(kind: str, url: str, args: dict) -> dict:
         shutil.rmtree(d, ignore_errors=True)
 
 
-def _yt_call(kind: str, url: str, args: dict | None = None, auth: dict | None = None, tries: int = 4) -> dict:
+def _yt_call(kind: str, url: str, args: dict | None = None, auth: dict | None = None) -> dict:
     last: dict = {}
     has_auth = bool(auth and (auth.get("cookies") or auth.get("proxy")))
-    plan = [False] * tries + ([True] * 3 if has_auth else [])
-    for i, use_auth in enumerate(plan):
+    # (via, fresh WARP identity, use the admin's auth)
+    plan = [("warp", False, False), ("warp", True, False), ("warp", True, False)] + [("direct", False, False)] * 2
+    plan += [("direct", False, True)] * 3 if has_auth else []
+    for i, (via, fresh, use_auth) in enumerate(plan):
+        if via == "warp" and last.get("nowarp"):
+            continue
         try:
-            last = yt_task.remote(kind, url, {**(args or {}), **({"auth": auth} if use_auth else {})})
+            last = yt_task.remote(kind, url, {**(args or {}), "via": via, "fresh": fresh, **({"auth": auth} if use_auth else {})})
         except Exception as e:  # noqa: BLE001
             last = {"ok": False, "error": str(e)[:300]}
         if last.get("ok"):
             return last
-        if not last.get("blocked"):
+        if not last.get("blocked") and not last.get("nowarp"):
             break
-        print(f"youtube blocked this container ({kind}{', with cookies/proxy' if use_auth else ''}), retrying", flush=True)
+        print(f"youtube {'unavailable via WARP' if last.get('nowarp') else 'blocked'} ({kind}, {via}{', with cookies/proxy' if use_auth else ''}), retrying", flush=True)
         time.sleep(1.5 * min(i + 1, 4))
     if last.get("blocked"):
         raise RuntimeError("YouTube menyekat pelayan kami untuk video ini buat masa ini — cuba lagi nanti, atau guna Upload / Google Drive untuk video yang sama.")
@@ -3299,6 +3364,111 @@ def _lerp_expr(keys: list) -> str:
     return expr
 
 
+# Active speaker detection (CLIPPER): LR-ASD (MIT, Junhua Liao) on YuNet face tracks, CPU — clipper-asd/asd_infer.py.
+# AVA-trained weights only (the TalkSet fine-tune's data licence is unclear); no S3FD (unlicensed).
+asd_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg", "curl", "libgl1", "libglib2.0-0")
+    .pip_install("torch==2.5.1", index_url="https://download.pytorch.org/whl/cpu")
+    .pip_install("numpy<2", "scipy==1.13.1", "opencv-python-headless==4.10.0.84", "python_speech_features==0.6")
+    .run_commands(
+        "mkdir -p /models && curl -fsSL -o /models/lrasd_ava.model https://raw.githubusercontent.com/Junhua-Liao/LR-ASD/main/weight/pretrain_AVA.model"
+        " && test $(stat -c%s /models/lrasd_ava.model) -gt 1000000",
+        "curl -fsSL -o /models/yunet.onnx https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+        " && test $(stat -c%s /models/yunet.onnx) -gt 100000",
+    )
+    .add_local_dir("clipper-asd", "/app/clipper-asd", copy=True)
+)
+_ASD_NET = None
+
+
+@app.function(image=asd_image, cpu=4.0, memory=6144, timeout=900)
+def clip_asd(video: bytes) -> dict:
+    """Who is talking in a clip: face tracks with a speaking score per frame (25 fps)."""
+    import sys
+    global _ASD_NET
+    sys.path.insert(0, "/app/clipper-asd")
+    import torch
+    from asd_infer import ASDNet, active_speakers
+    torch.set_num_threads(4)
+    if _ASD_NET is None:
+        _ASD_NET = ASDNet()
+        _ASD_NET.load("/models/lrasd_ava.model")
+    p = Path(tempfile.mkdtemp(prefix="asd_")) / "clip.mp4"
+    p.write_bytes(video)
+    t = time.time()
+    res = active_speakers(str(p), _ASD_NET, "/models/yunet.onnx")
+    res["sec"] = round(time.time() - t, 1)
+    return res
+
+
+def _clip_asd_for(src: Path, d: Path) -> dict | None:
+    """The clip's speaker timeline (a ≤1280-wide copy goes to the ASD container); None when it can't be had."""
+    try:
+        small = d / "asd_src.mp4"
+        _run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast",
+              "-crf", "22", "-c:a", "aac", "-b:a", "96k", str(small)], "asd copy", 600)
+        res = clip_asd.remote(small.read_bytes())
+        print(f"asd: {len(res.get('tracks') or [])} face tracks in {res.get('sec')} s", flush=True)
+        return res if res.get("tracks") else None
+    except Exception as e:  # noqa: BLE001
+        print("asd failed (camera falls back to the face follow):", str(e)[:300], flush=True)
+        return None
+
+
+def _asd_cut(asd: dict, a: float, b: float, W: float, H: float, cw: float):
+    """A shot with two or more people: hard cuts to whoever is talking (cutawan's rules: evidence = the speaker's
+    score > 1 and ahead of the next by > 1; a rival must lead 0.4 s; ≥ 1 s between switches). None = weak evidence."""
+    import numpy as np
+    fps = int(asd.get("fps") or 25)
+    f0, f1 = int(round(a * fps)), int(round(b * fps))
+    n = f1 - f0
+    tr = [t for t in asd.get("tracks") or [] if t["f0"] < f1 and t["f0"] + t["n"] > f0]
+    if len(tr) < 2 or n < fps:
+        return None
+    S = np.full((len(tr), n), -9.0)
+    X = np.full((len(tr), n), np.nan)
+    for i, t in enumerate(tr):
+        for j in range(t["n"]):
+            k = t["f0"] + j - f0
+            if 0 <= k < n:
+                S[i, k] = t["score"][j]
+                X[i, k] = t["cx"][j]
+    S = np.array([np.convolve(r, np.ones(7) / 7, mode="same") for r in S])
+    order = np.sort(S, axis=0)
+    best, top, second = S.argmax(0), order[-1], order[-2]
+    ev = (top > 1.0) & (top - second > 1.0)
+    if ev.mean() < 0.3:
+        return None
+    cur = int(best[int(np.argmax(ev))])
+    segs, start, run_t, run_n, last = [], 0, None, 0, -10 ** 9
+    for i in range(n):
+        cand = int(best[i]) if ev[i] else cur
+        if cand == cur:
+            run_t, run_n = None, 0
+            continue
+        run_n = run_n + 1 if run_t == cand else 1
+        run_t = cand
+        if run_n >= int(0.4 * fps) and i - run_n + 1 - last >= fps:
+            sw = i - run_n + 1
+            segs.append((start, sw, cur))
+            start, cur, last, run_t, run_n = sw, cand, sw, None, 0
+    segs.append((start, n, cur))
+    keys = []
+    for s0, s1, ti in segs:
+        xs = X[ti, s0:s1]
+        xs = xs[~np.isnan(xs)]
+        if not len(xs):
+            xs = X[ti][~np.isnan(X[ti])]
+        x = float(min(max(float(np.median(xs)) * W - cw / 2, 0), W - cw))
+        t0 = s0 / fps
+        if keys:
+            keys.append((max(keys[-1][0] + 0.001, t0 - 0.034), keys[-1][1]))  # a hard cut (one frame)
+        keys.append((t0, x))
+    expr = _lerp_expr(keys) if len(keys) > 1 else f"{keys[0][1]:.1f}"
+    return f"crop={cw:.0f}:{H}:x='{expr}':y=0,scale=1080:1920:flags=lanczos", len(segs) - 1
+
+
 def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
     """A wide clip → 9:16 1080x1920, shot by shot: the camera follows the main speaker (dead zone + eased pans);
     two people far apart in one shot → stacked halves; no face → the whole frame over a blurred copy."""
@@ -3310,7 +3480,9 @@ def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
     if cw > W:
         return {"mode": "as-is"}
     fps = 30
-    samples = _faces_wide(src) if mode == "face" else []
+    samples = _faces_wide(src) if mode in ("face", "split") else []
+    # who is talking (face mode): two or more people in a shot → the camera cuts to the speaker
+    asd = _clip_asd_for(src, d) if mode == "face" and any(len(s["faces"]) >= 2 for s in samples) else None
     cuts = [c for c in _scene_cuts(src, 0.3) if 0.6 < c < dur - 0.6]
     edges = [0.0] + cuts + [dur]
     shots = []
@@ -3327,7 +3499,8 @@ def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
         ss = [s for s in samples if a <= s["t"] < b]
         withf = [s for s in ss if s["faces"]]
         layout, vf = "center", None
-        if mode == "face" and len(withf) >= max(1, len(ss) * 0.3):
+        switches = 0
+        if mode in ("face", "split") and len(withf) >= max(1, len(ss) * 0.3):
             # face clusters across the shot (by x position)
             clusters: list = []
             for s in withf:
@@ -3341,8 +3514,13 @@ def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
                         clusters.append({"cx": f["cx"], "n": 1, "area": f["w"] * f["h"]})
             clusters.sort(key=lambda c: -c["area"])
             main = clusters[0]
+            if asd and len(clusters) >= 2:
+                cut = _asd_cut(asd, a, b, W, H, cw)
+                if cut:
+                    vf, switches = cut
+                    layout = "speaker"
             two = [c for c in clusters[:2] if c["n"] >= len(withf) * 0.55]
-            if len(two) == 2 and abs(two[0]["cx"] - two[1]["cx"]) > 0.38 and min(two[0]["area"], two[1]["area"]) > 0.4 * max(two[0]["area"], two[1]["area"]):
+            if vf is None and len(two) == 2 and abs(two[0]["cx"] - two[1]["cx"]) > 0.38 and min(two[0]["area"], two[1]["area"]) > 0.4 * max(two[0]["area"], two[1]["area"]):
                 # a two-shot: each person in their own half (left on top)
                 left, right = sorted(two, key=lambda c: c["cx"])
                 hh = H * 0.62
@@ -3388,7 +3566,7 @@ def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
               "-filter_complex_script", str(script), "-map", "[v]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-r", str(fps), str(part)],
              f"reframe shot {k}", 600)
         parts.append(part)
-        report.append({"s": round(a, 2), "e": round(b, 2), "layout": layout})
+        report.append({"s": round(a, 2), "e": round(b, 2), "layout": layout, **({"switches": switches} if switches else {})})
     if not parts:
         return {"mode": "as-is"}
     lst = d / "shots.txt"
@@ -3399,6 +3577,26 @@ def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
     cmd += (["-map", "1:a:0", "-c:a", "aac", "-b:a", "192k"] if info.get("audio") else [])
     _run(cmd + ["-c:v", "copy", "-shortest", str(out)], "reframe mux", 300)
     return {"mode": mode, "shots": report}
+
+
+def _clip_segments(words: list, dur: float):
+    """A clip's pace: pauses longer than 0.6 s shortened (0.12 s / 0.18 s padding keeps the breaths), "erm/aah" fillers
+    cut — Malay particles ("eh") stay. Gentler than an Edit Video's jump cut: a podcast clip must still sound natural."""
+    kept = [w for w in words if not (_is_filler(w["w"]) and _wnorm(w["w"]) not in ("eh", "ehh"))]
+    segs: list = []
+    for w in kept:
+        s, e = max(0.0, w["t"] - 0.12), min(dur, w["e"] + 0.18)
+        if e <= s:
+            continue
+        if segs and s - segs[-1][1] <= 0.6:
+            segs[-1][1] = max(segs[-1][1], e)
+        else:
+            segs.append([s, e])
+    if segs and segs[0][0] < 0.4:
+        segs[0][0] = 0.0
+    if segs and dur - segs[-1][1] < 0.4:
+        segs[-1][1] = dur
+    return segs, kept
 
 
 def _clip_prepare(p: dict, d: Path) -> dict:
@@ -3431,7 +3629,13 @@ def _clip_prepare(p: dict, d: Path) -> dict:
             except Exception:  # noqa: BLE001
                 continue
     info = _probe(src)
-    return {"_src": str(src), "_info": info, "words": words, "segs": None, "span": info["duration"],
+    segs = None
+    if c.get("jumpcut", True) is not False and words:
+        sg, kept = _clip_segments(words, info["duration"])
+        if sg and info["duration"] - sum(e - s for s, e in sg) > 0.8:  # worth a cut
+            words, _ = _remap_words(kept, sg)
+            segs = [[round(s, 3), round(e, 3)] for s, e in sg]
+    return {"_src": str(src), "_info": info, "words": words, "segs": segs, "span": info["duration"],
             "captions": p.get("captions"), "reframe": rep}
 
 
