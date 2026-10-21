@@ -85,6 +85,8 @@ export type ProDirection = {
   banner?: Record<string, unknown>[];
   /** A huge word behind the speaker's head (the speaker cut-out is drawn over it). */
   behind?: Record<string, unknown>[];
+  /** The director's beat sheet (beat → tool), written before the tools: logged with the job, not rendered. */
+  strategy?: Record<string, unknown>[];
 };
 
 // ── AI Auto ──────────────────────────────────────────────────────────────────
@@ -270,6 +272,7 @@ const shortlist = (key: string, n: number, keep?: string) => {
 
 export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also the MASTER DIRECTING EDITOR of this video's finish. The render engine (HyperFrames) gives you the craft below; nothing is preset. Decide the treatment that serves THIS footage, speaker, product and angle — the way a top human TikTok editor would — and return it in "direction". This generation's options were drawn at random (another generation of the same video gets different ones on purpose): choose the best of them for this footage.
 "direction": {
+  "strategy": [{"at": CUE, "beat": "hook" | "pain" | "myth" | "benefits" | "how" | "proof" | "number" | "price" | "place" | "question" | "product" | "rehook" | "emotion" | "close" | "cta", "tool": ≤40 (the device you give it, e.g. "split MITOS|FAKTA", "behind PALSU", "checklist")}] (4–12) — WRITE THIS FIRST: the video's beat sheet in time order, each beat with the tool from the TOOL PLAYBOOK below that tells it best; everything after follows this plan,
   "hook_style": ${shortlist("hook_style", 3, "headline")},
   "font": face of the hook and end card — ${shortlist("font", 3)},
   "caption_font": face of the captions — ${shortlist("font", 3)},
@@ -320,7 +323,24 @@ HOW A TOP EXPLAINER EDITOR BUILDS THIS VIDEO — this is the default bar for eve
 - While the speaker is on screen between scenes, side words land on the strongest line almost every time (small lead-in + big word, or one huge centred word on a punchline), with few stickers — never a sticker and side words at the same moment.
 - Open with the hook title and, when there is a product / source picture, a float card with a badge under it; keep the speaker on screen for the hook, the moments they hold the product up to camera, emotional lines and the CTA — and cut to scenes for everything they explain around those moments.
 - Subtle captions and fx "light" are the reference look (the scenes carry the message); end on a closing question scene and the spoken CTA (no end card, or a quiet one).
-CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): do the scenes cover about half the runtime or more? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours? is every "behind" word's index OUTSIDE every scene's at…to range (a word inside a scene can't show)?
+TOOL PLAYBOOK — how a top editor uses this kit (plan the beats first, then give every beat the tool that tells it best; vary, never the same device twice in a row; only what the speaker actually says):
+- HOOK (0–2.5 s): hook title (headline / slam / blocks…), a crash zoom or "lines" on the hook word; a float card with a badge when there is a product / source picture; a gif reaction only for an emotional hook.
+- THE SPEAKER'S STRONGEST LINE ON CAMERA: side words (small lead-in + big word) or ONE "behind" word (product name, result, verdict) — between scenes only.
+- PAIN / PROBLEM: a red build that strikes the wrong belief; "lines" or a shake on the shock word; a gif (shocked face) at most once.
+- MYTH vs FACT · DO vs DON'T · BEFORE vs AFTER · OLD vs NEW: split.
+- BENEFITS · WHERE · WHAT'S INSIDE (a list): checklist. HOW TO USE · ROUTINE · PROCESS: steps. THINGS OVER TIME / DATES: timeline.
+- NUMBERS: one big number → stat build (count / roll); a percentage → ring; two numbers → compare; several values over time → chart; a price → burst in a collage or a roll line; a bundle / what you get for the price → receipt (+ stamp).
+- A RULE · LABEL · CLAIM · QUOTE the speaker unpacks: annotate (mark the words, handwritten notes). NEWS · REGULATION · SOURCE: article card, or a banner over the speaker.
+- A QUESTION VIEWERS ASK (read out / answered): chat "comments". A CONVERSATION RECOUNTED: chat "chat". ORDERS / REMINDERS MENTIONED: chat "notif".
+- PLACES · DELIVERY · STOCKISTS · BRANCHES: map.
+- THE PRODUCT SHOWN TO CAMERA: a punch-in or "spotlight" (the room dims, the speaker stays lit); a product picture → polaroid / phone card or B-roll.
+- RE-HOOK at 40–50 %: a "smash" cut on ONE word, or a swap line ("MURAH? MAHAL?" → "BERBALOI"), or a tilt.
+- EMOTIONAL / PERSONAL MOMENT: stay on the speaker (spotlight allowed), no scene.
+- A LONG SCENE (> ~6 s) WHERE TRUST MATTERS: give it "speaker": "left" | "right" (the face stays on screen as a sticker).
+- CLOSING: a question build ("JADI KORANG RASA…?" → "KOMEN KAT BAWAH") right before the CTA; then the end card or the spoken CTA with side words.
+- CAPTION LOOK by energy: hard sell → hormozi / beast; tutorial → popline / deep / pill; playful product → sticker / karaoke; fast talker → fill; drama / night → neon; podcast / talk → pod; TikTok-native → sweep; a scene-heavy news explainer → "captions": "subtle".
+- Signature moments (behind, smash, spotlight, lines, crash) land hardest when rare: 2–4 per video, each on a different beat.
+CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): does your strategy name a beat for every part of the speech, and does each beat use the playbook tool that fits it (not just builds)? do the scenes cover about half the runtime or more? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours? is every "behind" word's index OUTSIDE every scene's at…to range (a word inside a scene can't show)?
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
 VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
 
@@ -390,6 +410,12 @@ function cleanDirection(d: any, nWords: number, duration: number): ProDirection 
       }).filter(Boolean).slice(0, 3);
       return words.length ? { at, ...(to !== undefined ? { to } : {}), align: ["right", "center"].includes(x?.align) ? x.align : "left", words } : null;
     }).filter(Boolean).slice(0, 10) as Record<string, unknown>[] : undefined,
+    strategy: Array.isArray(d.strategy) ? d.strategy.map((x: any) => {
+      const at = cueIn(x?.at, nWords, duration);
+      const beat = clean(x?.beat, 12);
+      const tool = clean(x?.tool, 40);
+      return at !== undefined && beat ? { at, beat, ...(tool ? { tool } : {}) } : null;
+    }).filter(Boolean).slice(0, 12) as Record<string, unknown>[] : undefined,
     behind: Array.isArray(d.behind) ? d.behind.map((b: any) => {
       const at = cueIn(b?.at, nWords, duration);
       const text = clean(b?.text, 14);

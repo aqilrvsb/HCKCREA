@@ -1400,7 +1400,12 @@ def run_vgc(payload: dict) -> dict:
         if not tool.exists():
             tool.write_text(body, encoding="utf-8")
             tool.chmod(0o755)
-    tts = payload.get("tts") or {}
+    # an Edit Video on Padat keeps 100 % the speaker's own voice: never an AI voice tool there
+    tts = (payload.get("tts") or {}) if mode != "edit" else {}
+    if mode == "edit":
+        Path("/usr/local/bin/pl-tts").unlink(missing_ok=True)
+        for k in [k for k in env if k.startswith("PL_TTS")]:
+            env.pop(k, None)
     if tts.get("url") and tts.get("token"):
         tool = Path("/usr/local/bin/pl-tts")
         if not tool.exists():

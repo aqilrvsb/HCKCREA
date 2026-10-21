@@ -53,6 +53,8 @@ export function editBrief(input: EditInput, durSec: number, photos: number): str
     `FOOTAGE: ./bahan/footage.mp4 (${durSec.toFixed(1)}s, 1080x1920, 30fps) — SUDAH dipotong (jump cut) seperti yang klien semak. ` +
       "Ia lapisan asas: guna keseluruhannya dari awal hingga akhir mengikut urutan — jangan potong, jangan ubah kelajuan; " +
       "suara asal kekal jelas sepanjang video. Motion graphics di atasnya menyokong apa yang sedang dikatakan.",
+    "SUARA: 100% suara asal penutur dalam footage. JANGAN tambah voice-over AI, suara sintetik atau suara lain " +
+      "(tiada pl-tts) — hanya suara asal + muzik latar + SFX.",
     "SKRIP: ./bahan/captions.json = perkataan pertuturan yang klien sahkan, [{w, t, e}] dalam saat pada footage.",
     caps,
     `GAMBAR PRODUK: ./bahan/produk/ (${photos} gambar asli klien) — tunjukkan produk dengan jelas (kad produk / panel / B-roll) ` +
