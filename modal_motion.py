@@ -2753,7 +2753,9 @@ yt_image = (
     .apt_install("ffmpeg", "curl", "unzip", "ca-certificates")
     .run_commands("curl -fsSL -o /tmp/deno.zip https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
                   " && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && deno --version")
-    .pip_install("yt-dlp[default]", "yt-dlp-ejs", "requests==2.31.0")
+    # yt-dlp must be CURRENT (YouTube changes weekly): a requests==2.31 pin here once made pip fall back to yt-dlp
+    # 2024.05 ("Precondition check failed", no formats). curl-cffi = browser impersonation for the requests that want it.
+    .pip_install("yt-dlp[default,curl-cffi]>=2026.10.21", "yt-dlp-ejs", "requests>=2.32.2")
     # Cloudflare WARP over MASQUE (usque, MIT): YouTube answers WARP exits where it bot-checks Modal's own IPs
     # (measured 2026-10-22: every blocked test video read + downloaded through it). WireGuard WARP can't bind its UDP
     # socket in Modal's sandbox; usque --http2 runs over TCP.
@@ -2854,11 +2856,11 @@ def yt_task(kind: str, url: str, args: dict) -> dict:
         _YT_AUTH["proxy"] = wp
     try:
         if kind == "info":
-            info = _yt_info(url)
+            info = _yt_info(url, args.get("want") or "auto")
             if not info.get("duration") and not info.get("is_live") or str(info.get("title") or "").startswith("youtube video #"):
                 # a soft block: YouTube answered this IP with an empty player (no title / length / captions)
                 raise RuntimeError("not a bot: empty player response")
-            lines, lang = _yt_captions(info, args.get("want"))
+            lines, lang = info.get("_caps") or ([], None)
             heat = [{"start": round(float(h.get("start_time") or 0), 2), "end": round(float(h.get("end_time") or 0), 2), "value": round(float(h.get("value") or 0), 3)}
                     for h in (info.get("heatmap") or [])]
             meta = {"title": info.get("title"), "channel": info.get("channel") or info.get("uploader"), "duration": float(info.get("duration") or 0),
@@ -2923,14 +2925,19 @@ def _yt_dl_opts(extra: dict | None = None) -> dict:
     return o
 
 
-def _yt_info(url: str) -> dict:
+def _yt_info(url: str, want: str | None = None) -> dict:
+    """The video's info; with want (the caption language or "auto"), its caption track is read in the SAME yt-dlp
+    session (its cookies / impersonation / PO-token logic — a bare request to the timedtext URL comes back empty)."""
     import yt_dlp
     last = None
     for attempt in range(2):
         try:
             # the info only (title, heatmap, captions): a container offered no playable formats still reads it
             with yt_dlp.YoutubeDL(_yt_dl_opts({"skip_download": True, "ignore_no_formats_error": True})) as y:
-                return y.extract_info(url, download=False)
+                info = y.extract_info(url, download=False)
+                if want is not None:
+                    info["_caps"] = _yt_captions(info, want, y)
+                return info
         except Exception as e:  # noqa: BLE001
             last = e
             if _yt_blocked(str(e)):
@@ -2989,8 +2996,10 @@ def _json3_words(data: dict) -> list:
     return words
 
 
-def _yt_captions(info: dict, want: str | None) -> tuple:
-    """The spoken-language caption track of a YouTube video → (lines, language) or ([], None)."""
+def _yt_captions(info: dict, want: str | None, ydl=None) -> tuple:
+    """The spoken-language caption track of a YouTube video → (lines, language) or ([], None). ydl = the session that
+    read the info (preferred); a 429 on the track is retried once."""
+    import json as _json
     import requests
     subs = info.get("subtitles") or {}
     auto = info.get("automatic_captions") or {}
@@ -3010,16 +3019,26 @@ def _yt_captions(info: dict, want: str | None) -> tuple:
         fmt = next((t for t in tracks if t.get("ext") == "json3"), None)
         if not fmt:
             continue
-        try:
-            r = requests.get(fmt["url"], timeout=30, headers={"User-Agent": UA},
-                             proxies={"http": _YT_AUTH["proxy"], "https": _YT_AUTH["proxy"]} if _YT_AUTH.get("proxy") else None)
-            if not r.ok:
-                continue
-            words = _json3_words(r.json())
-            if len(words) >= 20:
-                return _words_to_lines(words), key.split("-")[0]
-        except Exception as e:  # noqa: BLE001
-            print("caption track failed:", key, str(e)[:200], flush=True)
+        for attempt in range(2):
+            try:
+                if ydl is not None:
+                    body = ydl.urlopen(fmt["url"]).read()
+                else:
+                    r = requests.get(fmt["url"], timeout=30, headers={"User-Agent": UA},
+                                     proxies={"http": _YT_AUTH["proxy"], "https": _YT_AUTH["proxy"]} if _YT_AUTH.get("proxy") else None)
+                    r.raise_for_status()
+                    body = r.content
+                if not body.strip():
+                    raise RuntimeError("empty caption body")
+                words = _json3_words(_json.loads(body))
+                if len(words) >= 20:
+                    return _words_to_lines(words), key.split("-")[0]
+                break
+            except Exception as e:  # noqa: BLE001
+                print("caption track failed:", key, str(e)[:200], flush=True)
+                if "429" not in str(e):
+                    break
+                time.sleep(4)
     return [], None
 
 
