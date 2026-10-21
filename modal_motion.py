@@ -364,8 +364,10 @@ MUSIC_BPM = {"chill": 88, "upbeat": 100, "hype": 116}  # the tempos motion/scrip
 
 
 def _loudnorm_inplace(out: Path) -> None:
-    """Normalise the finished mix (voice + SFX + music) to -14 LUFS. Two passes: measure, then one linear gain
-    (single-pass loudnorm rides the gain and lifts the room noise in every pause); single pass if measuring fails."""
+    """Master the finished mix (voice + SFX + music) to -14 LUFS: measure, then ONE static gain to the target and a
+    peak limiter that only shaves the SFX transients (-2 dBFS ceiling). A linear two-pass loudnorm stops short when the
+    transients hit the true-peak ceiling (an 83 s edit came out at -20.4 LUFS); single-pass loudnorm rides the gain
+    and lifts the room noise in every pause. Single pass only if measuring fails."""
     tmp = out.with_name(out.stem + "_ln.mp4")
     af = LOUDNORM
     try:
@@ -373,8 +375,8 @@ def _loudnorm_inplace(out: Path) -> None:
                            capture_output=True, text=True, timeout=300)
         m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
         if float(m["input_i"]) > -60:
-            af = (f"{LOUDNORM}:measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
-                  f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true,aresample=48000")
+            gain = max(-20.0, min(20.0, -14.0 - float(m["input_i"])))
+            af = f"volume={gain:.2f}dB,alimiter=limit=0.79:attack=5:release=60:level=0,aresample=48000"
     except Exception as e:  # noqa: BLE001
         print("loudnorm measure failed (single pass):", str(e)[:160])
     try:

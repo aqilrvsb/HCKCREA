@@ -303,6 +303,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     for (const sc of [...scenes, ...floats]) {
       const under = broll.filter((b) => b.s < sc.e && b.e > sc.s);
       if (sc.kind === 'card' && !sc.image && under.length) sc.image = under[0].src;
+      // a card is one still: a picture card may hold ~9 s, a text-only quote card ~5.5 s (then back to the speaker)
+      if (sc.kind === 'card' && sc.style !== 'float') sc.e = Math.min(sc.e, sc.s + fr(sc.image ? 9 : 5.5));
     }
     for (let i = broll.length - 1; i >= 0; i--) if ([...scenes, ...floats].some((sc) => broll[i].s < sc.e && broll[i].e > sc.s)) broll.splice(i, 1);
     const inScene = (f: number) => scenes.some((sc) => f >= sc.s && f < sc.e);

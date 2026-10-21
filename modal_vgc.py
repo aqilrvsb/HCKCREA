@@ -1109,7 +1109,11 @@ def _master(video: Path, out: Path) -> Path:
         m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
         if float(m["input_i"]) < -60:
             return video  # (near) silent: nothing to master
-        norm = (f"loudnorm=I=-14:TP=-2:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}"
+        # one static gain to -14 LUFS (the limiter below shaves the transients): a linear loudnorm stops short when
+        # the transients hit the true-peak ceiling (Motion edits came out near -20 LUFS)
+        gain = max(-20.0, min(20.0, -14.0 - float(m["input_i"])))
+        norm = (f"volume={gain:.2f}dB" if gain > 0 else
+                f"loudnorm=I=-14:TP=-2:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}"
                 f":measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
         chains = [
             # explicit format between the stages (ffmpeg 5.1 can't negotiate the layout otherwise), then a hard
