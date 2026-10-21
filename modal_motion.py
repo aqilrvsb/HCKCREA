@@ -1101,9 +1101,45 @@ def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
     return out, info
 
 
+def _sticker_webm(src: Path, out: Path, seconds: float = 6.0, box: int = 360) -> bool:
+    """An animated GIF / WebP sticker → a VP9 + alpha WebM at 30 fps, looped to `seconds`, centred in a box² canvas.
+    HyperFrames renders video frame by frame (a browser plays a GIF on its own clock, so chunks would disagree);
+    Pillow decodes animated WebP, which the image's ffmpeg can't."""
+    from PIL import Image, ImageSequence
+    try:
+        im = Image.open(src)
+        frames, ends, t = [], [], 0
+        for fr in ImageSequence.Iterator(im):
+            rgba = fr.convert("RGBA")
+            rgba.thumbnail((box, box))
+            canvas = Image.new("RGBA", (box, box), (0, 0, 0, 0))
+            canvas.paste(rgba, ((box - rgba.width) // 2, (box - rgba.height) // 2), rgba)
+            frames.append(canvas.tobytes())
+            t += max(20, int(fr.info.get("duration") or im.info.get("duration") or 100))
+            ends.append(t)
+            if len(frames) >= 400:
+                break
+        if not frames:
+            return False
+        n = int(seconds * 30)
+        enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{box}x{box}", "-r", "30", "-i", "-",
+                                "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0", "-b:v", "0", "-crf", "30",
+                                "-deadline", "realtime", "-cpu-used", "8", "-an", "-metadata:s:v:0", "alpha_mode=1", str(out)], stdin=subprocess.PIPE)
+        import bisect
+        for i in range(n):
+            ms = (i * 1000 / 30) % ends[-1]  # the sticker loops
+            enc.stdin.write(frames[min(len(frames) - 1, bisect.bisect_right(ends, ms))])
+        enc.stdin.close()
+        enc.wait(timeout=120)
+        return enc.returncode == 0 and out.exists() and out.stat().st_size > 1000
+    except Exception as e:  # noqa: BLE001
+        print("sticker → webm failed:", str(e)[:160])
+        return False
+
+
 def _fetch_gifs(overlays: list, d: Path, srv: _Serve) -> int:
-    """Animated sticker overlays (src = remote GIF/WebP) → local files. A
-    sticker that can't be fetched becomes its fallback animated emoji."""
+    """Animated sticker overlays (src = remote GIF/WebP) → local VP9-alpha WebM (frame-accurate on HyperFrames).
+    A sticker that can't be fetched or converted becomes its fallback animated emoji."""
     import requests
     n = 0
     for i, o in enumerate(overlays):
@@ -1120,7 +1156,10 @@ def _fetch_gifs(overlays: list, d: Path, srv: _Serve) -> int:
             ext = "webp" if "webp" in ct else "png" if "png" in ct else "gif"
             f = d / f"sticker_{i}.{ext}"
             f.write_bytes(r.content)
-            o["src"] = srv.url(f)
+            vid = d / f"sticker_{i}.webm"
+            if not _sticker_webm(f, vid):
+                raise ValueError("could not convert the sticker")
+            o["src"] = srv.url(vid)
             n += 1
         except Exception as e:  # noqa: BLE001
             print("sticker fallback → emoji:", str(e)[:120])

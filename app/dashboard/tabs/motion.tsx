@@ -773,6 +773,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                   : `RM${rate.toFixed(2)} sesaat video${engine === "padat" && padatMin > 0 ? ` (Padat: min RM${padatMin.toFixed(2)} setiap video)` : ""}`}
           </span>
         </div>
+        {/* attribution the asset licences ask for (Noto Animated Emoji: CC BY 4.0; GIPHY API: "Powered by GIPHY") */}
+        <p className="mt-4 text-[10px] text-[var(--color-text-muted)]">
+          Emoji animasi: Google Noto Emoji (CC BY 4.0) · Sticker: Powered by GIPHY
+        </p>
       </div>
     </div>
   );

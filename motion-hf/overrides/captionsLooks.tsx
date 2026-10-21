@@ -186,9 +186,10 @@ export const CaptionsLook: React.FC<{
   let widths: number[] = [];
   let gap = 0;
   for (; size >= 44; size -= 4) {
-    // a popping / growing word needs air on both sides
-    gap = size * (lk.bg === 'pill' ? 0.22 : lk.active === 'pop' || lk.active === 'underline' ? 0.38 : 0.3);
     widths = texts.map((x) => textWidth(x, face, size) + size * pad * 2);
+    // a popping / growing word needs air on both sides: half its growth (on the widest word) plus the outline
+    const grow = lk.active === 'pop' ? 0.16 : lk.active === 'underline' ? 0.07 : 0;
+    gap = lk.bg === 'pill' ? size * 0.22 : size * 0.3 + size * lk.stroke + (grow * Math.max(...widths)) / 2;
     lines = breakWords(widths, texts, gap, MAXW, lk.lines);
     if (lines) break;
   }

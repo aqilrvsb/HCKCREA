@@ -80,7 +80,11 @@ export const OffthreadVideo = ({ src, style, muted, volume }) => {
 export const Video = OffthreadVideo;
 export const AnimatedImage = ({ src, style, width, height }) => {
   const ctx = useContext(FrameContext);
-  if (COLLECT.on) record("image", src, ctx);
+  // the job turns animated stickers into VP9-alpha WebM: played as muted video, frame by frame
+  if (COLLECT.on) {
+    if (/\.webm(\?|$)/i.test(String(src))) record("video", src, ctx, { muted: true, volume: 0 });
+    else record("image", src, ctx);
+  }
   return h(MediaSlot, { src, style: { ...(style || {}), ...(width ? { width } : {}), ...(height ? { height } : {}) } });
 };
 // sound is a static <audio> element emitted by the build step
