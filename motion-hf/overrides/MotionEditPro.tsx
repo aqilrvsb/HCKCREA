@@ -434,14 +434,24 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       blocks.push({ key: 900 + k, block: String(g.block), vars, s, e });
     }
 
+    // 1080p phone footage goes soft beyond ~1.25× (the sticker layout pads the face by the zoom in each window)
+    const zooms = (p.zooms ?? []).slice(0, 40).map((z) => {
+      const s = fr(cue(z.at, 0));
+      const e = z.to !== undefined ? fr(cue(z.to, s / fps + 1.6)) : s + fr(1.6);
+      return { s, e: Math.max(e, s + 10), k: Math.min(1.25, Math.max(1.04, z.scale ?? 1.14)) };
+    });
+
     const capH = cap.style === 'tiktok' ? 220 : 250;
     const slots = layoutEdit(placed, {
       faces, fps, hookEnd, pips: [...pips, ...blocks.map((b) => ({ s: b.s, e: b.e })), ...sides.map((x) => ({ s: x.s, e: x.e })), ...floats.map((x) => ({ s: x.s, e: x.e }))],
       labels: broll.filter((b) => b.layout === 'full' && b.label).map((b) => ({ s: b.s - 9, e: b.e })),
       captions: cap.on ? { a: capCenter - capH / 2, b: capCenter + capH / 2 } : null,
+      zoomAt: (s, e) => Math.max(1, ...zooms.filter((z) => z.s < e && z.e > s).map((z) => z.k)),
     });
+    // a sticker the layout found no room for (clear of the eyes, the captions and the other stickers) is dropped
+    // here, so it plays no sound effect / impact either
+    for (let i = placed.length - 1; i >= 0; i--) if (placed[i].it.t !== 'confetti' && !slots.has(placed[i].key)) placed.splice(i, 1);
 
-    // 1080p phone footage goes soft beyond ~1.25×
     for (const b of blocks) {
       recordBlock({
         key: b.key, block: b.block, vars: b.vars, start: b.s / fps, duration: (b.e - b.s) / fps, box: BLOCK_BOX,
@@ -449,11 +459,6 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       });
     }
 
-    const zooms = (p.zooms ?? []).slice(0, 40).map((z) => {
-      const s = fr(cue(z.at, 0));
-      const e = z.to !== undefined ? fr(cue(z.to, s / fps + 1.6)) : s + fr(1.6);
-      return { s, e: Math.max(e, s + 10), k: Math.min(1.25, Math.max(1.04, z.scale ?? 1.14)) };
-    });
     const cutFrames = (p.cuts ?? []).map((c) => fr(c)).filter((c) => c > 0 && c < last).sort((a, b) => a - b);
 
     // emphasis bumps: keyword words (≥ 2.4 s apart, not inside a zoom, the hook or the end card),
@@ -583,8 +588,18 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     });
     whips.forEach((w, k) => sfx.push(...sfxFor('broll_full', w.f - 4, style, vseed + 53 + k)));
 
+    // the speaker's face over the whole end card (they move, the camera drifts): the CTA card keeps clear of it
+    const ctaBand = (() => {
+      if (ctaStart < 0 || !faces?.length) return null;
+      const hits = faces.filter((fc) => fc.t >= ctaStart / fps - 0.25);
+      const list = hits.length ? hits : [faceAt(faces, ctaStart / fps) as Face];
+      const top = Math.min(...list.map((fc) => fc.y)) * 1920;
+      const bot = Math.max(...list.map((fc) => fc.y + fc.h)) * 1920;
+      return { top: top - (bot - top) * 0.06, bottom: bot + (bot - top) * 0.06 };
+    })();
+
     return {
-      look, faces, placed, slots, zooms, broll, scenes, floats, sides, banners, focus, tilts, smashes, cuts, behinds, spots, shakes, flashes, breaks, confetti, cutFrames, bumps, crashes, punches, whips, sfx, hookEnd, ctaStart,
+      look, faces, placed, slots, zooms, broll, scenes, floats, sides, banners, focus, tilts, smashes, cuts, behinds, spots, shakes, flashes, breaks, confetti, cutFrames, bumps, crashes, punches, whips, sfx, hookEnd, ctaStart, ctaBand,
       pages: cap.on ? toPages(words, Math.min(6, Math.max(1, capLook ? CAP_LOOKS[capLook].maxWords : cap.maxWords || 3))) : [],
     };
   }, [p.words, p.overlays, p.zooms, p.hook, p.facts, p.rehook, p.cta, p.broll, p.faces, p.cuts, p.hookSfx, p.keywords, p.music, p.musicBpm,
@@ -682,7 +697,6 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     return { x: fc ? (fc.x + fc.w / 2) * 1080 : 540, y: fc ? (fc.y + fc.h / 2) * 1920 : 760 };
   })();
   const faceTop = (faceAt(plan.faces, 1)?.y ?? 0.38) * 1920;
-  const ctaFace = (faceAt(plan.faces, Math.max(0, plan.ctaStart) / fps)?.y ?? 0.38) * 1920;
 
   return (
     <AbsoluteFill style={{ background: '#000' }}>
@@ -748,7 +762,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
                 keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} faceBottom={faceBottom} avoid={stickerScene?.speaker} />;
         })()}
         {p.cta?.text && plan.ctaStart >= 0 && look.endcard !== 'none' && (
-          <EndCardPro text={p.cta.text} sub={p.cta.sub} start={plan.ctaStart} frame={frame} faceTop={ctaFace} look={look} />
+          <EndCardPro text={p.cta.text} sub={p.cta.sub} start={plan.ctaStart} frame={frame} faceTop={plan.ctaBand?.top ?? 730} faceBottom={plan.ctaBand?.bottom} capTop={cap.on ? capCenter - 140 : undefined} look={look} />
         )}
       </AbsoluteFill>
 

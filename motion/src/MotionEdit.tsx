@@ -73,19 +73,21 @@ export const MotionEdit: React.FC<EditProps> = (p) => {
     }
     const pips = broll.filter((b) => b.layout === 'pip').map((b) => ({ s: b.s, e: b.e }));
 
-    // Face-aware slots: no sticker over the speaker's face.
-    const capH = cap.style === 'tiktok' ? 220 : 236; // two caption lines + a little air
-    const slots = layoutEdit(placed, {
-      faces: p.faces, fps, hookEnd, pips,
-      labels: broll.filter((b) => b.layout === 'full' && b.label).map((b) => ({ s: b.s - 9, e: b.e })),
-      captions: cap.on ? { a: capCenter - capH / 2, b: capCenter + capH / 2 } : null,
-    });
-
     const zooms = (p.zooms ?? []).slice(0, 40).map((z) => {
       const s = fr(cue(z.at, 0));
       const e = z.to !== undefined ? fr(cue(z.to, s / fps + 1.6)) : s + fr(1.6);
       return { s, e: Math.max(e, s + 10), k: Math.min(1.35, Math.max(1.04, z.scale ?? 1.14)) };
     });
+
+    // Face-aware slots: no sticker over the speaker's eyes or another sticker; one with no room is dropped.
+    const capH = cap.style === 'tiktok' ? 220 : 236; // two caption lines + a little air
+    const slots = layoutEdit(placed, {
+      faces: p.faces, fps, hookEnd, pips,
+      labels: broll.filter((b) => b.layout === 'full' && b.label).map((b) => ({ s: b.s - 9, e: b.e })),
+      captions: cap.on ? { a: capCenter - capH / 2, b: capCenter + capH / 2 } : null,
+      zoomAt: (s, e) => Math.max(1, ...zooms.filter((z) => z.s < e && z.e > s).map((z) => z.k)),
+    });
+    for (let i = placed.length - 1; i >= 0; i--) if (placed[i].it.t !== 'confetti' && !slots.has(placed[i].key)) placed.splice(i, 1);
     const cutFrames = (p.cuts ?? []).map((c) => fr(c)).filter((c) => c > 0 && c < last).sort((a, b) => a - b);
 
     // impacts drive shake + flash

@@ -6,6 +6,7 @@
 import React from 'react';
 import { AbsoluteFill, Easing, interpolate, spring, useVideoConfig } from 'remotion';
 import { clamp, fitSize } from '../../motion/src/lib';
+import { fitWrap, wrapLines } from './scenesKit';
 import type { Look } from './look';
 
 const BagIcon: React.FC<{ size: number; color?: string }> = ({ size, color = '#111' }) => (
@@ -22,8 +23,8 @@ const press = (f: number, fps: number) => {
     : interpolate(tf, [5, 20], [1, 0], { ...clamp, easing: Easing.out(Easing.back(2)) });
 };
 
-const Chevrons: React.FC<{ f: number; fps: number; color: string }> = ({ f, fps, color }) => (
-  <div style={{ position: 'absolute', left: 54, top: 980, display: 'flex', flexDirection: 'column', gap: 10, opacity: interpolate(f, [8, 14], [0, 1], clamp) }}>
+const Chevrons: React.FC<{ f: number; fps: number; top: number; color: string }> = ({ f, fps, top, color }) => (
+  <div style={{ position: 'absolute', left: 54, top, display: 'flex', flexDirection: 'column', gap: 10, opacity: interpolate(f, [8, 14], [0, 1], clamp) }}>
     {[0, 1, 2].map((i) => {
       const ph = (((f / fps) * 2.2 - i * 0.22) % 1 + 1) % 1;
       return (
@@ -36,7 +37,28 @@ const Chevrons: React.FC<{ f: number; fps: number; color: string }> = ({ f, fps,
   </div>
 );
 
-export const EndCardPro: React.FC<{ text: string; sub?: string; start: number; frame: number; faceTop: number; look: Look }> = ({ text, sub, start, frame, faceTop, look }) => {
+const TOP_MIN = 230; // below TikTok's top bar
+const MARGIN = 24;
+
+/** Where the card sits: above the face when it fits (shrunk to ≥ 80 % if needed), else below the face above the
+ *  captions, else wherever has more room at ≥ 60 %. Never over the eyes when any of those fit. */
+export function placeCard(h: number, faceTop: number, faceBottom: number, capTop: number) {
+  let top = Math.max(250, Math.min(440, faceTop - 330));
+  if (top + h <= faceTop - MARGIN) return { top, k: 1, below: false };
+  top = faceTop - MARGIN - h;
+  if (top >= TOP_MIN) return { top, k: 1, below: false };
+  const above = faceTop - MARGIN - TOP_MIN;
+  if (above >= h * 0.8) return { top: TOP_MIN, k: above / h, below: false };
+  const below = capTop - MARGIN - (faceBottom + MARGIN);
+  if (below >= h * 0.7) return { top: faceBottom + MARGIN, k: Math.min(1, below / h), below: true };
+  return above >= below
+    ? { top: TOP_MIN, k: Math.max(0.6, above / h), below: false }
+    : { top: faceBottom + MARGIN, k: Math.max(0.6, below / h), below: true };
+}
+
+export const EndCardPro: React.FC<{
+  text: string; sub?: string; start: number; frame: number; faceTop: number; faceBottom?: number; capTop?: number; look: Look;
+}> = ({ text, sub, start, frame, faceTop, faceBottom, capTop, look }) => {
   const { fps } = useVideoConfig();
   const f = frame - start;
   if (f < 0) return null;
@@ -45,7 +67,18 @@ export const EndCardPro: React.FC<{ text: string; sub?: string; start: number; f
   const fam = look.display.family;
   const charW = look.display.charW;
   const p = press(f, fps);
-  const top = Math.max(250, Math.min(440, faceTop - 330));
+  // label size and line count measured in the real font, so the card's height (and its place) is known
+  const kind = look.endcard === 'badge' ? 'badge' : look.endcard === 'banner' ? 'banner' : 'pill';
+  const fitW = kind === 'badge' ? 760 : kind === 'banner' ? 820 : 700;
+  const size = fitWrap(label, look.display, kind === 'badge' ? 64 : kind === 'banner' ? 76 : 66, fitW, 2, kind === 'badge' ? 38 : 40);
+  const n = wrapLines(label, look.display, size, kind === 'badge' ? 860 : fitW).length;
+  const subSize = sub ? fitSize(sub, 50, 860, 1, charW) : 0;
+  const subH = sub ? 20 + subSize * 1.3 : 0;
+  const cardH = kind === 'badge' ? 246 + 8 + 18 + n * size * 1.05 + 28 + 16 + 10 + subH
+    : kind === 'banner' ? 64 + Math.max(size * 1.1, n * size * 1.04) + 108 + 16 + subH // rotated −5° across 1240 px: +108
+    : 64 + Math.max(size * 1.15, n * size * 1.05) + 14 + subH;
+  const spot = placeCard(cardH, faceTop, faceBottom ?? faceTop + 420, capTop ?? 1700);
+  const top = spot.top + (kind === 'banner' ? 54 * spot.k : 0);
   const yellow = '#FFD93B';
   const shineP = ((f % Math.round(fps * 1.3)) / (fps * 1.3)) * 1.6 - 0.3;
   const shine = (
@@ -53,13 +86,12 @@ export const EndCardPro: React.FC<{ text: string; sub?: string; start: number; f
       background: 'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0) 100%)' }} />
   );
   const subEl = sub ? (
-    <div style={{ fontFamily: fam, fontWeight: look.display.weight, fontSize: fitSize(sub, 50, 860, 1, charW), color: '#fff', WebkitTextStroke: '8px #000',
+    <div style={{ fontFamily: fam, fontWeight: look.display.weight, fontSize: subSize, color: '#fff', WebkitTextStroke: '8px #000',
       paintOrder: 'stroke fill', opacity: interpolate(f, [6, 12], [0, 1], clamp), textAlign: 'center' } as React.CSSProperties}>{sub}</div>
   ) : null;
 
   let card: React.ReactNode;
   if (look.endcard === 'badge') {
-    const size = fitSize(label, 64, 760, 2, charW, 38);
     const bob = Math.sin((f / fps) * Math.PI * 2 * 0.9) * 8;
     card = (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
@@ -74,7 +106,6 @@ export const EndCardPro: React.FC<{ text: string; sub?: string; start: number; f
       </div>
     );
   } else if (look.endcard === 'banner') {
-    const size = fitSize(label, 76, 820, 2, charW, 40);
     card = (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, width: '100%' }}>
         <div style={{ position: 'relative', overflow: 'hidden', width: 1240, marginLeft: -80, background: look.hi, transform: `rotate(-5deg) scaleY(${1 - 0.08 * p})`,
@@ -87,7 +118,6 @@ export const EndCardPro: React.FC<{ text: string; sub?: string; start: number; f
       </div>
     );
   } else {
-    const size = fitSize(label, 66, 700, 2, charW, 40);
     card = (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
         <div style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 22, background: yellow, color: '#111',
@@ -101,14 +131,18 @@ export const EndCardPro: React.FC<{ text: string; sub?: string; start: number; f
     );
   }
 
+  // the chevrons (down the left edge toward the basket) sit under a card placed below the face, or are left out
+  const cardBottom = spot.top + cardH * spot.k;
+  const chevTop = !spot.below ? Math.max(980, cardBottom + 16) : cardBottom + 16 + 194 <= (capTop ?? 1700) ? cardBottom + 16 : null;
+
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
-      <AbsoluteFill style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 42%)', opacity: interpolate(f, [0, 8], [0, 1], clamp) }} />
-      <div style={{ position: 'absolute', left: 0, right: 0, top, display: 'flex', justifyContent: 'center',
-        transform: `translateY(${(1 - s) * -120}px) scale(${0.7 + 0.3 * s})`, opacity: Math.min(1, s * 1.5) }}>
+      {!spot.below && <AbsoluteFill style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 42%)', opacity: interpolate(f, [0, 8], [0, 1], clamp) }} />}
+      <div style={{ position: 'absolute', left: 0, right: 0, top, display: 'flex', justifyContent: 'center', transformOrigin: 'center top',
+        transform: `translateY(${(1 - s) * -120}px) scale(${(0.7 + 0.3 * s) * spot.k})`, opacity: Math.min(1, s * 1.5) }}>
         {card}
       </div>
-      <Chevrons f={f} fps={fps} color={look.endcard === 'banner' ? look.hi : yellow} />
+      {chevTop !== null && <Chevrons f={f} fps={fps} top={chevTop} color={look.endcard === 'banner' ? look.hi : yellow} />}
     </AbsoluteFill>
   );
 };

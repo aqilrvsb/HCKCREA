@@ -27,9 +27,18 @@ function draw(t) {
   render(h(FrameContext.Provider, { value: { frame, abs: 0, dur: Infinity } }, h(Comp, data.props)), root);
 }
 
+// Every declared face is loaded before the first draw: the edit plan (made once, on that draw) measures
+// sticker / scene text with the real fonts, and a face the page hasn't used yet would measure in the
+// fallback font — a different layout in each render chunk.
+function loadFonts() {
+  if (!document.fonts) return Promise.resolve();
+  const all = [];
+  try { document.fonts.forEach((f) => { all.push(f.load().catch(() => null)); }); } catch (e) { /* none */ }
+  const wait = new Promise((r) => setTimeout(r, 8000));
+  return Promise.race([Promise.all(all), wait]).then(() => document.fonts.ready);
+}
+
 // everything a frame needs must be in memory before the first frame is drawn
-const ready = preloadLottie(data.props && data.props.lottie).then(() => {
-  if (document.fonts && document.fonts.ready) return document.fonts.ready;
-}).then(() => { draw(0); });
+const ready = preloadLottie(data.props && data.props.lottie).then(loadFonts).then(() => { draw(0); });
 
 window.__laju = { draw, duration: total / fps, ready };
