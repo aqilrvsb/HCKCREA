@@ -279,6 +279,9 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         // no empty opening frame: without a heading the scene opens on its first item
         const first = Math.min(...items);
         if (!head && first - sc.s > fr(0.4)) sc.s = first - 3;
+        // a heading alone is not worth seconds of a scene: it gets ~1 s before the first item (the speaker keeps the rest);
+        // an annotate sentence / split titles are content themselves and may open early
+        else if (head && sc.kind !== 'annotate' && sc.kind !== 'split' && first - sc.s > fr(1.6)) sc.s = first - fr(1);
       }
       const hold = sc.kind === 'card' ? sc.s + fr(11) : Math.max(sc.s, ...items) + fr(3.5);
       sc.e = Math.max(sc.s + fr(1.5), Math.min(sc.e, hold));
