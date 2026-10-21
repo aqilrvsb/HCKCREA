@@ -16,6 +16,7 @@ import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib
 import { MOTION_STYLES, type MotionStyleId } from "@/lib/motion-styles";
 import MotionPhotoPicker, { MAX_PRODUCT_PHOTOS, withRetry } from "./motion-photo-picker";
 import MotionManualPanel from "./motion-manual-panel";
+import MotionStylePanel from "./motion-style-panel";
 import type { MotionLocks } from "@/lib/motion-manual";
 
 type Mode = "ad" | "edit";
@@ -138,14 +139,16 @@ const readDuration = (url: string) =>
 
 // "Saya nak pilih sendiri": the last picks, remembered per browser
 const LOCKS_KEY = "motion-locks";
+// Custom Style's picks (one of the 40 styles + optional locks) — kept apart from Default's manual picks
+const STYLE_LOCKS_KEY = "motion-style-locks";
 type Engine = "laju";
 
 export default function MotionTab({ projectId }: { projectId?: string }) {
-  // Default = PeningLab's own Edit Video / Buat Iklan; Custom Style = the VGC vault (Coach Am) at /vgc, generated
-  // directly. Motion always opens on Default (the owner's call, 2026-10-21 — no longer remembered per browser).
+  // Default = AI Auto or "Saya nak pilih sendiri" (the manual picks); Custom Style = one of the 40 styles of the style
+  // library, directed by the master director on the same engine (the owner's call, 2026-10-22: the VGC vault page is
+  // gone from here). Motion always opens on Default.
   const [look, setLook] = useState<"default" | "custom">("default");
-  // the vault page is loading (Custom Style shows a placeholder until its frame has drawn)
-  const [vgcLoading, setVgcLoading] = useState(true);
+  const custom = look === "custom";
   // Default renders on HyperFrames ("Padat" was retired 2026-10-21)
   const engine: Engine = "laju";
   const [mode, setMode] = useState<Mode>("edit");
@@ -207,6 +210,17 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const setLocks = (v: MotionLocks) => {
     setLocksState(v);
     try { localStorage.setItem(LOCKS_KEY, JSON.stringify(v)); } catch { /* private mode */ }
+  };
+  // Custom Style: the chosen style (+ optional locks), remembered per browser
+  const [styleLocks, setStyleLocksState] = useState<MotionLocks>({});
+  const setStyleLocks = (v: MotionLocks) => {
+    setStyleLocksState(v);
+    try { localStorage.setItem(STYLE_LOCKS_KEY, JSON.stringify(v)); } catch { /* private mode */ }
+  };
+  const openCustom = () => {
+    try { const v = JSON.parse(localStorage.getItem(STYLE_LOCKS_KEY) || "null"); if (v && typeof v === "object") setStyleLocksState(v); } catch { /* private mode */ }
+    setMode("edit");
+    setLook("custom");
   };
   const [editImages, setEditImages] = useState<string[]>([]);
   // product name as it should be spelt — required; the AI uses it for captions
@@ -367,12 +381,13 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     const productName = editProduct.replace(/\s+/g, " ").trim();
     if (!productName) return setError("Sila isi nama produk (ejaan yang betul).");
     if (editImages.length === 0) return setError("Upload sekurang-kurangnya 1 gambar produk.");
-    if (!editAuto && !locks.styleId) return setError("Pilih satu style dulu (Saya nak pilih sendiri).");
+    if (custom && !styleLocks.styleId) return setError("Pilih satu style dulu.");
     // the settings as they are now — the form may change for the next videos
+    const manual = custom || !editAuto;
     const settings = {
-      language: editLang, prompt: editAuto ? undefined : editPrompt.trim() || undefined,
+      language: editLang, prompt: manual ? editPrompt.trim() || undefined : undefined,
       product: productName, product_images: editImages, auto: true,
-      ...(editAuto ? {} : { locks }),
+      ...(custom ? { locks: styleLocks } : editAuto ? {} : { locks: { ...locks, styleId: undefined, styleName: undefined } }),
       captions, caption_style: captionStyle, sfx,
       accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard, engine,
     };
@@ -419,7 +434,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const lookSwitch = (
     <div className="grid grid-cols-2 gap-2 mb-4">
       <Chip active={look === "default"} onClick={() => setLook("default")}><Wand2 className="inline w-3.5 h-3.5 mr-1" />Default</Chip>
-      <Chip active={look === "custom"} onClick={() => { if (look !== "custom") setVgcLoading(true); setLook("custom"); }}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Custom Style</Chip>
+      <Chip active={custom} onClick={openCustom}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Custom Style</Chip>
     </div>
   );
   const header = (
@@ -429,49 +444,22 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     </div>
   );
 
-  if (look === "custom") {
-    return (
-      <div className="space-y-5">
-        <div className="rounded-2xl p-5 border" style={{ background: `linear-gradient(135deg, ${THEME.faint}, transparent)`, borderColor: THEME.soft }}>
-          {header}
-          <p className="text-xs text-[var(--color-text-secondary)] mb-4">
-            Custom Style — VGC Fast Track (edit Video Guna Code) oleh Coach Am. Pilih jenis video, isi info, tambah bahan &amp; suara,
-            kemudian tekan <b>🎬 Jana Video</b>. AI bina, render &amp; semak terus di sini — tak perlu copy ke Claude Code. Hasil masuk ke History di bawah.
-          </p>
-          {lookSwitch}
-          {/* the VGC vault (private, served from /vgc) sits in the page: its bridge script sizes the frame to the
-              vault's content (no box, no inner scrollbar) and hides the vault's own header / copy-the-prompt chrome */}
-          {vgcLoading && (
-            <div className="flex items-center justify-center gap-2 rounded-2xl text-xs font-bold text-[var(--color-text-secondary)]"
-              style={{ height: 240, border: `1px dashed ${THEME.soft}`, background: THEME.faint }}>
-              <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME.primary }} /> Memuatkan Custom Style…
-            </div>
-          )}
-          <iframe
-            src={`/vgc${projectId ? `?p=${encodeURIComponent(projectId)}` : ""}`}
-            title="VGC Custom Style"
-            onLoad={() => setVgcLoading(false)}
-            scrolling="no"
-            data-pl-embed="1"
-            className="w-full block"
-            style={{ height: 900, border: 0, background: "transparent", colorScheme: "dark", ...(vgcLoading ? { position: "absolute", visibility: "hidden" } : {}) }}
-          />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
       <div className="rounded-2xl p-5 border" style={{ background: `linear-gradient(135deg, ${THEME.faint}, transparent)`, borderColor: THEME.soft }}>
         {header}
         <p className="text-xs text-[var(--color-text-secondary)] mb-4">
-          Edit macam editor pro TikTok — AI director potong senyap, tambah hook, sticker, gambar Google, fakta, zoom ke muka,
-          caption berwarna, sound effect & CTA beg kuning yang sync dengan setiap perkataan. Boleh hantar banyak sekali; semua jalan di belakang tabir.
+          {custom ? (
+            <>Custom Style — pilih satu daripada 40 style. Master director (Sonnet 5.5) edit video anda ikut style itu: warna, font, caption, skrin grafik,
+              kamera &amp; bunyi. Skrip &amp; caption dulu untuk disemak, kemudian jana video.</>
+          ) : (
+            <>Edit macam editor pro TikTok — AI director potong senyap, tambah hook, sticker, gambar Google, fakta, zoom ke muka,
+              caption berwarna, sound effect &amp; CTA beg kuning yang sync dengan setiap perkataan. Boleh hantar banyak sekali; semua jalan di belakang tabir.</>
+          )}
         </p>
         {lookSwitch}
 
-        {adAllowed && (
+        {adAllowed && !custom && (
           <div className="grid grid-cols-2 gap-2 mb-5">
             <Chip active={mode === "edit"} onClick={() => setMode("edit")}><Scissors className="inline w-3.5 h-3.5 mr-1" />Edit Video</Chip>
             <Chip active={mode === "ad"} onClick={() => setMode("ad")}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Buat Iklan</Chip>
@@ -514,7 +502,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 )}
               </div>
             </div>
-            {editAuto ? (
+            {custom ? (
+              <MotionStylePanel locks={styleLocks} setLocks={setStyleLocks} note={editPrompt} setNote={setEditPrompt} accent={accent} setAccent={setAccent}
+                captions={captions} setCaptions={setCaptions} sfx={sfx} setSfx={setSfx} />
+            ) : editAuto ? (
               <div className="rounded-xl p-3" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-extrabold text-[var(--color-text-primary)]">🤖 AI Auto — AI tonton video anda &amp; rancang semuanya</span>
