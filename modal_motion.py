@@ -2967,26 +2967,47 @@ def _yt_audio(url: str, d: Path) -> Path:
     return got[0]
 
 
+GDRIVE_MAX = 12 * 1024 ** 3  # a 3-hour 1080p recording is ~3–8 GB
+
+
 def _gdrive_download(url: str, dest: Path) -> Path:
-    """A Google Drive file shared as "Anyone with the link" → local file."""
+    """A Google Drive file shared as "Anyone with the link" → local file (server to server, no upload by the client).
+    A big file first answers with Drive's "can't scan for viruses" page: its form is submitted to get the file."""
+    import html as _html
     import requests
     m = GD_ID.search(url)
     if not m:
         raise RuntimeError("Pautan Google Drive tidak sah.")
     fid = m.group(1)
     s = requests.Session()
-    r = s.get("https://drive.usercontent.google.com/download", params={"id": fid, "export": "download", "confirm": "t"},
-              stream=True, timeout=60, headers={"User-Agent": UA})
+    s.headers["User-Agent"] = UA
+    base = "https://drive.usercontent.google.com/download"
+    r = s.get(base, params={"id": fid, "export": "download", "confirm": "t"}, stream=True, timeout=60)
+    for _ in range(2):
+        if not (r.ok and "text/html" in r.headers.get("content-type", "")):
+            break
+        page = r.text
+        if "accounts.google.com" in page and "ServiceLogin" in page:
+            raise RuntimeError("Fail Google Drive ini peribadi — tukar Share → General access → \"Anyone with the link\".")
+        if re.search(r"(?i)quota|too many users have viewed or downloaded", page):
+            raise RuntimeError("Google Drive had kuota muat turun fail ini buat masa ini — cuba lagi nanti, atau buat salinan fail itu dalam Drive anda.")
+        # the confirm form: its action + hidden inputs (id, export, confirm, uuid, …)
+        form = re.search(r'<form[^>]+action="([^"]+)"[^>]*>(.*?)</form>', page, re.S)
+        if not form:
+            break
+        fields = {k: _html.unescape(v) for k, v in re.findall(r'<input[^>]+type="hidden"[^>]+name="([^"]+)"[^>]+value="([^"]*)"', form.group(2))}
+        r = s.get(_html.unescape(form.group(1)), params=fields or {"id": fid, "export": "download", "confirm": "t"}, stream=True, timeout=60)
     ctype = r.headers.get("content-type", "")
     if r.ok and "text/html" not in ctype:
         n = 0
         with open(dest, "wb") as f:
-            for chunk in r.iter_content(1 << 20):
+            for chunk in r.iter_content(8 << 20):
                 n += len(chunk)
-                if n > 4 * 1024 ** 3:
-                    raise RuntimeError("Fail Google Drive terlalu besar (maks 4GB).")
+                if n > GDRIVE_MAX:
+                    raise RuntimeError("Fail Google Drive terlalu besar (maks 12GB).")
                 f.write(chunk)
         if n > 500_000:
+            print(f"gdrive: {n / 1024 ** 2:.0f} MB", flush=True)
             return dest
     # fallback: yt-dlp's Drive extractor
     tmpl = dest.with_name("gd.%(ext)s")
@@ -3089,6 +3110,7 @@ def _asr_long(wav: Path, d: Path, language: str | None) -> list:
 
 
 def _clip_analyze(p: dict, d: Path) -> dict:
+    import shutil
     import requests
     src = p.get("source") or {}
     kind, url = str(src.get("type") or ""), str(src.get("url") or "")
@@ -3117,12 +3139,23 @@ def _clip_analyze(p: dict, d: Path) -> dict:
     else:
         if kind == "gdrive":
             _progress("download", 6)
-            local = _gdrive_download(url, d / "gdrive_src")
+            gtmp = Path(tempfile.mkdtemp(prefix="gdrive_"))  # local disk (a 2–3 hour file is GBs)
+            local = _gdrive_download(url, gtmp / "source.mp4")
             info = _probe(local)
             if not info.get("w"):
                 raise RuntimeError("Fail Google Drive itu bukan video.")
-            _progress("upload", 12)
-            media_url = _upload_b2(local, f"users/{uid}/clipper/{hid}-source.mp4", "video/mp4")
+            # the clip renders read their segments from a B2 copy: uploaded in the background meanwhile
+            media_url = _b2_public_url(f"users/{uid}/clipper/{hid}-source.mp4")
+            upbox: dict = {}
+
+            def _up():
+                try:
+                    _upload_b2(local, f"users/{uid}/clipper/{hid}-source.mp4", "video/mp4")
+                    upbox["ok"] = True
+                except Exception as e:  # noqa: BLE001
+                    upbox["error"] = str(e)[:300]
+            upthread = threading.Thread(target=_up, daemon=True)
+            upthread.start()
             src_for_audio = str(local)
         elif kind == "upload":
             media_url, src_for_audio = url, url
@@ -3156,6 +3189,12 @@ def _clip_analyze(p: dict, d: Path) -> dict:
             err = str(j.get("error") or r.status_code)[:300]
     except Exception as e:  # noqa: BLE001
         err = str(e)[:300]
+    if kind == "gdrive":
+        _progress("save", 92)
+        upthread.join(timeout=1800)
+        shutil.rmtree(gtmp, ignore_errors=True)
+        if not upbox.get("ok"):
+            raise RuntimeError(f"Gagal simpan salinan video: {upbox.get('error') or 'masa tamat'}")
     _progress("save", 95)
     seg_url = None
     try:
