@@ -11,6 +11,17 @@ import { orChat } from "@/lib/openrouter";
 import { extractJson, motionCheck, type MotionCheck } from "@/lib/motion";
 
 export const CLIPPER_JOB_TAB = "clipper-job";
+
+/** Optional YouTube access for the Modal readers when YouTube flags our servers: app_settings.clipper_youtube =
+ *  { cookies?: Netscape cookies.txt of a YouTube account, proxy?: "http://user:pass@host:port" }. Anonymous first. */
+export async function clipperYoutubeAuth(): Promise<{ cookies?: string; proxy?: string } | null> {
+  const { getSetting } = await import("@/lib/settings");
+  const v = await getSetting<{ cookies?: unknown; proxy?: unknown }>("clipper_youtube").catch(() => null);
+  const cookies = typeof v?.cookies === "string" && v.cookies.includes("youtube.com") ? v.cookies : undefined;
+  const proxy = typeof v?.proxy === "string" && /^(https?|socks5h?):\/\//.test(v.proxy) ? v.proxy : undefined;
+  return cookies || proxy ? { ...(cookies ? { cookies } : {}), ...(proxy ? { proxy } : {}) } : null;
+}
+
 export const CLIPPER_TAB = "clipper";
 const ANALYSE_STALE_MS = 50 * 60_000;
 

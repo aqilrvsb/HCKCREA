@@ -2757,9 +2757,23 @@ yt_image = (
 )
 
 
+_YT_AUTH: dict = {}
+
+
+def _yt_cli_auth() -> list:
+    a = []
+    if _YT_AUTH.get("cookiefile"):
+        a += ["--cookies", _YT_AUTH["cookiefile"]]
+    if _YT_AUTH.get("proxy"):
+        a += ["--proxy", _YT_AUTH["proxy"]]
+    return a
+
+
 def _yt_blocked(msg: str) -> bool:
     m = msg.lower()
-    return "confirm you" in m or "not a bot" in m or "page needs to be reloaded" in m or "http error 429" in m
+    # (no playable formats on this container = its JS challenge / client was refused: a fresh container usually gets them)
+    return ("confirm you" in m or "not a bot" in m or "page needs to be reloaded" in m or "http error 429" in m
+            or "requested format is not available" in m or "http error 403" in m)
 
 
 @app.function(image=yt_image, cpu=2.0, memory=4096, timeout=1800)
@@ -2767,10 +2781,22 @@ def yt_task(kind: str, url: str, args: dict) -> dict:
     """kind "info": title / heatmap / captions (lines); "segment": one clip as MP4 bytes; "audio": the soundtrack (Opus)."""
     import shutil
     import modal.experimental
+    global _YT_AUTH
     d = Path(tempfile.mkdtemp(prefix="yt_"))
+    _YT_AUTH = {}
+    auth = args.get("auth") or {}
+    if auth.get("cookies"):
+        cf = d / "cookies.txt"
+        cf.write_text(str(auth["cookies"]), encoding="utf-8")
+        _YT_AUTH["cookiefile"] = str(cf)
+    if auth.get("proxy"):
+        _YT_AUTH["proxy"] = str(auth["proxy"])
     try:
         if kind == "info":
             info = _yt_info(url)
+            if not info.get("duration") and not info.get("is_live") or str(info.get("title") or "").startswith("youtube video #"):
+                # a soft block: YouTube answered this IP with an empty player (no title / length / captions)
+                raise RuntimeError("not a bot: empty player response")
             lines, lang = _yt_captions(info, args.get("want"))
             heat = [{"start": round(float(h.get("start_time") or 0), 2), "end": round(float(h.get("end_time") or 0), 2), "value": round(float(h.get("value") or 0), 3)}
                     for h in (info.get("heatmap") or [])]
@@ -2802,26 +2828,32 @@ def yt_task(kind: str, url: str, args: dict) -> dict:
         shutil.rmtree(d, ignore_errors=True)
 
 
-def _yt_call(kind: str, url: str, args: dict | None = None, tries: int = 6) -> dict:
+def _yt_call(kind: str, url: str, args: dict | None = None, auth: dict | None = None, tries: int = 4) -> dict:
     last: dict = {}
-    for i in range(tries):
+    has_auth = bool(auth and (auth.get("cookies") or auth.get("proxy")))
+    plan = [False] * tries + ([True] * 3 if has_auth else [])
+    for i, use_auth in enumerate(plan):
         try:
-            last = yt_task.remote(kind, url, args or {})
+            last = yt_task.remote(kind, url, {**(args or {}), **({"auth": auth} if use_auth else {})})
         except Exception as e:  # noqa: BLE001
             last = {"ok": False, "error": str(e)[:300]}
         if last.get("ok"):
             return last
         if not last.get("blocked"):
             break
-        print(f"youtube blocked this container ({kind}), retrying on a fresh one", flush=True)
-        time.sleep(1.5 * (i + 1))
+        print(f"youtube blocked this container ({kind}{', with cookies/proxy' if use_auth else ''}), retrying", flush=True)
+        time.sleep(1.5 * min(i + 1, 4))
     if last.get("blocked"):
-        raise RuntimeError("YouTube menyekat bacaan video ini buat masa ini — cuba lagi beberapa minit lagi, atau upload videonya.")
+        raise RuntimeError("YouTube menyekat pelayan kami untuk video ini buat masa ini — cuba lagi nanti, atau guna Upload / Google Drive untuk video yang sama.")
     raise RuntimeError(str(last.get("error") or "YouTube gagal")[:400])
 
 
 def _yt_dl_opts(extra: dict | None = None) -> dict:
     o = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20, "retries": 3}
+    if _YT_AUTH.get("cookiefile"):
+        o["cookiefile"] = _YT_AUTH["cookiefile"]
+    if _YT_AUTH.get("proxy"):
+        o["proxy"] = _YT_AUTH["proxy"]
     o.update(extra or {})
     return o
 
@@ -2831,7 +2863,8 @@ def _yt_info(url: str) -> dict:
     last = None
     for attempt in range(2):
         try:
-            with yt_dlp.YoutubeDL(_yt_dl_opts({"skip_download": True})) as y:
+            # the info only (title, heatmap, captions): a container offered no playable formats still reads it
+            with yt_dlp.YoutubeDL(_yt_dl_opts({"skip_download": True, "ignore_no_formats_error": True})) as y:
                 return y.extract_info(url, download=False)
         except Exception as e:  # noqa: BLE001
             last = e
@@ -2913,7 +2946,8 @@ def _yt_captions(info: dict, want: str | None) -> tuple:
         if not fmt:
             continue
         try:
-            r = requests.get(fmt["url"], timeout=30, headers={"User-Agent": UA})
+            r = requests.get(fmt["url"], timeout=30, headers={"User-Agent": UA},
+                             proxies={"http": _YT_AUTH["proxy"], "https": _YT_AUTH["proxy"]} if _YT_AUTH.get("proxy") else None)
             if not r.ok:
                 continue
             words = _json3_words(r.json())
@@ -2926,7 +2960,7 @@ def _yt_captions(info: dict, want: str | None) -> tuple:
 
 def _yt_audio(url: str, d: Path) -> Path:
     out = d / "yt_audio.%(ext)s"
-    _run(["yt-dlp", "--no-playlist", "-f", "ba[ext=m4a]/ba/b[height<=480]/b", "-o", str(out), "--no-progress", url], "youtube audio", 1800)
+    _run(["yt-dlp", *_yt_cli_auth(), "--no-playlist", "-f", "ba[ext=m4a]/ba/b[height<=480]/b", "-o", str(out), "--no-progress", url], "youtube audio", 1800)
     got = sorted(d.glob("yt_audio.*"))
     if not got:
         raise RuntimeError("Tak dapat muat turun audio YouTube.")
@@ -3064,7 +3098,7 @@ def _clip_analyze(p: dict, d: Path) -> dict:
     lines, lang, heat, cap_src, media_url = [], None, [], "", None
     _progress("source", 4)
     if kind == "youtube":
-        yi = _yt_call("info", url, {"want": want})
+        yi = _yt_call("info", url, {"want": want}, p.get("yt_auth"))
         m = yi["meta"]
         if m.get("live"):
             raise RuntimeError("Siaran langsung belum tamat — cuba bila live sudah habis.")
@@ -3077,7 +3111,7 @@ def _clip_analyze(p: dict, d: Path) -> dict:
         if not lines:
             _progress("audio", 20)
             audio = d / "yt_audio.ogg"
-            audio.write_bytes(_yt_call("audio", url)["data"])
+            audio.write_bytes(_yt_call("audio", url, None, p.get("yt_auth"))["data"])
             wav = _audio16k(str(audio), d / "audio16k.wav")
             lang = lang or (want if want != "auto" else None) or m.get("spoken")
     else:
@@ -3156,7 +3190,7 @@ def _yt_segment(url: str, start: float, end: float, out: Path) -> Path:
         return f"{int(x // 3600):02d}:{int(x % 3600 // 60):02d}:{x % 60:06.3f}"
     tmpl = out.with_name("ytseg.%(ext)s")
     try:
-        _run(["yt-dlp", "--no-playlist", "--no-progress", "-f", YT_FORMAT, "--download-sections", f"*{hms(start)}-{hms(end)}",
+        _run(["yt-dlp", *_yt_cli_auth(), "--no-playlist", "--no-progress", "-f", YT_FORMAT, "--download-sections", f"*{hms(start)}-{hms(end)}",
               "--force-keyframes-at-cuts", "--merge-output-format", "mp4", "-o", str(tmpl), url], "youtube clip", 900)
         got = sorted(out.parent.glob("ytseg.*"))
         if got:
@@ -3165,7 +3199,7 @@ def _yt_segment(url: str, start: float, end: float, out: Path) -> Path:
                 return out
     except Exception as e:  # noqa: BLE001
         print("yt-dlp section download failed, trying stream URLs:", str(e)[:300], flush=True)
-    r = subprocess.run(["yt-dlp", "--no-playlist", "-g", "-f", YT_FORMAT, url],
+    r = subprocess.run(["yt-dlp", *_yt_cli_auth(), "--no-playlist", "-g", "-f", YT_FORMAT, url],
                        capture_output=True, text=True, timeout=180)
     urls = [u for u in (r.stdout or "").split("\n") if u.startswith("http")]
     if not urls:
@@ -3337,7 +3371,7 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     _progress("download", 3)
     seg = d / "segment.mp4"
     if c.get("source_type") == "youtube":
-        seg.write_bytes(_yt_call("segment", str(c.get("url")), {"start": start, "end": end})["data"])
+        seg.write_bytes(_yt_call("segment", str(c.get("url")), {"start": start, "end": end}, p.get("yt_auth"))["data"])
     else:
         _media_segment(str(c.get("media_url") or c.get("url")), start, end, seg)
     _progress("reframe", 8)

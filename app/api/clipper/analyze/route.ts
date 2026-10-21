@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { motionStart, newPlanToken, siteUrl } from "@/lib/motion";
-import { CLIPPER_JOB_TAB, cleanOptions, cleanSource } from "@/lib/clipper";
+import { CLIPPER_JOB_TAB, cleanOptions, cleanSource, clipperYoutubeAuth } from "@/lib/clipper";
 
 // POST /api/clipper/analyze { source: {type, url, name?}, options, project_id? } — CLIPPER step 1: a Modal job reads
 // the video (title, transcript, "most replayed"), the director picks the clips. Free; ≤ 3 at a time per client.
@@ -58,6 +58,7 @@ export async function POST(req: Request) {
     options,
     plan_url: `${siteUrl()}/api/clipper/plan`,
     plan_token: planToken,
+    ...(src.type === "youtube" ? { yt_auth: await clipperYoutubeAuth() } : {}),
   });
   if (!start.ok) {
     await admin.from("history").update({ status: "failed", error_message: `Gagal mula analisa: ${start.error}` }).eq("id", row.id);

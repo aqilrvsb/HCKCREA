@@ -6,7 +6,7 @@ import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
 import { vgcStyle } from "@/lib/vgc-styles";
-import { CLIPPER_JOB_TAB, CLIPPER_TAB, type ClipperAnalysis } from "@/lib/clipper";
+import { CLIPPER_JOB_TAB, CLIPPER_TAB, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
 
 // POST /api/clipper/render { job_id, clips: [{start, end, title, hook}], settings, project_id? } — CLIPPER step 2:
 // every chosen clip becomes a History row (tab "clipper") rendered by the Motion engine (modal_motion.py flow
@@ -71,6 +71,7 @@ export async function POST(req: Request) {
   if (!clips.length) return NextResponse.json({ error: "Pilih sekurang-kurangnya satu klip (3–120 saat)." }, { status: 400 });
 
   const rate = await priceFor(user.id, "motion", "motion");
+  const ytAuth = src.type === "youtube" ? await clipperYoutubeAuth() : null;
   const projectId = typeof b?.project_id === "string" && /^[0-9a-f-]{36}$/i.test(b.project_id) ? b.project_id : job.project_id ?? null;
   const ids: string[] = [];
   const failed: string[] = [];
@@ -146,6 +147,7 @@ export async function POST(req: Request) {
       max_sec: 125,
       auto: true,
       captions,
+      ...(ytAuth ? { yt_auth: ytAuth } : {}),
       clip: {
         source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language,
         ...(wmText || wmImage ? { watermark: { ...(wmText ? { text: wmText } : {}), ...(wmImage ? { image: wmImage } : {}) } } : {}),
