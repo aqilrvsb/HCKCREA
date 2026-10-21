@@ -226,8 +226,12 @@ ${sounds}`;
 function clientChoices(input: EditInput): string {
   const l = input.locks ?? {};
   const out: string[] = [];
-  if (l.angle) out.push(`Sales angle: "${l.angle.label.replace(/^\P{L}+/u, "")}" — ${l.angle.brief}`);
+  // the angle frames the story exactly as an AI Auto angle does (label + one line) — the preset's full brief was
+  // written for the old sticker-only editor and, as a rule, it overrode the playbook (emoji / callout / punch-in recipes)
+  if (l.angle) out.push(`Sales angle: "${l.angle.label.replace(/^\P{L}+/u, "")}" — ${firstSentence(l.angle.brief)} The hook and the story MUST use this angle (even when the footage reads as something else — find how it fits); how to edit it stays your call (playbook below).`);
   if (l.hook) out.push(`Hook: use exactly "${l.hook}" as hook.text (you may add a short "sub").`);
+  // a picked angle that the hook doesn't voice reads as AI Auto's default (a tutorial video kept a "Cara guna …" hook under POV)
+  else if (l.angle) out.push(`Hook: written in the "${l.angle.label.replace(/^\P{L}+/u, "")}" angle — e.g. a POV angle opens "POV: …" in the viewer's situation, a promo angle on the price / offer, a review on the verdict, before / after on the change — from what is said.`);
   if (l.cta) out.push(`CTA: use exactly "${l.cta}" as cta.text, in the last 3–5 s.`);
   if (l.look) out.push(`Look: "${l.look}" — follow its pace rules.`);
   if (input.accent) out.push(`Accent colour: ${input.accent}.`);
@@ -241,7 +245,7 @@ function clientChoices(input: EditInput): string {
   if (el.emoji === true) out.push("Animated emoji: 2–4 — \"emoji\" items and keyword emoji on the key words.");
   if (el.emoji === false) out.push("Animated emoji: none (no \"emoji\" items, no keyword emoji).");
   if (input.instructions) out.push("The client's own notes (CLIENT PROMPT, in the message) — follow them.");
-  return out.length ? `CLIENT CHOICES — the client picked these in the form; they are RULES and override any option or rule below:\n${out.map((x) => `- ${x}`).join("\n")}\nEverything the client did not pick is your call, exactly as below.\n\n` : "";
+  return out.length ? `CLIENT CHOICES — the client picked these in the form; they are RULES and override any option or rule below:\n${out.map((x) => `- ${x}`).join("\n")}\nEverything the client did not pick is your call, exactly as below — aim for the same level a top editor reaches in AI Auto. When two picks pull different ways (e.g. a fast angle with a calm look), keep the look's pace and colour and carry the angle through the hook, the words on screen and the scenes.\n\n` : "";
 }
 
 // ── PRO direction (Laju v2 on HyperFrames) ───────────────────────────────────
@@ -314,7 +318,8 @@ export const proDirectionWithLists = (recent: string[], locks?: MotionLocks): { 
   try { return { text: PRO_DIRECTION(recent) + proLockText(locks), lists: LISTS }; } finally { LISTS = null; LOCKED = null; }
 };
 
-/** The PRO fields a manual pick decides. Gaya edit sets the camera feel too (a calm look never gets the lively float). */
+/** The PRO fields a manual pick decides. Gaya edit sets the pace (its rules are in the brief); effects / camera stay the AI's
+ *  call as in AI Auto — forcing a calm look to light effects + a calm camera made manual edits flatter than AI Auto. */
 function proLocked(locks?: MotionLocks): Record<string, string> | null {
   if (!locks) return null;
   const out: Record<string, string> = {};
@@ -322,7 +327,6 @@ function proLocked(locks?: MotionLocks): Record<string, string> | null {
   if (locks.grade) out.grade = locks.grade;
   if (locks.endCard) out.end_card = locks.endCard;
   if (locks.captionLook && locks.captionLook !== "tiktok") out.caption_look = locks.captionLook;
-  if (locks.look) out.camera = motionStyle(locks.look).energy === "clean" ? "calm" : locks.look === "hype" || locks.look === "promo" ? "energetic" : "handheld";
   return Object.keys(out).length ? out : null;
 }
 
@@ -337,8 +341,7 @@ function proLockText(locks?: MotionLocks): string {
   if (!locks) return "";
   const out: string[] = [];
   if (locks.scenes) out.push(`SCENES: ${SCENE_SHARE[locks.scenes].say} (this replaces the 45–70 % rule).`);
-  const fx = locks.fx ?? (locks.look && motionStyle(locks.look).energy === "clean" ? "light" : undefined);
-  if (fx) out.push(`"fx": "${fx}".`);
+  if (locks.fx) out.push(`"fx": "${locks.fx}".`);
   const el = locks.elements ?? {};
   if (el.behind === true) out.push(`"behind": exactly 1 word, on the speaker's strongest line between scenes.`);
   if (el.behind === false) out.push(`"behind": [] (none).`);
@@ -354,8 +357,7 @@ function applyProLocks(d: ProDirection, locks?: MotionLocks): void {
   if (!locks) return;
   const set = proLocked(locks) ?? {};
   for (const [k, v] of Object.entries(set)) (d as Record<string, unknown>)[k] = v;
-  const fx = locks.fx ?? (locks.look && motionStyle(locks.look).energy === "clean" ? "light" : undefined);
-  if (fx) d.fx = fx;
+  if (locks.fx) d.fx = locks.fx;
   const el = locks.elements ?? {};
   if (el.behind === false) d.behind = [];
   if (Array.isArray(d.moves)) {
@@ -1089,7 +1091,7 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
   const capPos = locks?.captionPos ?? (auto ? (raw?.captions?.pos === "mid" ? "mid" : "low") : input.captionPos);
   const hs = Number(raw?.hook_sound);
   const autoPicks: Partial<EditPlanV2> = auto ? {
-    angle: clean(raw?.angle, 60) || undefined,
+    angle: (input.locks?.angle ? clean(input.locks.angle.label.replace(/^\P{L}+/u, ""), 60) : clean(raw?.angle, 60)) || undefined,
     look: look.id,
     energy: look.energy,
     music: typeof locks?.music === "boolean" ? locks.music : typeof raw?.music === "boolean" ? raw.music : look.energy === "gempak",
