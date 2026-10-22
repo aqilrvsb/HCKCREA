@@ -50,6 +50,8 @@ export type StylePanelProps = {
   setLocks: (l: MotionLocks) => void;
   note: string;
   setNote: (v: string) => void;
+  /** Custom shows its own Story Description box instead of "Arahan tambahan" */
+  hideNote?: boolean;
   accent: string;
   setAccent: (v: string) => void;
   captions: boolean;
@@ -58,7 +60,7 @@ export type StylePanelProps = {
   setSfx: (v: boolean) => void;
 };
 
-export default function MotionStylePanel({ locks, setLocks, note, setNote, accent, setAccent, captions, setCaptions, sfx, setSfx }: StylePanelProps) {
+export default function MotionStylePanel({ locks, setLocks, note, setNote, hideNote, accent, setAccent, captions, setCaptions, sfx, setSfx }: StylePanelProps) {
   const set = (patch: Partial<MotionLocks>) => setLocks({ ...locks, ...patch });
   const [ctaOwn, setCtaOwn] = useState(!!locks.cta && !LOCK_CTAS.includes(locks.cta as (typeof LOCK_CTAS)[number]));
   const setEl = (id: LockElement, v: boolean | undefined) => {
@@ -92,11 +94,13 @@ export default function MotionStylePanel({ locks, setLocks, note, setNote, accen
 
       <MotionStylePicker value={locks.styleId} onChange={(id) => set({ styleId: id, styleName: undefined })} />
 
-      <div>
-        <span className={sub}>Arahan tambahan (optional)</span>
-        <textarea className={`${inputCls} resize-y`} style={inputStyle} rows={2} maxLength={900} value={note} onChange={(e) => setNote(e.target.value)}
-          placeholder="cth. Tekankan promo hari ini, sebut cara simpan produk." />
-      </div>
+      {!hideNote && (
+        <div>
+          <span className={sub}>Arahan tambahan (optional)</span>
+          <textarea className={`${inputCls} resize-y`} style={inputStyle} rows={2} maxLength={900} value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder="cth. Tekankan promo hari ini, sebut cara simpan produk." />
+        </div>
+      )}
 
       <button type="button" onClick={() => setOwn((v) => !v)} className="w-full flex items-center gap-2 text-[11px] font-extrabold px-1" style={{ color: THEME.primary }}>
         <ChevronDown className="w-4 h-4 transition-transform" style={{ transform: own ? "rotate(180deg)" : "none" }} />

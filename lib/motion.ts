@@ -114,6 +114,10 @@ export type AdInput = {
   /** "Check Guideline TikTok" — compliant script, tape over risky text on product photos. */
   guard?: boolean;
   engine?: MotionEngine;
+  /** Custom without a video: "description" is the client's own story for the video */
+  story?: boolean;
+  /** Custom: one of the 40 styles (its brief + colours steer the script and the look) */
+  vgcStyle?: { id: string; name: string; brief: string; colors?: string[] };
 };
 
 export type EditInput = {
@@ -530,9 +534,15 @@ export async function planAd(input: AdInput): Promise<AdPlan> {
   const variantNote = input.variant && input.variant.total > 1
     ? `\n\nVARIATION ${input.variant.index + 1} of ${input.variant.total}: use a ${angles[input.variant.index % angles.length]} and a different structure/wording than other variations.`
     : "";
-  const styleNote = `\n\nSTYLE = ${look.label.toUpperCase()}: ${look.ad} Colour palette: ${look.palette}.`;
+  const vs = input.vgcStyle;
+  const styleNote = vs
+    ? `\n\nSTYLE = ${vs.name.toUpperCase()} — the client's chosen style: follow it in tone, pacing, wording and visual direction:\n${vs.brief}${vs.colors?.length ? `\nColour palette: background ${vs.colors[0]}, text ${vs.colors[1] ?? ""}, accent ${vs.colors[2] ?? ""}.` : ""}`
+    : `\n\nSTYLE = ${look.label.toUpperCase()}: ${look.ad} Colour palette: ${look.palette}.`;
+  const storyNote = input.story
+    ? `\n\nTHE CLIENT'S STORY: "description" in the brief is the client's own story for this video — tell THAT story (its scenes in its order, its message, its tone), using the product images; don't turn it into a generic product pitch unless the story is one. Never invent facts beyond it.`
+    : "";
   const guardNote = input.guard ? `\n\n${GUARD_RULES}\nThe "tts" voice-over follows the same rules. Use the brand name without medical words.` : "";
-  const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget)) + styleNote + variantNote + guardNote;
+  const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget)) + styleNote + storyNote + variantNote + guardNote;
 
   let lastErr = "";
   for (let attempt = 0; attempt < 2; attempt++) {

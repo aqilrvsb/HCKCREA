@@ -9,6 +9,7 @@ import {
 } from "@/lib/motion";
 import { isMotionStyle } from "@/lib/motion-styles";
 import { padatMin, startPadatAdRow } from "@/lib/motion-padat";
+import { vgcStyle } from "@/lib/vgc-styles";
 
 // POST /api/motion/create — Motion "Buat Iklan": generate a motion-graphics ad
 // from a product brief. Reserves the estimated cost, inserts a pending row,
@@ -32,14 +33,19 @@ export async function POST(req: Request) {
   // admins keep Buat Iklan while it is closed to clients (to test / sign it off)
   const { data: prof } = await createAdminClient().from("profiles").select("is_admin").eq("id", user.id).maybeSingle();
   const isAdmin = !!prof?.is_admin;
-  if (!(await motionAdEnabled()) && !isAdmin) {
-    return NextResponse.json({ error: "Buat Iklan belum dibuka buat masa ini." }, { status: 403 });
-  }
-  if ((await hiddenModesForUser(user.id)).includes("motion-ad")) {
-    return NextResponse.json({ error: "Buat Iklan tidak tersedia untuk akaun anda." }, { status: 403 });
+  const b = await req.json().catch(() => ({} as any));
+  // Motion → Custom without a video ("Story Description"): the same image-to-video engine, part of Custom — not
+  // behind the Buat Iklan switches
+  const customStory = b?.custom_story === true;
+  if (!customStory) {
+    if (!(await motionAdEnabled()) && !isAdmin) {
+      return NextResponse.json({ error: "Buat Iklan belum dibuka buat masa ini." }, { status: 403 });
+    }
+    if ((await hiddenModesForUser(user.id)).includes("motion-ad")) {
+      return NextResponse.json({ error: "Buat Iklan tidak tersedia untuk akaun anda." }, { status: 403 });
+    }
   }
 
-  const b = await req.json().catch(() => ({} as any));
   const product = str(b?.product, 80);
   const description = String(b?.description ?? "").trim().slice(0, 1500);
   if (!product) return NextResponse.json({ error: "Nama produk diperlukan." }, { status: 400 });
@@ -52,6 +58,14 @@ export async function POST(req: Request) {
     .slice(0, 4)
     .map((im: any) => ({ url: String(im.url), role: im.role === "presenter" ? "presenter" : "product" }));
   const style = ["pop", "karaoke", "box", "tiktok"].includes(b?.caption_style) ? b.caption_style : "pop";
+  let vgc: Awaited<ReturnType<typeof vgcStyle>> = null;
+  if (customStory) {
+    vgc = await vgcStyle(String(b?.vgc_style || ""));
+    if (!vgc) return NextResponse.json({ error: "Pilih satu style dulu." }, { status: 400 });
+    if (description.length < 20) return NextResponse.json({ error: "Story Description terlalu pendek — ceritakan sekurang-kurangnya satu dua ayat." }, { status: 400 });
+    if (!images.length) return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar." }, { status: 400 });
+  }
+  const styleAccent = vgc?.colors?.[2] && /^#[0-9a-f]{6}$/i.test(vgc.colors[2]) ? vgc.colors[2] : undefined;
 
   const input: AdInput = {
     product,
@@ -71,12 +85,14 @@ export async function POST(req: Request) {
     captionStyle: style,
     music: b?.music !== false,
     sfx: b?.sfx !== false,
-    accent: /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
+    accent: /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : styleAccent,
     images: images as AdInput["images"],
     style: isMotionStyle(b?.style) ? b.style : "gempak",
     resolution: b?.resolution === "720" ? "720" : "1080",
     guard: b?.guard === true,
     engine: await allowedEngine(b?.engine, user.id),
+    ...(customStory ? { story: true } : {}),
+    ...(vgc ? { vgcStyle: { id: vgc.id, name: vgc.name, brief: vgc.brief.slice(0, 3000), ...(vgc.colors?.length ? { colors: vgc.colors.slice(0, 3) } : {}) } } : {}),
   };
   const padat = input.engine === "padat";
   // admins may pin the renderer of a test ad (HyperFrames sign-off); clients always follow the switch

@@ -223,6 +223,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     setLook("custom");
   };
   const [editImages, setEditImages] = useState<string[]>([]);
+  // Custom: the client's story — required when no video is uploaded (the AI builds the video from the images +
+  // this story), optional with a video (the AI follows it while editing)
+  const [story, setStory] = useState("");
+  const [storySec, setStorySec] = useState(30);
   // product name as it should be spelt — required; the AI uses it for captions
   const [editProduct, setEditProduct] = useState("");
   const [readingVideos, setReadingVideos] = useState(false);
@@ -384,8 +388,9 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     if (custom && !styleLocks.styleId) return setError("Pilih satu style dulu.");
     // the settings as they are now — the form may change for the next videos
     const manual = custom || !editAuto;
+    const note = custom ? (story.trim() ? `Cerita klien: ${story.trim()}` : "") : editPrompt.trim();
     const settings = {
-      language: editLang, prompt: manual ? editPrompt.trim() || undefined : undefined,
+      language: editLang, prompt: manual ? note || undefined : undefined,
       product: productName, product_images: editImages, auto: true,
       ...(custom ? { locks: styleLocks } : editAuto ? {} : { locks: { ...locks, styleId: undefined, styleName: undefined } }),
       captions, caption_style: captionStyle, sfx,
@@ -429,6 +434,43 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     else setNotice("📝 Skrip & caption sedang dijana. Bila kad History bertukar border kuning, tekan \"Semak skrip\", betulkan jika perlu, kemudian \"Jana Video\".");
   }
 
+  // Custom without a video: the AI builds the video from the product images + the client's story, in the chosen style
+  // (script, AI voice, scenes) — the image-to-video engine of "Buat Iklan"
+  async function submitStory() {
+    setError(null);
+    setNotice(null);
+    const productName = editProduct.replace(/\s+/g, " ").trim();
+    const text = story.trim();
+    if (!styleLocks.styleId) return setError("Pilih satu style dulu.");
+    if (!text) return setError("Tulis Story Description (atau upload video).");
+    if (text.length < 20) return setError("Story Description terlalu pendek — ceritakan sekurang-kurangnya satu dua ayat.");
+    if (!productName) return setError("Sila isi nama produk (ejaan yang betul).");
+    if (editImages.length === 0) return setError("Upload sekurang-kurangnya 1 gambar.");
+    setSubmitting(true);
+    try {
+      const r = await fetch("/api/motion/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          custom_story: true, vgc_style: styleLocks.styleId,
+          product: productName, description: text, seconds: storySec, voice, language: "ms",
+          captions, caption_style: captionStyle, music: true, sfx, accent: accent || undefined,
+          images: editImages.map((url) => ({ url, role: "product" })), project_id: projectId,
+          style, resolution, variations: 1, guard, engine,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
+      setNotice("🎬 Video sedang dibina daripada gambar & cerita anda — kad di History tunjuk progres.");
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+    } catch (e: any) {
+      setError(e?.message || "Network error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+  const storyOnly = custom && mode === "edit" && toSend.length === 0;
+
   const presets = mode === "ad" ? MOTION_AD_PRESETS : MOTION_EDIT_PRESETS;
 
   const lookSwitch = (
@@ -470,7 +512,9 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         {mode === "edit" ? (
           <div className="space-y-4">
             <div>
-              <label className={label}>Video anda * (sehingga {MAX_VIDEOS} video · maks 3 minit · 300MB setiap satu)</label>
+              <label className={label}>
+                {custom ? "Video anda (pilihan — tanpa video, tulis Story Description)" : "Video anda *"} (sehingga {MAX_VIDEOS} video · maks 3 minit · 300MB setiap satu)
+              </label>
               <div className="flex flex-wrap gap-3">
                 {videos.map((v) => (
                   <div key={v.key} className="relative w-28">
@@ -502,8 +546,32 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 )}
               </div>
             </div>
+            {custom && (
+              <div>
+                <label className={label}>Story Description {toSend.length === 0 ? "*" : "(pilihan)"}</label>
+                <textarea className={`${inputCls} resize-y`} style={inputStyle} rows={5} maxLength={1500} value={story} onChange={(e) => setStory(e.target.value)}
+                  placeholder="Ceritakan video yang anda nak — apa berlaku babak demi babak, mesej utama, nada (kelakar / emosi / hype) dan penutup. cth. Mula dengan masalah kulit kusam pagi-pagi, tunjuk cara guna serum, hasil seminggu, tutup dengan promo hari ini." />
+                <p className="text-[11px] mt-1 text-[var(--color-text-muted)]">
+                  {toSend.length === 0
+                    ? "Tiada video: wajib — AI bina video daripada gambar anda + cerita ini (skrip, suara AI, grafik ikut style)."
+                    : "Ada video: pilihan — AI ikut cerita ini semasa edit video anda."}
+                </p>
+                {toSend.length === 0 && (
+                  <div className="grid sm:grid-cols-2 gap-3 mt-3">
+                    <div>
+                      <label className={label}>Tempoh</label>
+                      <div className="flex gap-2">{[15, 30, 45].map((s) => <Chip key={s} active={storySec === s} onClick={() => setStorySec(s)}>{s}s</Chip>)}</div>
+                    </div>
+                    <div>
+                      <label className={label}>Suara</label>
+                      <div className="flex flex-wrap gap-2">{VOICES.map((v) => <Chip key={v.key} active={voice === v.key} onClick={() => setVoice(v.key)}>{v.g} {v.label}</Chip>)}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {custom ? (
-              <MotionStylePanel locks={styleLocks} setLocks={setStyleLocks} note={editPrompt} setNote={setEditPrompt} accent={accent} setAccent={setAccent}
+              <MotionStylePanel locks={styleLocks} setLocks={setStyleLocks} note={editPrompt} setNote={setEditPrompt} hideNote accent={accent} setAccent={setAccent}
                 captions={captions} setCaptions={setCaptions} sfx={sfx} setSfx={setSfx} />
             ) : editAuto ? (
               <div className="rounded-xl p-3" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
@@ -532,7 +600,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tulis ejaan yang betul — AI guna untuk caption &amp; skrip.</p>
             </div>
             <div>
-              <label className={label}>Gambar produk * (1–{MAX_PRODUCT_PHOTOS})</label>
+              <label className={label}>{custom ? "Gambar *" : "Gambar produk *"} (1–{MAX_PRODUCT_PHOTOS})</label>
               <MotionPhotoPicker value={editImages} onChange={setEditImages} disabled={submitting} onBusyChange={setEditImgBusy} />
               <p className="text-[11px] mt-1 text-[var(--color-text-muted)]">
                 Wajib — gambar produk anda sendiri (kotak, produk, cara guna). Gambar kotak / produk dalam video diambil dari sini sahaja, tiada gambar jenama lain. Gambar umum (cth. tampal di bahu) auto cari Google tanpa jenama.
@@ -702,15 +770,17 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={mode === "ad" ? submitting || imgBusy : toSend.length === 0 || editImgBusy}
-            onClick={mode === "ad" ? submitAd : submitEdit}
+            disabled={mode === "ad" ? submitting || imgBusy : storyOnly ? submitting || editImgBusy || story.trim().length === 0 : toSend.length === 0 || editImgBusy}
+            onClick={mode === "ad" ? submitAd : storyOnly ? submitStory : submitEdit}
             className="px-5 py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center gap-2"
             style={{ background: THEME.gradient, boxShadow: `0 6px 18px ${THEME.soft}` }}
           >
-            {submitting && mode === "ad" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {submitting && (mode === "ad" || storyOnly) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
             {mode === "ad"
               ? submitting ? "Menghantar…" : variations > 1 ? `Jana ${variations} Iklan` : "Jana Iklan"
-              : toSend.length > 1 ? `Jana Skrip & Caption (${toSend.length} video)` : "Jana Skrip & Caption"}
+              : storyOnly
+                ? submitting ? "Menghantar…" : "Jana Video daripada Cerita"
+                : toSend.length > 1 ? `Jana Skrip & Caption (${toSend.length} video)` : "Jana Skrip & Caption"}
           </button>
           {mode === "edit" && sendingCount > 0 && (
             <span className="text-xs font-bold inline-flex items-center gap-1" style={{ color: THEME.primary }}>
@@ -722,6 +792,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               ? "…"
               : mode === "ad"
                 ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (${variations} × ~${seconds + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
+                : storyOnly
+                  ? `Anggaran RM${perVideo(Math.ceil(storySec + 2)).toFixed(2)} (~${storySec + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
                 : editCost !== null
                   ? `Anggaran RM${editCost.toFixed(2)} (${editSec}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh selepas potong senyap.`
                   : `RM${rate.toFixed(2)} sesaat video`}
