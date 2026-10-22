@@ -77,6 +77,10 @@ export async function POST(req: Request) {
   const ids: string[] = [];
   const failed: string[] = [];
   let total = 0;
+  // 1) rows + credit, one by one (quick DB calls); credit running out stops here — the clips already prepared still go
+  type Prepared = { c: (typeof clips)[number]; rowId: string; estimate: number; input: EditInput; planToken: string };
+  const prepared: Prepared[] = [];
+  let short: number | null = null;
   for (const c of clips) {
     const len = c.end - c.start;
     const estimate = round2(costFor(len, rate));
@@ -124,12 +128,20 @@ export async function POST(req: Request) {
     if (error || !row) { failed.push(c.title); continue; }
     if (!(await reserveCredit(user.id, "motion", estimate, row.id))) {
       await admin.from("history").delete().eq("id", row.id);
-      return NextResponse.json({ error: `Kredit tidak mencukupi — perlu RM${estimate.toFixed(2)} untuk klip ${Math.ceil(len)}s.`, ids, needed: estimate }, { status: 402 });
+      short = estimate;
+      break;
     }
+    prepared.push({ c, rowId: row.id, estimate, input, planToken });
+  }
+  if (!prepared.length && short !== null) {
+    return NextResponse.json({ error: `Kredit tidak mencukupi — perlu RM${short.toFixed(2)} untuk klip pertama.`, ids, needed: short }, { status: 402 });
+  }
+  // 2) every clip starts at once — each is its own Modal job, so they render in parallel
+  await Promise.all(prepared.map(async ({ c, rowId, estimate, input, planToken }) => {
     const start = await motionStart({
       flow: "clip",
       renderer: "hyperframes",
-      history_id: row.id,
+      history_id: rowId,
       user_id: user.id,
       video_url: input.videoUrl,
       plan_url: `${siteUrl()}/api/motion/plan`,
@@ -155,16 +167,18 @@ export async function POST(req: Request) {
       },
     });
     if (!start.ok) {
-      await admin.from("history").update({ status: "failed", error_message: `Gagal mula render: ${start.error}`, cost: 0 }).eq("id", row.id);
-      await refundReserved(user.id, "motion", estimate, row.id);
+      await admin.from("history").update({ status: "failed", error_message: `Gagal mula render: ${start.error}`, cost: 0 }).eq("id", rowId);
+      await refundReserved(user.id, "motion", estimate, rowId);
       failed.push(c.title);
-      continue;
+      return;
     }
-    const { data: cur } = await admin.from("history").select("metadata").eq("id", row.id).maybeSingle();
-    await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), stage: "queued", provider: "modal-motion" } }).eq("id", row.id);
-    ids.push(row.id);
+    const { data: cur } = await admin.from("history").select("metadata").eq("id", rowId).maybeSingle();
+    await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), stage: "queued", provider: "modal-motion" } }).eq("id", rowId);
+    ids.push(rowId);
     total += estimate;
-  }
+  }));
   if (!ids.length) return NextResponse.json({ error: `Gagal mula render${failed.length ? `: ${failed.join(", ")}` : ""}.` }, { status: 502 });
-  return NextResponse.json({ ok: true, ids, estimate: round2(total), failed });
+  const skipped = clips.length - prepared.length;
+  return NextResponse.json({ ok: true, ids, estimate: round2(total), failed,
+    ...(skipped > 0 ? { skipped, notice: `Kredit tidak cukup untuk ${skipped} klip lagi — yang lain sedang dijana.` } : {}) });
 }

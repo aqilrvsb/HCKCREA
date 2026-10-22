@@ -120,6 +120,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const [edits, setEdits] = useState<Record<string, Record<number, Partial<Clip>>>>({});
   const [picked, setPicked] = useState<Record<string, number[]>>({});
   const [preview, setPreview] = useState<{ job: string; i: number } | null>(null);
+  const [played, setPlayed] = useState<string | null>(null); // a finished clip playing inline (render id)
+  const pendingRef = useRef<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
 
   // ── studio ──
@@ -187,6 +189,23 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
     const t = setInterval(() => void load(), 6000);
     return () => clearInterval(t);
   }, [live, load]);
+  // a clip that finishes while the page is open: its player opens in the clip's card
+  useEffect(() => {
+    const now = new Set<string>();
+    let done: { job: string; id: string } | null = null;
+    for (const j of jobs ?? []) {
+      for (const r of j.renders) {
+        if (r.status === "pending") now.add(r.id);
+        else if (r.status === "done" && r.url && pendingRef.current.has(r.id)) done = { job: j.id, id: r.id };
+      }
+    }
+    pendingRef.current = now;
+    if (done) {
+      setOpenId(done.job);
+      setPlayed(done.id);
+      setNotice(now.size ? `✅ Satu klip siap — main terus di kad klip. ${now.size} lagi sedang dijana.` : "✅ Klip siap — main terus di kad klip, atau muat turun.");
+    }
+  }, [jobs]);
   // a newly finished analysis: its 3 best clips start ticked
   useEffect(() => {
     for (const j of jobs ?? []) {
@@ -325,7 +344,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal mula render");
-      setNotice(`🎬 ${d.ids.length} klip sedang dijana${d.failed?.length ? ` (${d.failed.length} gagal dimulakan)` : ""} — kad di History bawah tunjuk progres langsung.`);
+      setNotice(`🎬 ${d.ids.length} klip sedang dijana serentak${d.failed?.length ? ` (${d.failed.length} gagal dimulakan)` : ""} — setiap klip boleh dimainkan terus di kadnya bila siap.${d.notice ? ` ${d.notice}` : ""}`);
       window.dispatchEvent(new CustomEvent("history:refresh"));
       await load();
     } catch (e: any) {
@@ -604,11 +623,14 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                             </span>
                             <span className="text-[11px] font-bold text-[var(--color-text-secondary)]">#{i + 1} · {fmt(c.start)}–{fmt(c.end)} · {Math.round(c.end - c.start)}s</span>
                             {typeof c.interest === "number" && c.interest > 0 && <span className="text-[10px] text-[var(--color-text-muted)]">{job.source?.type === "youtube" ? "replay" : "tenaga"} {Math.round(c.interest * 100)}%</span>}
-                            {rs.map((r) => (
+                            {/* oldest first: a failed attempt hides once a newer one exists (a retry that worked) */}
+                            {rs.filter((r, k) => r.status !== "failed" || k === rs.length - 1).map((r) => (
                               <span key={r.id} className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md"
                                 style={{ background: r.status === "done" ? "rgba(34,197,94,0.15)" : r.status === "failed" ? "rgba(239,68,68,0.15)" : THEME.faint,
                                   color: r.status === "done" ? "#22c55e" : r.status === "failed" ? "#ef4444" : THEME.primary }}>
-                                {r.status === "done" ? (r.url ? <a href={r.url} target="_blank" rel="noreferrer">✓ Siap — tonton</a> : "✓ Siap") : r.status === "failed" ? "Gagal" : "⏳ Dijana"}
+                                {r.status === "done"
+                                  ? (r.url ? <button type="button" onClick={() => setPlayed(played === r.id ? null : r.id)}>{played === r.id ? "✓ Siap — tutup" : "✓ Siap — ▶ Main"}</button> : "✓ Siap")
+                                  : r.status === "failed" ? "Gagal" : "⏳ Dijana"}
                               </span>
                             ))}
                           </div>
@@ -643,6 +665,15 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                               ) : null}
                             </div>
                           )}
+                          {rs.filter((r) => r.status === "done" && r.url && played === r.id).map((r) => (
+                            <div key={r.id} className="flex items-end gap-3 flex-wrap">
+                              <video className="rounded-lg bg-black" style={{ width: 220, aspectRatio: "9 / 16" }} controls autoPlay playsInline preload="metadata" src={r.url!} />
+                              <a href={r.url!} target="_blank" rel="noreferrer" download
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold text-white" style={{ background: THEME.gradient }}>
+                                <Download className="w-3.5 h-3.5" />Muat turun
+                              </a>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>
