@@ -22,6 +22,7 @@ type Clip = {
   scores?: { hook: number; flow: number; value: number; payoff: number };
   flash?: { start: number; end: number } | null;
   speakers?: string[];
+  visual?: { score: number; note: string };
 };
 type Render = { id: string; status: string; url: string | null; title: string; start: number | null };
 type Job = {
@@ -42,7 +43,8 @@ const inputStyle = { border: `1px solid ${THEME.soft}`, color: "var(--color-text
 const PREFS_KEY = "clipper-studio";
 const STAGE: Record<string, string> = {
   queued: "Dalam giliran", source: "Baca video", download: "Muat turun video", upload: "Simpan video", transcript: "Baca transkrip",
-  audio: "Muat turun audio", director: "AI director pilih klip viral", save: "Simpan hasil", done: "Siap", failed: "Gagal",
+  audio: "Muat turun audio", speakers: "Kenal pasti penutur & bunyi", director: "AI director pilih klip viral", vision: "AI tengok klip terbaik",
+  save: "Simpan hasil", done: "Siap", failed: "Gagal",
 };
 
 const on = { background: THEME.gradient, color: "white", boxShadow: `0 4px 12px ${THEME.soft}`, border: "1px solid transparent" };
@@ -636,6 +638,11 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                               </span>
                             )}
                             {c.flash && <span className="text-[10px] font-bold" style={{ color: THEME.primary }} title="Dibuka dengan ayat paling padu (cold open)">⚡ cold open</span>}
+                            {c.visual && (
+                              <span className="text-[10px] text-[var(--color-text-muted)]" title={c.visual.note ? `AI tengok klip: ${c.visual.note}` : "AI tengok 6 frame klip ini"}>
+                                👁 Visual {c.visual.score}/10{c.visual.note ? ` · ${c.visual.note}` : ""}
+                              </span>
+                            )}
                             {/* oldest first: a failed attempt hides once a newer one exists (a retry that worked) */}
                             {rs.filter((r, k) => r.status !== "failed" || k === rs.length - 1).map((r) => (
                               <span key={r.id} className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md"

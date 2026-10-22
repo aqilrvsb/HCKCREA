@@ -55,6 +55,8 @@ export type ClipperClip = {
   /** a 2–3 s cold open: the clip's strongest line teased before it starts (source seconds) */
   flash?: { start: number; end: number } | null;
   speakers?: string[];
+  /** the director looked at 6 frames of the clip: 0–10 + what it saw (top candidates only) */
+  visual?: { score: number; note: string };
 };
 export type ClipperAnalysis = {
   source_type: ClipSourceType;

@@ -3492,6 +3492,70 @@ def _assign_speakers(words: list, turns: list) -> None:
             w["spk"] = best
 
 
+def _visual_check(clips: list, src: str, p: dict, d: Path, uid: str, hid: str) -> list:
+    """The top candidates SEEN, not only read: 6 frames across each clip → one contact sheet (B2) → the director's vision
+    check (/api/clipper/vision, DragonAPI Sonnet 5.5) → a small score nudge ((visual − 6) × 1.5) and the note on the clip."""
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+    order = sorted(range(len(clips)), key=lambda i: -float(clips[i].get("score") or 0))[:8]
+
+    def sheet(k: int, i: int):
+        c = clips[i]
+        s0, e0 = float(c.get("start") or 0), float(c.get("end") or 0)
+        if e0 - s0 < 3:
+            return None
+        got = []
+        for j in range(6):
+            t = s0 + (e0 - s0) * (j + 0.5) / 6
+            f = d / f"vis_{k}_{j}.jpg"
+            try:
+                subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", src, "-frames:v", "1", "-vf", "scale=480:-2",
+                                "-q:v", "4", str(f)], capture_output=True, timeout=90)
+            except Exception:  # noqa: BLE001
+                continue
+            if f.exists() and f.stat().st_size > 1000:
+                got.append(f)
+        if len(got) < 3:
+            return None
+        while len(got) < 6:  # a full 3×2 sheet
+            got.append(got[-1])
+        for x, f in enumerate(got):
+            (d / f"visseq_{k}_{x}.jpg").write_bytes(f.read_bytes())
+        out = d / f"vis_{k}.jpg"
+        _run(["ffmpeg", "-v", "error", "-y", "-framerate", "1", "-i", str(d / f"visseq_{k}_%d.jpg"), "-vf",
+              "scale=480:270:force_original_aspect_ratio=decrease,pad=480:270:(ow-iw)/2:(oh-ih)/2:color=black,tile=3x2",
+              "-frames:v", "1", "-q:v", "4", str(out)], "vision sheet", 60)
+        url = _upload_b2(out, f"users/{uid}/clipper/{hid}-vis-{k}.jpg", "image/jpeg")
+        return {"i": i, "title": c.get("title"), "hook": c.get("hook"), "image": url}
+
+    def safe(a):
+        try:
+            return sheet(*a)
+        except Exception as e:  # noqa: BLE001
+            print("vision sheet failed:", str(e)[:160], flush=True)
+            return None
+    t = time.time()
+    with ThreadPoolExecutor(8) as ex:
+        items = [x for x in ex.map(safe, list(enumerate(order))) if x]
+    if not items:
+        return clips
+    r = requests.post(p["vision_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "items": items}, timeout=115)
+    j = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    if not (r.ok and j.get("ok")):
+        print("vision check skipped:", str(j.get("error") or r.status_code)[:200], flush=True)
+        return clips
+    for v in j.get("results") or []:
+        i = int(v.get("i", -1))
+        if 0 <= i < len(clips):
+            vis = max(0.0, min(10.0, float(v.get("visual") or 0)))
+            c = clips[i]
+            c["visual"] = {"score": round(vis, 1), "note": str(v.get("note") or "")[:120]}
+            c["score"] = int(max(1, min(100, round(float(c.get("score") or 60) + (vis - 6) * 1.5))))
+    clips.sort(key=lambda c: -float(c.get("score") or 0))
+    print(f"vision check: {len(items)} candidates seen in {round(time.time() - t)} s", flush=True)
+    return clips
+
+
 def _clip_analyze(p: dict, d: Path) -> dict:
     import shutil
     import requests
@@ -3629,6 +3693,25 @@ def _clip_analyze(p: dict, d: Path) -> dict:
             err = str(j.get("error") or r.status_code)[:300]
     except Exception as e:  # noqa: BLE001
         err = str(e)[:300]
+    clips_out = (plan or {}).get("clips") or []
+    if clips_out and p.get("vision_url"):
+        vsrc = None
+        if kind == "gdrive":
+            vsrc = str(local)
+        elif kind == "upload":
+            vsrc = url
+        elif media_url:  # YouTube: our B2 copy (usually done by now — wait a little for it)
+            for _ in range(12):
+                if _remote_ok(media_url):
+                    vsrc = media_url
+                    break
+                time.sleep(10)
+        if vsrc:
+            _progress("vision", 86)
+            try:
+                clips_out = _visual_check(clips_out, vsrc, p, d, uid, hid)
+            except Exception as e:  # noqa: BLE001
+                print("vision check failed (picks kept as they are):", str(e)[:200], flush=True)
     if kind == "gdrive":
         _progress("save", 92)
         upthread.join(timeout=1800)
@@ -3646,7 +3729,7 @@ def _clip_analyze(p: dict, d: Path) -> dict:
     # the speaker turns (compact) — each clip render gets its own slice for the camera's speaker cuts
     meta["turns"] = [[round(float(t["s"]), 2), round(float(t["e"]), 2), str(t["spk"])] for t in turns[:8000]]
     return {"ok": True, "analysis": {**meta, "media_url": media_url, "heatmap": heat, "caption_source": cap_src, "transcript_url": seg_url,
-                                     "lines": len(lines), "summary": (plan or {}).get("summary") or "", "clips": (plan or {}).get("clips") or [],
+                                     "lines": len(lines), "summary": (plan or {}).get("summary") or "", "clips": clips_out,
                                      "director": (plan or {}).get("director"), "plan_error": err or None}}
 
 

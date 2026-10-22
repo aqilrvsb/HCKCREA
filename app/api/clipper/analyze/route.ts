@@ -57,6 +57,7 @@ export async function POST(req: Request) {
     source: { type: src.type, url: src.url, name: src.name },
     options,
     plan_url: `${siteUrl()}/api/clipper/plan`,
+    vision_url: `${siteUrl()}/api/clipper/vision`,
     plan_token: planToken,
     ...(src.type === "youtube" ? { yt_auth: await clipperYoutubeAuth() } : {}),
   });
