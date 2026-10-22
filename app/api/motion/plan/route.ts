@@ -7,7 +7,7 @@ import { fixTranscript } from "@/lib/motion-captions";
 import { orChat, withDeadline } from "@/lib/openrouter";
 import { HOOK_SOUND_COUNT } from "@/lib/motion-hook-sounds";
 import { clipPolish } from "@/lib/clipper-polish";
-import { clipPicks, reusePolish } from "@/lib/clipper-preview";
+import { clipPicks, reusePolish, userCaptionFixes } from "@/lib/clipper-preview";
 
 type PlanWord = { i: number; w: string; t: number; e?: number };
 
@@ -79,8 +79,12 @@ export async function POST(req: Request) {
   const mode = b?.mode === "fixes" || b?.mode === "plan" ? b.mode : "both";
   const input = row.metadata?.input as EditInput;
   if (mode === "fixes") {
-    const fixes = await withDeadline(t0 + PLAN_BUDGET_MS, () =>
+    const ai = await withDeadline(t0 + PLAN_BUDGET_MS, () =>
       fixTranscript(words.map((w: { i: number; w: string }) => ({ i: w.i, w: w.w })), input?.product || undefined, input?.language)).catch(() => [] as [number, string][]);
+    // CLIPPER: the client's own caption corrections (Studio editor) come first; the AI's fill in the rest
+    const mine = input?.clip?.caption_fix ? userCaptionFixes(input.clip.caption_fix, words) : [];
+    const taken = new Set(mine.map((f) => f[0]));
+    const fixes = [...mine, ...ai.filter((f) => !taken.has(f[0]))];
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
     await admin.from("history").update({ metadata: { ...(cur?.metadata || {}), caption_fixes: fixes.slice(0, 40) } }).eq("id", id);
     return NextResponse.json({ ok: true, fixes });

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import {
-  clipFlash, clipKey, clipSeed, faceTrack, polishOnTimeline, previewFaces, previewProps, previewTimeline,
+  captionFixMap, clipFlash, clipKey, clipSeed, faceTrack, fixedText, polishOnTimeline, previewFaces, previewProps, previewTimeline,
   type PWord, type PolishKeyword, type PolishZoom, type SrcFaces,
 } from "@/lib/clipper-preview";
 
@@ -11,7 +11,9 @@ import {
 // (public/clipper-preview: MotionEditPro over the clip's video). Every change of look shows at once; the render
 // then reuses the same picks (seed) and keyword polish, so the clip comes out as previewed.
 
-type PClip = { start: number; end: number; title: string; hook: string; flash?: { start: number; end: number } | null };
+/** the client's caption corrections of one clip, made on its preview words (key = the clip's start-end) */
+export type CapFix = { key: string; words: string[]; fix: Record<number, string> };
+type PClip = { start: number; end: number; title: string; hook: string; flash?: { start: number; end: number } | null; capFix?: CapFix | null };
 export type PreviewSettings = {
   frame: "face" | "fit" | "center" | "split"; captions: boolean; captionLook?: string; captionPos: "low" | "mid";
   hookOn: boolean; jumpcut: boolean; coldOpen: boolean; polish: boolean; wmText: string; wmImage: string;
@@ -28,13 +30,16 @@ type Api = {
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, settings, theme }: {
-  jobId: string; mediaUrl: string | null | undefined; clips: PClip[]; auto: number; autoPicked: boolean; settings: PreviewSettings;
+export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, focus, settings, theme }: {
+  jobId: string; mediaUrl: string | null | undefined; clips: PClip[]; auto: number; autoPicked: boolean;
+  /** a clip the client is working on (its caption editor is open): shown here */
+  focus?: number | null; settings: PreviewSettings;
   theme: { primary: string; gradient: string; faint: string; soft: string };
 }) {
   // the clip shown: the first ticked one (else the top one); the arrows look at the others
   const [pick, setPick] = useState<number | null>(null);
   useEffect(() => { setPick(null); }, [auto, jobId]);
+  useEffect(() => { if (typeof focus === "number") setPick(focus); }, [focus]);
   const idx = Math.min(clips.length - 1, Math.max(0, pick ?? auto));
   const clip = clips[idx];
   const key = clip ? `${jobId}|${clipKey(clip.start, clip.end)}` : "";
@@ -97,13 +102,16 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
   }, [data, key, settings.polish, settings.captions]);
 
   // what the preview page draws — rebuilt only when a value it uses changes (the parent re-creates the objects)
-  const sig = clip ? JSON.stringify([clip.start, clip.end, clip.hook, clip.flash?.start ?? null, clip.flash?.end ?? null, settings]) : "";
+  const sig = clip ? JSON.stringify([clip.start, clip.end, clip.hook, clip.flash?.start ?? null, clip.flash?.end ?? null, clip.capFix ?? null, settings]) : "";
   const cfg = useMemo(() => {
     if (!clip || !mediaUrl || !data || data.key !== key) return null;
     const fl = clipFlash(clip, settings.coldOpen);
     const tl = previewTimeline(data.words, clip.end - clip.start, {
       flash: fl ? { start: fl.start - clip.start, end: fl.end - clip.start } : null, jumpcut: settings.jumpcut, aligned: data.aligned,
     });
+    // the client's caption corrections (same words they were made on): each word keeps its timing, "" drops it
+    const cf = clip.capFix && clip.capFix.key === clipKey(clip.start, clip.end) && clip.capFix.words.length === data.words.length ? clip.capFix.fix : null;
+    if (cf) tl.words = tl.words.map((w) => (w.si in cf ? { ...w, w: cf[w.si] } : w)).filter((w) => w.w.trim());
     const pol = polishOnTimeline(tl, data.keywords, data.zooms);
     const props = previewProps({
       video: "clip://preview", tl, seed: clipSeed(jobId, clip.start, clip.end), hook: settings.hookOn ? clip.hook : null,
@@ -213,6 +221,85 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         Dilukis oleh enjin render sebenar — caption, hook, warna kata kunci &amp; zoom sama seperti klip akhir.
         {settings.frame === "split" ? " Susunan 2 orang dibuat tepat ikut muka semasa jana." : ""}{" "}Muzik &amp; SFX ditambah semasa jana.
       </p>
+    </div>
+  );
+}
+
+// ── the clip's captions, editable before the render ──
+export function ClipCaptionEditor({ jobId, clip, onChange, onClose, theme }: {
+  jobId: string; clip: PClip; onChange: (cf: CapFix | null) => void; onClose: () => void;
+  theme: { primary: string; gradient: string; faint: string; soft: string };
+}) {
+  const key = clipKey(clip.start, clip.end);
+  const [words, setWords] = useState<string[] | null>(null);
+  const [text, setText] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(true);
+  useEffect(() => {
+    let off = false;
+    setWords(null);
+    setErr(null);
+    (async () => {
+      try {
+        const r = await fetch("/api/clipper/preview", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: jobId, start: clip.start, end: clip.end, polish: false, faces: false }),
+        });
+        const d = await r.json();
+        if (off) return;
+        if (!r.ok || !d?.ok) throw new Error(d?.error || "Caption tak dapat dibaca");
+        const ws = (d.words as PWord[]).map((w) => w.w);
+        setWords(ws);
+        const cf = clip.capFix && clip.capFix.key === key && clip.capFix.words.length === ws.length ? clip.capFix.fix : null;
+        setText(fixedText(ws, cf));
+      } catch (e: any) {
+        if (!off) setErr(e?.message || "Caption tak dapat dibaca");
+      }
+    })();
+    return () => { off = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, key]);
+  const fix = useMemo(() => (words ? captionFixMap(words, text) : {}), [words, text]);
+  const n = Object.keys(fix).length;
+  // every change reaches the preview (and the render) a moment after typing stops
+  useEffect(() => {
+    if (!words) return;
+    setSaved(false);
+    const t = setTimeout(() => { onChange(n ? { key, words, fix } : null); setSaved(true); }, 500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fix]);
+  return (
+    <div className="rounded-lg p-3 space-y-2" style={{ border: `1px solid ${theme.soft}`, background: theme.faint }}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-extrabold text-[var(--color-text-primary)]">✏️ Caption klip — betulkan sebelum jana</span>
+        {words && (
+          <span className="text-[10px] font-bold" style={{ color: n ? theme.primary : "var(--color-text-muted)" }}>
+            {n ? `${n} perkataan dibetulkan` : "tiada perubahan"}{saved ? "" : " · …"}
+          </span>
+        )}
+      </div>
+      {err ? (
+        <p className="text-[11px] text-red-500">{err}</p>
+      ) : words ? (
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={Math.min(10, Math.max(3, Math.ceil(text.length / 90)))}
+          spellCheck={false} aria-label="Caption klip"
+          className="w-full rounded-lg px-3 py-2 text-[13px] leading-relaxed outline-none"
+          style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
+      ) : (
+        <div className="flex items-center gap-2 text-[11px] text-[var(--color-text-muted)]"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Membaca caption…</div>
+      )}
+      <p className="text-[10px] leading-snug text-[var(--color-text-muted)]">
+        Betulkan ejaan / perkataan yang salah dengar, buang perkataan, atau tambah. Masa setiap perkataan kekal — pratonton terus
+        tunjuk caption baru, dan klip akhir guna caption ini.
+      </p>
+      <div className="flex gap-1.5">
+        {words && n > 0 && (
+          <button type="button" onClick={() => setText(fixedText(words, null))} className="px-2.5 py-1 rounded-lg text-[11px] font-bold"
+            style={{ border: "1px solid var(--color-border)" }}>Kembali ke asal</button>
+        )}
+        <button type="button" onClick={onClose} className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white" style={{ background: theme.gradient }}>Siap</button>
+      </div>
     </div>
   );
 }

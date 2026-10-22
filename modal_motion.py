@@ -4304,13 +4304,20 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     # the captions' spelling, cleaned like an Edit Video draft (one fast AI call; timing untouched)
     if p.get("captions") is not False and words:
         _progress("captions", 18)
+        drop = set()
         for fx in _caption_fixes(words, p):
             try:
                 i, w = int(fx[0]), str(fx[1]).strip()
-                if 0 <= i < len(words) and w and len(w) <= 40:
+                if not 0 <= i < len(words):
+                    continue
+                if not w:  # the client removed this word in the Studio's caption editor
+                    drop.add(i)
+                elif len(w) <= 60:
                     words[i]["w"] = w
             except Exception:  # noqa: BLE001
                 continue
+        if drop and len(drop) < len(words):
+            words = [w for k, w in enumerate(words) if k not in drop]
     # the cold open: the director's punchline line teased before the clip
     fl = c.get("flash") or None
     if isinstance(fl, dict) and words:

@@ -75,6 +75,15 @@ export async function POST(req: Request) {
       title: String(c?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90) || "Klip",
       hook: String(c?.hook ?? "").replace(/\s+/g, " ").trim().slice(0, 60),
       flash,
+      // the client's caption corrections: [word index, text] on the clip's preview words ("" drops the word)
+      captionFix: Array.isArray(c?.caption_fix?.words) && Array.isArray(c?.caption_fix?.fix) && c.caption_fix.fix.length
+        ? {
+          words: c.caption_fix.words.slice(0, 1200).map((w: unknown) => String(w ?? "").slice(0, 40)),
+          fix: c.caption_fix.fix.slice(0, 600)
+            .filter((f: unknown) => Array.isArray(f) && Number.isInteger(f[0]))
+            .map((f: [number, unknown]) => [f[0], String(f[1] ?? "").replace(/\s+/g, " ").trim().slice(0, 60)] as [number, string]),
+        }
+        : null,
     };
   }).filter((c: { start: number; end: number }) => c.end - c.start >= 3 && c.end - c.start <= 120);
   if (!clips.length) return NextResponse.json({ error: "Pilih sekurang-kurangnya satu klip (3–120 saat)." }, { status: 400 });
@@ -119,6 +128,7 @@ export async function POST(req: Request) {
       engine: "laju",
       clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
         ...(c.flash ? { flash: c.flash } : {}), polish, seed,
+        ...(c.captionFix ? { caption_fix: c.captionFix } : {}),
         ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [] } } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({

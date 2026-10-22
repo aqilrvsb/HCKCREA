@@ -10,7 +10,8 @@
 //      speaker, captions, HyperFrames). Finished clips download one by one or as a ZIP.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, Download, Flame, HardDrive, Link2, Loader2, Play, Radio, ScissorsLineDashed, Search, Trash2, Upload, X } from "lucide-react";
-import ClipPreview from "./clipper-preview";
+import ClipPreview, { ClipCaptionEditor, type CapFix } from "./clipper-preview";
+import { clipKey } from "@/lib/clipper-preview";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
 import { uploadImage } from "@/lib/upload-image";
 import { withRetry } from "./motion-photo-picker";
@@ -35,6 +36,8 @@ type Clip = {
   flash?: { start: number; end: number } | null;
   speakers?: string[];
   visual?: { score: number; note: string };
+  /** the client's caption corrections (Studio editor) */
+  capFix?: CapFix | null;
 };
 type Render = { id: string; status: string; url: string | null; title: string; start: number | null };
 type Job = {
@@ -138,6 +141,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const [picked, setPicked] = useState<Record<string, number[]>>({});
   const [preview, setPreview] = useState<{ job: string; i: number } | null>(null);
   const [played, setPlayed] = useState<string | null>(null); // a finished clip playing inline (render id)
+  const [capOpen, setCapOpen] = useState<string | null>(null); // "<job>:<clip index>" whose caption editor is open
   const pendingRef = useRef<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -359,7 +363,12 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
         body: JSON.stringify({
           job_id: job.id,
           project_id: projectId,
-          clips: selClips.map((c) => ({ start: c.start, end: c.end, title: c.title, hook: c.hook, flash: c.flash ?? null })),
+          clips: selClips.map((c) => ({
+            start: c.start, end: c.end, title: c.title, hook: c.hook, flash: c.flash ?? null,
+            // the caption corrections, when made on this very clip (not before a start / end nudge)
+            ...(c.capFix && c.capFix.key === clipKey(c.start, c.end)
+              ? { caption_fix: { words: c.capFix.words, fix: Object.entries(c.capFix.fix).map(([k, v]) => [Number(k), v]) } } : {}),
+          })),
           settings: { mode, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
         }),
       });
@@ -647,6 +656,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                   <div className="grid lg:grid-cols-[minmax(0,1fr)_280px] gap-5 items-start">
                     <div className="lg:order-2 lg:sticky lg:top-4">
                       <ClipPreview jobId={job.id} mediaUrl={job.analysis?.media_url} clips={clips} auto={pickSet.size ? Math.min(...pickSet) : 0} autoPicked={pickSet.size > 0}
+                        focus={capOpen?.startsWith(`${job.id}:`) ? Number(capOpen.split(":")[1]) : null}
                         settings={{ frame, captions, captionLook, captionPos, hookOn, jumpcut, coldOpen, polish, wmText, wmImage }} theme={THEME} />
                     </div>
                     <div className="lg:order-1 space-y-4 min-w-0">
@@ -815,13 +825,22 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                             {[-5, -1, 1, 5].map((x) => <Chip key={`e${x}`} active={false} onClick={() => nudge(i, "end", x)}>{x > 0 ? `+${x}` : x}s</Chip>)}
                             <span className="ml-auto flex gap-1.5">
                               <Chip active={isPrev} onClick={() => setPreview(isPrev ? null : { job: job.id, i })}><Play className="w-3.5 h-3.5" />{isPrev ? "Tutup" : "Tonton"}</Chip>
+                              <Chip active={capOpen === `${job.id}:${i}`} onClick={() => setCapOpen(capOpen === `${job.id}:${i}` ? null : `${job.id}:${i}`)}
+                                title="Tengok & betulkan caption (subtitle) klip ini sebelum jana">
+                                ✏️ Caption{c.capFix && c.capFix.key === clipKey(c.start, c.end) ? ` · ${Object.keys(c.capFix.fix).length}` : ""}
+                              </Chip>
                               {(c.caption || c.hashtags.length > 0) && (
-                                <Chip active={copied === `${job.id}:${i}`} onClick={() => void copy(`${job.id}:${i}`, `${c.caption}\n\n${c.hashtags.join(" ")}`.trim())}>
-                                  {copied === `${job.id}:${i}` ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}Caption
+                                <Chip active={copied === `${job.id}:${i}`} onClick={() => void copy(`${job.id}:${i}`, `${c.caption}\n\n${c.hashtags.join(" ")}`.trim())}
+                                  title="Salin caption post TikTok + hashtag">
+                                  {copied === `${job.id}:${i}` ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}Salin post
                                 </Chip>
                               )}
                             </span>
                           </div>
+                          {capOpen === `${job.id}:${i}` && (
+                            <ClipCaptionEditor jobId={job.id} clip={c} theme={THEME} onClose={() => setCapOpen(null)}
+                              onChange={(cf) => editClip(i, { capFix: cf })} />
+                          )}
                           {isPrev && (
                             <div className="rounded-lg overflow-hidden bg-black aspect-video max-w-xl">
                               {job.source?.type === "youtube" && (job.analysis?.video_id || job.source.video_id) ? (

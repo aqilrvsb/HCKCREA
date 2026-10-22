@@ -259,6 +259,82 @@ export function reusePolish(ref: PolishRef, words: { w: string; t: number }[]) {
   return { keywords, zooms };
 }
 
+// ── the client's own caption corrections ──
+/** Made on the clip's preview words (`words`): word index → its corrected text ("" = the word is dropped; a few
+ *  words in one is fine — they share the word's timing). */
+export type CaptionFix = { words: string[]; fix: [number, string][] };
+
+/** The clip's caption text with the corrections in (what the editor shows). */
+export function fixedText(words: string[], fix: Record<number, string> | null | undefined) {
+  return words.map((w, i) => (fix && i in fix ? fix[i] : w)).filter((w) => w.trim()).join(" ");
+}
+
+/** The client's edited caption text → per-word corrections of the clip's words (timing stays with each word):
+ *  a changed word is replaced, a removed word dropped, added words join the word before them. */
+export function captionFixMap(words: string[], text: string): Record<number, string> {
+  const ed = String(text || "").split(/\s+/).filter(Boolean).map((w) => w.slice(0, 40));
+  const map = alignWords(words, ed);
+  const out = words.slice();
+  const pre: string[][] = words.map(() => []);
+  const post: string[][] = words.map(() => []);
+  const gap = (i0: number, i1: number, j0: number, j1: number) => {
+    const nb = i1 - i0, ne = j1 - j0;
+    if (!nb) { // added words: onto the word before (or the one after, at the very start)
+      if (!ne) return;
+      if (i0 > 0) post[i0 - 1].push(...ed.slice(j0, j1));
+      else if (i1 < words.length) pre[i1].push(...ed.slice(j0, j1));
+      return;
+    }
+    for (let k = 0; k < nb; k++) {
+      out[i0 + k] = k >= ne ? "" : k === nb - 1 && ne > nb ? ed.slice(j0 + k, j1).join(" ") : ed[j0 + k];
+    }
+  };
+  let pi = -1, pj = -1;
+  map.forEach((j, i) => {
+    if (j < 0) return;
+    gap(pi + 1, i, pj + 1, j);
+    out[i] = ed[j];
+    pi = i;
+    pj = j;
+  });
+  gap(pi + 1, words.length, pj + 1, ed.length);
+  const fix: Record<number, string> = {};
+  words.forEach((w, i) => {
+    const t = [...pre[i], out[i], ...post[i]].filter(Boolean).join(" ");
+    if (t !== w) fix[i] = t;
+  });
+  return fix;
+}
+
+/** The client's corrections on the render's own words (re-transcribed, so a word may be heard a little
+ *  differently): matched word for word; a corrected word nobody matched takes the slot between its matched
+ *  neighbours when the count of words in between agrees. */
+export function userCaptionFixes(cf: CaptionFix, words: { w: string }[]): [number, string][] {
+  if (!cf?.words?.length || !cf.fix?.length || !words.length) return [];
+  const map = alignWords(cf.words, words.map((w) => w.w));
+  const out: [number, string][] = [];
+  const used = new Set<number>();
+  for (const [i, text] of cf.fix) {
+    if (!(i >= 0 && i < cf.words.length)) continue;
+    let r = map[i];
+    if (r < 0) {
+      let p = 1, q = 1;
+      while (i - p >= 0 && map[i - p] < 0 && p < 6) p++;
+      while (i + q < map.length && map[i + q] < 0 && q < 6) q++;
+      const a = i - p >= 0 ? map[i - p] : null;
+      const b = i + q < map.length ? map[i + q] : null;
+      if (a !== null && a >= 0 && b !== null && b >= 0 && b - a === p + q) r = a + p;
+      else if (a === null && b !== null && b >= 0 && b - q >= 0) r = b - q; // at the start: counted back from the right
+      else if (b === null && a !== null && a >= 0 && a + p < words.length) r = a + p; // at the end
+    }
+    if (r >= 0 && r < words.length && !used.has(r)) {
+      used.add(r);
+      out.push([r, String(text).slice(0, 60)]);
+    }
+  }
+  return out;
+}
+
 /** The source's faces over one clip (Modal clip_faces: largest face 4× a second, source-normalised, clip seconds). */
 export type SrcFaces = { w: number; h: number; faces: { t: number; x: number; y: number; w: number; h: number }[] };
 const OUT = 9 / 16;
