@@ -159,7 +159,7 @@ WHAT MAKES A WINNING CLIP (TikTok 2026):
 
 ${SIGNALS}
 
-CLIP LENGTH: ${durSay}.${o.focus ? `
+CLIP LENGTH: ${durSay}. HARD LIMIT: from the start of "from" to the end of "to" is at most ${BOUNDS[o.duration].max} s and at least ${BOUNDS[o.duration].min} s — count it with the line times. A moment that needs longer: take its strongest stretch (the setup line + the payoff), not the whole story.${o.focus ? `
 CLIENT FOCUS: the client wants clips about: "${o.focus}". Prefer moments that fit it — they must still work as strong standalone clips.` : ""}
 
 ${RUBRIC}
@@ -335,7 +335,7 @@ JSON only.`;
         systemPrompt: system,
         userPrompt: attempt === 0 ? user : `${user}\n\nYour previous answer was not valid JSON. Return ONLY the JSON object.`,
         temperature: 0.4,
-        maxTokens: parts.length > 1 ? 5000 : 9000,
+        maxTokens: parts.length > 1 ? 8000 : 10000,
         timeoutMs: parts.length > 1 ? 150_000 : 200_000,
         stream: true,
         validate: (c) => { try { return Array.isArray(extractJson(c)?.clips); } catch { return false; } },

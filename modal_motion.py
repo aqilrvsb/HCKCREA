@@ -2767,52 +2767,118 @@ yt_image = (
 )
 WARP = modal.Dict.from_name("peninglab-yt-warp", create_if_missing=True)
 _WARP_PROC = None
+_WARP_NOW: dict = {}  # the running exit: {"ip", "cfg"}
+# YouTube's bot-check is per exit IP (measured 2026-10-22: one IAD exit passed 6/6, three others failed every time),
+# so exits are remembered: an identity whose exit worked is reused first; a bot-checked exit IP is skipped for 6 h.
+# The YouTube workers run in us-east so a remembered identity lands on the same exit.
+WARP_BAD_TTL = 6 * 3600
+YT_REGION = "us-east"
 
 
-def _warp_proxy(fresh: bool = False) -> str | None:
-    """A local HTTP proxy through Cloudflare WARP (usque http-proxy --http2), started once per container. The WARP
-    identity is shared through a modal.Dict; fresh=True registers a new one (the old exit got flagged)."""
+def _warp_bad() -> dict:
+    now = time.time()
+    try:
+        return {ip: t for ip, t in (WARP.get("bad") or {}).items() if now - float(t) < WARP_BAD_TTL}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _warp_mark(ok: bool) -> None:
+    """How the running exit did with YouTube: worked → its identity goes to the front of the reuse list;
+    bot-checked → its IP is skipped for a while."""
+    ip, cfg = _WARP_NOW.get("ip"), _WARP_NOW.get("cfg")
+    if not ip:
+        return
+    try:
+        bad = _warp_bad()
+        good = [g for g in (WARP.get("good") or []) if g.get("ip") != ip and g.get("cfg") != cfg]
+        if ok:
+            bad.pop(ip, None)
+            good = [{"ip": ip, "cfg": cfg, "t": time.time()}] + good
+        else:
+            bad[ip] = time.time()
+        WARP["good"] = good[:8]
+        WARP["bad"] = bad
+    except Exception as e:  # noqa: BLE001
+        print("warp mark failed:", str(e)[:120], flush=True)
+
+
+def _warp_start(cfg_text: str | None, wd: Path):
+    """One WARP identity up as a local proxy (cfg_text None → register a new one): (process, exit ip, config) or None."""
     import subprocess as sp
     import requests
-    global _WARP_PROC
     url = "http://127.0.0.1:8085"
-    if _WARP_PROC is not None and _WARP_PROC.poll() is None and not fresh:
-        return url
-    if _WARP_PROC is not None:
-        _WARP_PROC.terminate()
-        _WARP_PROC = None
-    wd = Path("/tmp/warp")
-    wd.mkdir(exist_ok=True)
     cfg = wd / "config.json"
-    saved = None if fresh else WARP.get("config")
-    if saved:
-        cfg.write_text(saved, encoding="utf-8")
+    if cfg_text:
+        cfg.write_text(cfg_text, encoding="utf-8")
     else:
         cfg.unlink(missing_ok=True)
         r = sp.run(["usque", "register", "-c", str(cfg)], input="y\ny\n", capture_output=True, text=True, timeout=90, cwd=wd)
         if r.returncode != 0 or not cfg.exists():
             print("warp register failed:", (r.stdout + r.stderr)[-300:], flush=True)
             return None
-        WARP["config"] = cfg.read_text(encoding="utf-8")
-    _WARP_PROC = sp.Popen(["usque", "http-proxy", "-c", str(cfg), "--http2", "-b", "127.0.0.1", "-p", "8085"], cwd=wd,
-                          stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+        cfg_text = cfg.read_text(encoding="utf-8")
+    proc = sp.Popen(["usque", "http-proxy", "-c", str(cfg), "--http2", "-b", "127.0.0.1", "-p", "8085"], cwd=wd,
+                    stdout=sp.DEVNULL, stderr=sp.DEVNULL)
     for _ in range(30):
         time.sleep(0.5)
-        if _WARP_PROC.poll() is not None:
+        if proc.poll() is not None:
             break
         try:
             t = requests.get("https://www.cloudflare.com/cdn-cgi/trace", proxies={"http": url, "https": url}, timeout=8).text
             if "warp=on" in t or "warp=plus" in t:
-                return url
+                ip = next((ln[3:] for ln in t.splitlines() if ln.startswith("ip=")), "")
+                return proc, ip, cfg_text
         except Exception:  # noqa: BLE001
             continue
-    print("warp proxy did not come up", flush=True)
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _warp_proxy(fresh: bool = False) -> str | None:
+    """A local HTTP proxy through Cloudflare WARP (usque http-proxy --http2 — TCP, which Modal's sandbox allows).
+    Remembered good identities first (not when fresh=True), then new ones; an exit IP bot-checked lately is skipped."""
+    global _WARP_PROC
+    url = "http://127.0.0.1:8085"
+    if _WARP_PROC is not None and _WARP_PROC.poll() is None and not fresh:
+        return url
     if _WARP_PROC is not None:
         _WARP_PROC.terminate()
+        try:
+            _WARP_PROC.wait(timeout=5)
+        except Exception:  # noqa: BLE001
+            pass
         _WARP_PROC = None
-    if saved:  # a stale identity: register a new one once
-        WARP.pop("config", None)
-        return _warp_proxy(fresh=True)
+    _WARP_NOW.clear()
+    wd = Path("/tmp/warp")
+    wd.mkdir(exist_ok=True)
+    bad = _warp_bad()
+    try:
+        remembered = [g["cfg"] for g in (WARP.get("good") or []) if g.get("cfg")][:3]
+    except Exception:  # noqa: BLE001
+        remembered = []
+    for cfg_text in ([] if fresh else remembered) + [None] * 4:
+        got = _warp_start(cfg_text, wd)
+        if not got:
+            continue
+        proc, ip, text = got
+        if ip and ip in bad:
+            print(f"warp exit {ip} was bot-checked lately — next identity", flush=True)
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+        _WARP_PROC = proc
+        _WARP_NOW.update(ip=ip, cfg=text)
+        print(f"warp exit {ip}", flush=True)
+        return url
+    print("warp: no usable exit", flush=True)
     return None
 
 
@@ -2835,7 +2901,7 @@ def _yt_blocked(msg: str) -> bool:
             or "requested format is not available" in m or "http error 403" in m)
 
 
-@app.function(image=yt_image, cpu=2.0, memory=4096, timeout=1800)
+@app.function(image=yt_image, cpu=2.0, memory=4096, timeout=1800, region=YT_REGION)
 def yt_task(kind: str, url: str, args: dict) -> dict:
     """kind "info": title / heatmap / captions (lines); "segment": one clip as MP4 bytes; "audio": the soundtrack (Opus)."""
     import shutil
@@ -2851,11 +2917,27 @@ def yt_task(kind: str, url: str, args: dict) -> dict:
     if auth.get("proxy"):
         _YT_AUTH["proxy"] = str(auth["proxy"])
     via = str(args.get("via") or "warp")
+    on_warp = False
     if via == "warp" and not _YT_AUTH.get("proxy"):
         wp = _warp_proxy(fresh=bool(args.get("fresh")))
         if not wp:
             return {"ok": False, "error": "warp unavailable", "nowarp": True}
         _YT_AUTH["proxy"] = wp
+        on_warp = True
+    res = _yt_task_run(kind, url, args, d)
+    if on_warp and (res.get("ok") or res.get("blocked")):
+        _warp_mark(bool(res.get("ok")))
+    if res.get("blocked"):
+        # this container is flagged: take no more work, the next call starts a fresh one
+        try:
+            modal.experimental.stop_fetching_inputs()
+        except Exception:  # noqa: BLE001
+            pass
+    shutil.rmtree(d, ignore_errors=True)
+    return res
+
+
+def _yt_task_run(kind: str, url: str, args: dict, d: Path) -> dict:
     try:
         if kind == "info":
             info = _yt_info(url, args.get("want") or "auto")
@@ -2882,15 +2964,8 @@ def yt_task(kind: str, url: str, args: dict) -> dict:
     except Exception as e:  # noqa: BLE001
         msg = str(e)
         if _yt_blocked(msg):
-            # this container's IP is flagged: take no more work, the next call starts a fresh one
-            try:
-                modal.experimental.stop_fetching_inputs()
-            except Exception:  # noqa: BLE001
-                pass
             return {"ok": False, "blocked": True, "error": msg[:300]}
         return {"ok": False, "error": msg[:600]}
-    finally:
-        shutil.rmtree(d, ignore_errors=True)
 
 
 def _first_ok(calls: list, timeout: float) -> dict:
@@ -2951,44 +3026,65 @@ def _yt_call(kind: str, url: str, args: dict | None = None, auth: dict | None = 
     raise RuntimeError(str(last.get("error") or "YouTube gagal")[:400])
 
 
-@app.function(image=yt_image.pip_install("boto3==1.34.0"), cpu=2.0, memory=4096, timeout=3600, secrets=SECRETS)
+@app.function(image=yt_image, cpu=0.25, memory=512, timeout=3 * 3600)
 def yt_mirror(url: str, key: str) -> dict:
     """CLIPPER, a YouTube source: the whole video (≤ 1080p) copied to B2 in the background while the analysis runs,
-    so the clip renders cut their segments from our copy — no YouTube call (and no bot-check) at render time."""
+    so the clip renders cut their segments from our copy — no YouTube call (and no bot-check) at render time.
+    Each attempt in its own container (a bot-checked container stops taking work → the next lands elsewhere)."""
+    last: dict = {}
+    for attempt in range(5):
+        try:
+            last = yt_mirror_try.remote(url, key, attempt > 0, "warp" if attempt < 4 else "direct")
+        except Exception as e:  # noqa: BLE001
+            last = {"ok": False, "error": str(e)[:300]}
+        if last.get("ok") or not last.get("blocked"):
+            break
+        print(f"mirror: blocked on attempt {attempt + 1}, next container", flush=True)
+    if not last.get("ok"):
+        print("mirror failed (renders fall back to YouTube segments):", str(last.get("error"))[:300], flush=True)
+    return last
+
+
+@app.function(image=yt_image.pip_install("boto3==1.34.0"), cpu=2.0, memory=4096, timeout=3600, secrets=SECRETS, region=YT_REGION)
+def yt_mirror_try(url: str, key: str, fresh: bool, via: str) -> dict:
     import shutil
     global _YT_AUTH
     d = Path(tempfile.mkdtemp(prefix="ytm_"))
-    last = ""
     t0 = time.time()
+    _YT_AUTH = {}
+    on_warp = False
     try:
-        for attempt in range(4):
-            _YT_AUTH = {}
-            if attempt < 3:  # three WARP exits, then direct
-                wp = _warp_proxy(fresh=attempt > 0)
-                if not wp:
-                    continue
-                _YT_AUTH["proxy"] = wp
-            for f in d.glob("src.*"):
-                f.unlink(missing_ok=True)
+        if via == "warp":
+            wp = _warp_proxy(fresh=fresh)
+            if not wp:
+                return {"ok": False, "blocked": True, "error": "warp unavailable"}
+            _YT_AUTH["proxy"] = wp
+            on_warp = True
+        for _once in range(1):
             try:
                 # faststart: the renders seek into this file over HTTP — the index must sit at the front
                 _run(["yt-dlp", *_yt_cli_auth(), "--no-playlist", "--no-progress", "-f", YT_FORMAT, "--merge-output-format", "mp4",
                       "--postprocessor-args", "Merger+ffmpeg_o:-movflags +faststart",
                       "--http-chunk-size", "10M", "-o", str(d / "src.%(ext)s"), url], "youtube mirror", 3000)
             except Exception as e:  # noqa: BLE001
-                last = str(e)[-300:]
-                if _yt_blocked(str(e)):
-                    print(f"mirror: blocked on attempt {attempt + 1}, next exit", flush=True)
-                    continue
-                break
+                blocked = _yt_blocked(str(e))
+                if on_warp and blocked:
+                    _warp_mark(False)
+                if blocked:
+                    try:
+                        modal.experimental.stop_fetching_inputs()
+                    except Exception:  # noqa: BLE001
+                        pass
+                return {"ok": False, "blocked": blocked, "error": str(e)[-300:]}
             got = sorted(d.glob("src.*"))
             if got:
+                if on_warp:
+                    _warp_mark(True)
                 mb = round(got[0].stat().st_size / 1e6)
                 out = _upload_b2(got[0], key, "video/mp4")
                 print(f"mirror: {mb} MB in {round(time.time() - t0)} s", flush=True)
                 return {"ok": True, "url": out, "mb": mb}
-        print("mirror failed (renders fall back to YouTube segments):", last, flush=True)
-        return {"ok": False, "error": last}
+        return {"ok": False, "error": "no file"}
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -3817,12 +3913,26 @@ def _cold_open(src: Path, words: list, fs: float, fe: float, d: Path):
     then the clip from its start — (video, words in the new timeline) or None when the line can't be used."""
     info = _probe(src)
     dur = info["duration"] or 0
-    inside = [w for w in words if w["t"] >= fs - 0.2 and w["e"] <= fe + 0.35]
+    # the whole sentence the director pointed at (its line came from caption chunks, which cut across sentences):
+    # the sentence overlapping the line most, its last ~4 s when it runs longer
+    sents, cur = [], []
+    for w in words:
+        cur.append(w)
+        if re.search(r"[.!?…]$", w["w"]):
+            sents.append(cur)
+            cur = []
+    if cur:
+        sents.append(cur)
+    best = max(sents, key=lambda s: min(s[-1]["e"], fe) - max(s[0]["t"], fs), default=[])
+    if best and min(best[-1]["e"], fe) - max(best[0]["t"], fs) > 0.3 and len(sents) > 1:
+        inside = [w for w in best if w["t"] >= best[-1]["e"] - 4.0]
+    else:
+        inside = [w for w in words if w["t"] >= fs - 0.2 and w["e"] <= fe + 0.35]
     if len(inside) < 2 or not dur:
         return None
     fs, fe = max(0.0, inside[0]["t"] - 0.08), min(dur, inside[-1]["e"] + 0.15)
     ln = fe - fs
-    if not 0.8 <= ln <= 4.0:
+    if not 0.8 <= ln <= 4.5:
         return None
     out = d / "coldopen.mp4"
     fc = (f"[0:v]trim={fs:.3f}:{fe:.3f},setpts=PTS-STARTPTS,fade=t=out:st={ln - 0.1:.3f}:d=0.1:color=white[v0];"
