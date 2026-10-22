@@ -3530,7 +3530,8 @@ except Exception as _e:  # noqa: BLE001
     audio_image = modal.Image.debian_slim(python_version="3.11")
 
 
-@app.function(image=audio_image, gpu="L4", cpu=8.0, memory=16384, timeout=1800, secrets=[modal.Secret.from_name("lh-hf")],
+# L4 first; when Modal is short of L4s, an A10G / L40S (same CUDA build, ≥ 24 GB) rather than a queue
+@app.function(image=audio_image, gpu=["L4", "A10G", "L40S"], cpu=8.0, memory=16384, timeout=1800, secrets=[modal.Secret.from_name("lh-hf")],
               volumes={JOBS_ROOT: JOBS}, scaledown_window=180)
 def clip_audio(rel: str | None, data: bytes | None, language: str | None, hint: str | None, stages: list) -> dict:
     """The audio engine on one file: a jobs-Volume path (a whole podcast) or bytes (a clip). → words / turns / events."""
@@ -4288,7 +4289,13 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     _progress("transcribe", 14)
     words, aligned = None, False
     if asr_call is not None:
-        res = _engine_get(asr_call, "clip words", 900)
+        # a clip never waits long for a GPU: past 150 s (no GPU free, or a slow start) the CPU transcriber takes over
+        res = _engine_get(asr_call, "clip words", 150)
+        if res is None:
+            try:
+                asr_call.cancel()
+            except Exception:  # noqa: BLE001
+                pass
         if res and res.get("words"):
             words = [{"w": w["w"], "t": float(w["t"]), "e": float(w["e"])} for w in res["words"] if str(w.get("w") or "").strip()]
             aligned = True
