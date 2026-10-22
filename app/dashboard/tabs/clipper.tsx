@@ -432,17 +432,18 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
           <div>
             <h2 className="text-base font-extrabold text-[var(--color-text-primary)]">CLIPPER — video panjang jadi klip viral</h2>
             <p className="text-[11px] text-[var(--color-text-secondary)] leading-snug mt-0.5">
-              Tampal pautan YouTube / replay TikTok LIVE. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
+              Tampal pautan YouTube / replay TikTok LIVE atau upload video. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
               kemudian jana klip 9:16 — kamera ikut muka penutur, caption animasi, kata kunci berwarna &amp; hook. Pratonton gaya dahulu, kemudian jana.
             </p>
           </div>
         </div>
 
-        {/* sources: YouTube and TikTok LIVE replay (Upload and Google Drive hidden from the picker, 2026-10-22 —
-            the code paths stay for analyses already made from them) */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* sources: YouTube, TikTok LIVE replay, Upload (Google Drive hidden from the picker, 2026-10-22 — its code
+            path stays for analyses already made from it) */}
+        <div className="grid grid-cols-3 gap-2">
           <Chip active={srcType === "youtube"} onClick={() => setSrcType("youtube")}><Play className="w-3.5 h-3.5" />YouTube</Chip>
           <Chip active={srcType === "tiktok"} onClick={() => setSrcType("tiktok")}><Radio className="w-3.5 h-3.5" />TikTok LIVE</Chip>
+          <Chip active={srcType === "upload"} onClick={() => setSrcType("upload")}><Upload className="w-3.5 h-3.5" />Upload</Chip>
         </div>
 
         {srcType === "tiktok" && (
