@@ -71,7 +71,44 @@ export type AdPlan = {
   emotion: string;
   lines: AdLinePlan[];
   scenes: AdScenePlan[];
+  /** Custom style (no video): the style's own look for the image-to-video render */
+  theme?: AdTheme;
 };
+/** A Custom style's look on the image-to-video render (motion/src/MotionAd.tsx): surface + ink colours, the display
+ *  and caption faces (the same faces as the edit render's looks, shipped with the HyperFrames page) and a texture. */
+export type AdTheme = {
+  name: string; bg: string; ink: string; light: boolean;
+  display: string; displayWeight: number; caption: string; captionWeight: number;
+  texture: "none" | "paper" | "film" | "crt" | "halftone" | "grid" | "glow";
+};
+const AD_FACES: Record<string, { family: string; weight: number }> = {
+  montserrat: { family: "'Montserrat', sans-serif", weight: 900 }, archivo: { family: "'Archivo Black', sans-serif", weight: 400 },
+  anton: { family: "'Anton', sans-serif", weight: 400 }, bebas: { family: "'Bebas Neue', sans-serif", weight: 400 },
+  poppins: { family: "'Poppins', sans-serif", weight: 900 }, inter: { family: "'Inter', sans-serif", weight: 900 },
+  playfair: { family: "'Playfair Display', serif", weight: 800 }, mono: { family: "'JetBrains Mono', monospace", weight: 800 },
+  marker: { family: "'Permanent Marker', cursive", weight: 400 }, pixel: { family: "'Press Start 2P', monospace", weight: 400 },
+  comic: { family: "'Bangers', cursive", weight: 400 }, rounded: { family: "'Fredoka', sans-serif", weight: 700 },
+};
+const AD_TEXTURES = ["none", "paper", "film", "crt", "halftone", "grid", "glow"] as const;
+const lumHex = (hex: string) => {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+/** The theme of a Custom-style ad: the style's own colours (else the director's palette), the director's faces + texture. */
+function adTheme(input: AdInput, raw: any): AdTheme | undefined {
+  const vs = input.vgcStyle;
+  if (!vs) return undefined;
+  const look = raw?.look ?? {};
+  const bg = HEX.test(vs.colors?.[0] || "") ? vs.colors![0] : HEX.test(look?.palette?.bg || "") ? look.palette.bg : "#111111";
+  let ink = HEX.test(vs.colors?.[1] || "") ? vs.colors![1] : HEX.test(look?.palette?.ink || "") ? look.palette.ink : "";
+  const bgL = lumHex(bg);
+  const ratio = ink ? (Math.max(bgL, lumHex(ink)) + 0.05) / (Math.min(bgL, lumHex(ink)) + 0.05) : 0;
+  if (ratio < 3) ink = bgL > 0.4 ? "#111111" : "#ffffff"; // text that can't be read on its surface → black / white
+  const d = AD_FACES[String(look?.font || "")] ?? AD_FACES.archivo;
+  const c = AD_FACES[String(look?.caption_font || "")] ?? AD_FACES.montserrat;
+  const texture = (AD_TEXTURES as readonly string[]).includes(look?.texture) ? look.texture : "none";
+  return { name: vs.name, bg, ink, light: bgL > 0.4, display: d.family, displayWeight: d.weight, caption: c.family, captionWeight: c.weight, texture };
+}
 export type EditPlan = {
   hook: { text: string; sub?: string } | null;
   accent: string;
@@ -538,11 +575,14 @@ export async function planAd(input: AdInput): Promise<AdPlan> {
   const styleNote = vs
     ? `\n\nSTYLE = ${vs.name.toUpperCase()} — the client's chosen style: follow it in tone, pacing, wording and visual direction:\n${vs.brief}${vs.colors?.length ? `\nColour palette: background ${vs.colors[0]}, text ${vs.colors[1] ?? ""}, accent ${vs.colors[2] ?? ""}.` : ""}`
     : `\n\nSTYLE = ${look.label.toUpperCase()}: ${look.ad} Colour palette: ${look.palette}.`;
+  const lookNote = vs
+    ? `\n\nTHE STYLE'S LOOK — add a top-level "look" object to your JSON: {"font": the display face, "caption_font": the caption face, "texture": the surface${vs.colors?.length ? "" : ', "palette": {"bg": "#RRGGBB", "ink": "#RRGGBB"} — the style\'s surface and text colours'}}. Faces: ${Object.keys(AD_FACES).join(", ")} (playfair = editorial serif, mono = code / terminal, marker = hand-drawn, pixel = retro game, comic = comic book, rounded = soft & friendly). Textures: ${AD_TEXTURES.join(", ")}. Pick what the style's brief describes. Scene backgrounds: "paper" and "mat" are drawn on the style's own surface colour, "dark" on its inverse (the ink colour as the background) — alternate them for rhythm; "accent" = the accent colour (the reveal / CTA); "blur" = a blurred product photo.`
+    : "";
   const storyNote = input.story
     ? `\n\nTHE CLIENT'S STORY: "description" in the brief is the client's own story for this video — tell THAT story (its scenes in its order, its message, its tone), using the product images; don't turn it into a generic product pitch unless the story is one. Never invent facts beyond it.`
     : "";
   const guardNote = input.guard ? `\n\n${GUARD_RULES}\nThe "tts" voice-over follows the same rules. Use the brand name without medical words.` : "";
-  const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget)) + styleNote + storyNote + variantNote + guardNote;
+  const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget)) + styleNote + lookNote + storyNote + variantNote + guardNote;
 
   let lastErr = "";
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -666,6 +706,7 @@ export function validateAdPlan(raw: any, input: AdInput): AdPlan {
     emotion: ["happy", "fluent", "calm", "surprised"].includes(raw?.emotion) ? raw.emotion : "happy",
     lines,
     scenes: [...body, endScene],
+    ...(input.vgcStyle ? { theme: adTheme(input, raw) } : {}),
   };
 }
 
@@ -839,6 +880,7 @@ export async function runAdJob(historyId: string): Promise<void> {
       mood: plan.mood,
       style: styleEnergy(input.style), // render energy of the chosen look
       look: motionStyle(input.style).id,
+      ...(plan.theme ? { theme: plan.theme } : {}),
       resolution: input.resolution ?? "1080",
       guard: !!input.guard,
       ...(input.guard && row.metadata?.plan_token

@@ -114,6 +114,13 @@ export type AdProps = {
   sfx: boolean;
   style?: Style;
   lottie?: LottieMap;
+  /** Custom style (no video): the style's own look — surface / ink, faces, texture */
+  theme?: AdTheme;
+};
+export type AdTheme = {
+  name: string; bg: string; ink: string; light: boolean;
+  display: string; displayWeight: number; caption: string; captionWeight: number;
+  texture: 'none' | 'paper' | 'film' | 'crt' | 'halftone' | 'grid' | 'glow';
 };
 
 // ── Edit Video ────────────────────────────────────────────────────────────────

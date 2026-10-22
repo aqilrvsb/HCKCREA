@@ -1952,6 +1952,8 @@ def _flow_ad(p: dict, d: Path, srv: _Serve) -> dict:
         "audio": srv.url(d / "final.wav"), "captions": bool(p.get("captions", True)),
         "captionStyle": p.get("caption_style") or "pop", "sfx": bool(p.get("sfx", True)),
         "style": style, "lottie": lottie,
+        # Custom style (no video): the style's own colours, faces and texture
+        **({"theme": p["theme"]} if isinstance(p.get("theme"), dict) else {}),
     }
     out = d / "out.mp4"
     _progress("render", 42)

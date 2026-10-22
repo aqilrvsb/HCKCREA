@@ -8,7 +8,66 @@ import { Background, Captions, SfxTrack, ZoneStack, inkForBg, toPages, type Zone
 import { F, clamp, fitSize, inkOn, lum, makeAdCue, packRows, popS, rgba, safeAccent, type Placed } from './lib';
 import { Flash, LightSweep, shakeOffset, type Impact } from './effects';
 import { seedFrom, sfxFor, type SfxEvent, type SfxEventName } from './sfx';
-import type { AdProps, AdScene, Brand, Hero, ImageAsset, Word, Zone } from './types';
+import type { AdProps, AdScene, AdTheme, Brand, Hero, ImageAsset, Word, Zone } from './types';
+
+// ── a Custom style's look (theme) ─────────────────────────────────────────────
+// The style's faces replace the display / caption faces for this render (one composition per page / render, so the
+// shared font table is simply set from the props); the root's font weight is the display face's own.
+const FONT_BASE = { black: F.black, caption: F.caption };
+const applyTheme = (t?: AdTheme) => {
+  F.black = t?.display || FONT_BASE.black;
+  F.caption = t?.caption || FONT_BASE.caption;
+};
+
+/** The style's surface: its own colour (inverse = the ink colour as the background), depth, and a texture under the content. */
+const ThemeSurface: React.FC<{ t: AdTheme; inverse: boolean; accent: string }> = ({ t, inverse, accent }) => {
+  const frame = useCurrentFrame();
+  const bg = inverse ? t.ink : t.bg;
+  const light = inverse ? !t.light : t.light;
+  const mark = light ? 'rgba(0,0,0,' : 'rgba(255,255,255,';
+  let tex: React.CSSProperties | null = null;
+  if (t.texture === 'paper') {
+    tex = { backgroundImage: `radial-gradient(${mark}0.07) 1px, transparent 1.6px), radial-gradient(${mark}0.05) 1px, transparent 1.6px)`,
+      backgroundSize: '7px 7px, 11px 11px', backgroundPosition: '0 0, 3px 5px' };
+  } else if (t.texture === 'halftone') {
+    tex = { backgroundImage: `radial-gradient(${mark}0.12) 2.2px, transparent 2.8px)`, backgroundSize: '22px 22px' };
+  } else if (t.texture === 'grid') {
+    tex = { backgroundImage: `linear-gradient(${mark}0.08) 1px, transparent 1px), linear-gradient(90deg, ${mark}0.08) 1px, transparent 1px)`,
+      backgroundSize: '54px 54px' };
+  } else if (t.texture === 'glow') {
+    const x = 50 + Math.sin(frame / 70) * 18;
+    tex = { background: `radial-gradient(circle at ${x}% 30%, ${rgba(accent, 0.28)} 0%, rgba(0,0,0,0) 45%), radial-gradient(circle at ${100 - x}% 78%, ${rgba(accent, 0.18)} 0%, rgba(0,0,0,0) 40%)` };
+  }
+  return (
+    <AbsoluteFill style={{ background: bg }}>
+      <AbsoluteFill style={{ background: `radial-gradient(ellipse at 50% 38%, ${mark}0.06) 0%, rgba(0,0,0,0) 55%, rgba(0,0,0,${light ? 0.12 : 0.35}) 100%)` }} />
+      {tex && <AbsoluteFill style={tex} />}
+    </AbsoluteFill>
+  );
+};
+
+/** Film / CRT: a surface over the whole picture (the captions stay clean above it). */
+const ThemeOver: React.FC<{ t: AdTheme }> = ({ t }) => {
+  const frame = useCurrentFrame();
+  if (t.texture === 'film') {
+    return (
+      <AbsoluteFill style={{ pointerEvents: 'none' }}>
+        <AbsoluteFill style={{ backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 3px)', opacity: 0.8 + 0.2 * Math.sin(frame * 1.7) }} />
+        <AbsoluteFill style={{ background: 'rgba(112,66,20,0.07)' }} />
+        <AbsoluteFill style={{ background: 'radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.38) 100%)' }} />
+      </AbsoluteFill>
+    );
+  }
+  if (t.texture === 'crt') {
+    return (
+      <AbsoluteFill style={{ pointerEvents: 'none' }}>
+        <AbsoluteFill style={{ backgroundImage: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0 2px, transparent 2px 4px)' }} />
+        <AbsoluteFill style={{ background: 'radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.45) 100%)' }} />
+      </AbsoluteFill>
+    );
+  }
+  return null;
+};
 
 const boxesFor = (captions: boolean): ZoneBoxes => ({
   top: { top: 200, height: 520, justify: 'flex-start' },
@@ -66,7 +125,7 @@ const PresenterHero: React.FC<{ img: ImageAsset; side: 'L' | 'C' | 'R'; f: numbe
 };
 
 // ── end card ──────────────────────────────────────────────────────────────────
-const EndCard: React.FC<{ f: number; brand: Brand; accent: string; img?: ImageAsset }> = ({ f, brand, accent, img }) => {
+const EndCard: React.FC<{ f: number; brand: Brand; accent: string; img?: ImageAsset; theme?: AdTheme }> = ({ f, brand, accent, img, theme }) => {
   const { fps } = useVideoConfig();
   const o = interpolate(f, [0, 8], [0, 1], clamp);
   const s = popS(f - 4, fps, 160, 14);
@@ -76,16 +135,16 @@ const EndCard: React.FC<{ f: number; brand: Brand; accent: string; img?: ImageAs
   const nameSize = fitSize(name, 120, 900, 2, 0.68);
   const ctaInk = inkOn(accent);
   return (
-    <AbsoluteFill style={{ background: '#fff', opacity: o, alignItems: 'center', justifyContent: 'center' }}>
+    <AbsoluteFill style={{ background: theme ? theme.bg : '#fff', opacity: o, alignItems: 'center', justifyContent: 'center' }}>
       <AbsoluteFill style={{ background: `radial-gradient(ellipse at 50% 30%, ${rgba(accent, 0.22)} 0%, rgba(255,255,255,0) 60%)` }} />
       <div style={{ transform: `scale(${0.82 + 0.18 * s})`, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, padding: '0 70px', textAlign: 'center' }}>
         {img && (
           <Img src={img.cutout || img.url} style={{ maxWidth: 640, maxHeight: img.cutout ? 620 : 520, objectFit: 'contain',
             borderRadius: img.cutout ? 0 : 18, boxShadow: img.cutout ? 'none' : '10px 12px 0 rgba(0,0,0,0.18)' }} />
         )}
-        <div style={{ fontFamily: F.black, fontSize: nameSize, color: '#0c1f15', letterSpacing: -2, lineHeight: 1.02 }}>{name}</div>
+        <div style={{ fontFamily: F.black, fontSize: nameSize, color: theme ? theme.ink : '#0c1f15', letterSpacing: -2, lineHeight: 1.02 }}>{name}</div>
         {brand.tagline && (
-          <div style={{ fontFamily: F.inter, fontWeight: 700, fontSize: fitSize(brand.tagline, 50, 900, 2, 0.52), color: '#3d4a44', lineHeight: 1.15 }}>{brand.tagline}</div>
+          <div style={{ fontFamily: F.inter, fontWeight: 700, fontSize: fitSize(brand.tagline, 50, 900, 2, 0.52), color: theme ? rgba(theme.ink, 0.75) : '#3d4a44', lineHeight: 1.15 }}>{brand.tagline}</div>
         )}
         {brand.price && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 24, transform: `scale(${0.6 + 0.4 * s2})` }}>
@@ -102,7 +161,7 @@ const EndCard: React.FC<{ f: number; brand: Brand; accent: string; img?: ImageAs
           <div style={{ marginTop: 8, background: accent, color: ctaInk, fontFamily: F.inter, fontWeight: 900, fontSize: fitSize(brand.cta, 54, 820, 1, 0.58),
             borderRadius: 999, padding: '20px 56px', transform: `scale(${0.6 + 0.4 * s3})`, boxShadow: '8px 10px 0 rgba(0,0,0,0.25)' }}>{brand.cta}</div>
         )}
-        {brand.handle && <div style={{ fontFamily: F.inter, fontWeight: 800, fontSize: 40, color: '#3d4a44', opacity: s3 }}>{brand.handle}</div>}
+        {brand.handle && <div style={{ fontFamily: F.inter, fontWeight: 800, fontSize: 40, color: theme ? rgba(theme.ink, 0.75) : '#3d4a44', opacity: s3 }}>{brand.handle}</div>}
       </div>
     </AbsoluteFill>
   );
@@ -118,6 +177,8 @@ export const MotionAd: React.FC<AdProps> = (p) => {
 
   const style = p.style ?? 'gempak';
   const gempak = style === 'gempak';
+  const theme = p.theme && /^#[0-9a-f]{6}$/i.test(p.theme.bg) && /^#[0-9a-f]{6}$/i.test(p.theme.ink) ? p.theme : undefined;
+  applyTheme(theme);
 
   const { scenes, sfx, pages, endStart, impacts, sweeps } = useMemo(() => {
     const cue = makeAdCue(p.lines ?? []);
@@ -187,21 +248,27 @@ export const MotionAd: React.FC<AdProps> = (p) => {
   if (sc) {
     const f = frame - sc.start;
     if (sc.endcard) {
-      body = <EndCard f={f} brand={p.brand} accent={accent} img={images[0]} />;
+      body = <EndCard f={f} brand={p.brand} accent={accent} img={images[0]} theme={theme} />;
     } else {
       const bg = sc.bg ?? 'mat';
-      const ink = inkForBg(bg, accent);
+      // a Custom style: mat / paper on its surface, dark on its inverse; accent / blur as always
+      const themed = !!theme && (bg === 'mat' || bg === 'paper' || bg === 'dark');
+      const inverse = bg === 'dark';
+      const ink = themed && theme ? (inverse ? theme.bg : theme.ink) : inkForBg(bg, accent);
+      const lightSurface = themed && theme ? (inverse ? !theme.light : theme.light) : bg === 'paper';
       const zoom = interpolate(frame, [sc.start, sc.end], [1, 1.025], clamp);
       const enter = interpolate(f, [0, 4], [1.04, 1], clamp);
       const img = heroImg(sc.hero);
       const side = sc.hero?.side ?? 'C';
       body = (
         <AbsoluteFill>
-          <Background bg={bg} accent={accent} blurUrl={(images[sc.hero?.image ?? 0] ?? images[0])?.blur} />
+          {themed && theme
+            ? <ThemeSurface t={theme} inverse={inverse} accent={accent} />
+            : <Background bg={bg} accent={accent} blurUrl={(images[sc.hero?.image ?? 0] ?? images[0])?.blur} />}
           <AbsoluteFill style={{ transform: `scale(${zoom * enter})` }}>
             {img && sc.hero?.kind === 'presenter' && <PresenterHero img={img} side={side} f={f} carry={sc.carryHero} />}
             {img && sc.hero?.kind === 'product' && <ProductHero img={img} side={side} f={f} carry={sc.carryHero} tiltDeg={(scenes.indexOf(sc) % 2 ? 2 : -2)} />}
-            <ZoneStack rows={sc.rows} boxes={boxes} ink={ink} accent={accent} surface={bg === 'paper' ? 'light' : bg === 'accent' ? 'accent' : 'dark'} style={style} lottie={p.lottie} />
+            <ZoneStack rows={sc.rows} boxes={boxes} ink={ink} accent={accent} surface={bg === 'accent' ? 'accent' : lightSurface ? 'light' : 'dark'} style={style} lottie={p.lottie} />
           </AbsoluteFill>
         </AbsoluteFill>
       );
@@ -209,9 +276,10 @@ export const MotionAd: React.FC<AdProps> = (p) => {
   }
 
   return (
-    <AbsoluteFill style={{ background: '#111' }}>
+    <AbsoluteFill style={{ background: '#111', ...(theme ? { fontWeight: theme.displayWeight } : {}) }}>
       <AbsoluteFill style={{ transform: `translate(${shake.x}px, ${shake.y}px) rotate(${shake.r}deg)` }}>
         {body}
+        {theme && <ThemeOver t={theme} />}
         {gempak && <LightSweep at={sweeps} />}
         {p.captions && (
           <Captions pages={pages} style={p.captionStyle ?? 'pop'} accent={accent} centerY={CAPTION_Y} hideFrom={endStart}
