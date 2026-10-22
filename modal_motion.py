@@ -3430,7 +3430,7 @@ def _asr_long(wav: Path, d: Path, language: str | None) -> list:
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "clipper-asd"))
     from audio_intel_image import build_image as _audio_image_builder
-    audio_image = _audio_image_builder(modal, hf_secret="lh-hf", diar_mirror=False, diar_tag="1").add_local_file(
+    audio_image = _audio_image_builder(modal, hf_secret="lh-hf", diar_mirror=False, diar_tag="2").add_local_file(
         "clipper-asd/audio_intel.py", "/app/clipper-asd/audio_intel.py", copy=True)
 except Exception as _e:  # noqa: BLE001
     if modal.is_local():
