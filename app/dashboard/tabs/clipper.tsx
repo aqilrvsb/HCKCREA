@@ -426,17 +426,17 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
           <div>
             <h2 className="text-base font-extrabold text-[var(--color-text-primary)]">CLIPPER — video panjang jadi klip viral</h2>
             <p className="text-[11px] text-[var(--color-text-secondary)] leading-snug mt-0.5">
-              Tampal pautan YouTube / replay TikTok LIVE / Google Drive atau upload video. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
+              Tampal pautan YouTube / replay TikTok LIVE / Google Drive. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
               kemudian jana klip 9:16 — kamera ikut muka penutur, caption animasi, hook &amp; edit penuh AI.
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {/* sources: YouTube, TikTok LIVE replay, Google Drive (Upload removed from the picker, 2026-10-22) */}
+        <div className="grid grid-cols-3 gap-2">
           <Chip active={srcType === "youtube"} onClick={() => setSrcType("youtube")}><Play className="w-3.5 h-3.5" />YouTube</Chip>
           <Chip active={srcType === "tiktok"} onClick={() => setSrcType("tiktok")}><Radio className="w-3.5 h-3.5" />TikTok LIVE</Chip>
           <Chip active={srcType === "gdrive"} onClick={() => setSrcType("gdrive")}><HardDrive className="w-3.5 h-3.5" />Google Drive</Chip>
-          <Chip active={srcType === "upload"} onClick={() => setSrcType("upload")}><Upload className="w-3.5 h-3.5" />Upload</Chip>
         </div>
 
         {srcType === "tiktok" && (
