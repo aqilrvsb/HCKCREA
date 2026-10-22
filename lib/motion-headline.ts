@@ -15,7 +15,7 @@ import { orChatVision } from "@/lib/openrouter";
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 3;
+export const HEADLINE_VERSION = 4;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -41,7 +41,7 @@ export type HeadlinePlan = {
 /** What the director / polish call is asked for (the same words in every flow). */
 export const HEADLINE_SPEC = `"headlines": [HEADLINE] — REQUIRED in every video, in this order through the video: one "over", one "split", then (from 20 s) one "pip", then (from 45 s) a second "split"; one at a time, each on a different strong line, spread over the whole video after the hook and before the CTA, in the speaker-on-screen gaps (never inside a scene):
   {"kind": "over", "at": CUE, "to"?: CUE, "lead": 2–5 words (sentence case, the set-up), "big": 1–3 words (≤16 characters, the punch), "box": 2–5 words (the payoff)} — the speaker stays full-frame and a three-line headline animates over them: an elegant italic lead-in, one huge word, a short line in a colour box (e.g. lead "Rahsia kulit", big "GLOWING", box "dalam 7 hari"); ~3 s,
-  {"kind": "split", "at": CUE, "to"?: CUE, "lead", "big", "box" (as above), "query": a plain-English stock-video search for what the B-roll half shows — a visual of what is being said ("woman applying serum mirror", "city traffic jam aerial"), "media": "video" | "photo"} — a B-roll panel slides into one half of the frame, the speaker moves into the other half and the headline rides the seam; ~3.5 s,
+  {"kind": "split", "at": CUE, "to"?: CUE, "lead", "big", "box" (as above), "query": 2–4 plain English stock-footage keywords naming the ONE main thing the B-roll shows — a visual of what is being said ("cooking oil", "woman applying serum", "traffic jam", "blood sugar test"; no colours, no adjectives, no brand), "media": "video" | "photo"} — a B-roll panel slides into one half of the frame, the speaker moves into the other half and the headline rides the seam; ~3.5 s,
   {"kind": "pip", "at": CUE, "to"?: CUE, "lead", "big", "box", "query", "media"} — the B-roll fills the whole frame with the headline over it while the speaker shrinks into a small box bottom-right (they keep talking); ~3.5 s, for a moment that SHOWS something (a place, a result, a product in use);
   the words are the video's own message in the speaker's language (only facts and numbers the speaker says); every headline different; never the hook's words.`;
 
@@ -125,12 +125,15 @@ export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], 
   return out;
 }
 
-/** The B-roll of the split / pip layouts: stock clips for the query (Pexels → Pixabay), else photos. Fail-soft:
- *  a layout with no pictures is drawn on the look's own surface. */
+/** The B-roll of the split / pip layouts: stock clips for the query (Pexels → Pixabay), else photos, else clean web
+ *  pictures — each set judged by a vision pick (the one that really shows the query; none when nothing does).
+ *  Fail-soft: a layout with no pictures is drawn on the look's own surface. */
 export async function enrichHeadlines(heads: HeadlinePlan[], context: string): Promise<HeadlinePlan[]> {
+  // a headline the AI didn't write borrows another one's search (stock libraries read English keywords, not the title)
+  const shared = heads.find((x) => x.kind !== "over" && x.query)?.query || "";
   return Promise.all(heads.map(async (h) => {
     if (h.kind === "over") return h;
-    const q = (h.query || `${context} ${h.big}`).replace(/\s+/g, " ").trim().slice(0, 80);
+    const q = (h.query || shared || `${context} ${h.big}`).replace(/\s+/g, " ").trim().slice(0, 80);
     if (!q) return h;
     // stock video first (moves, free licence), then free stock photos, then web images that aren't watermarked stock;
     // a split panel is 1080 × 900 (landscape-ish first), a pip fills the 9:16 frame (portrait first)
@@ -138,10 +141,17 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
     const order = <T extends { width: number; height: number }>(xs: T[]) => xs.sort((a, b) => (h.kind === "split" ? land(b) - land(a) : land(a) - land(b)));
     const ok = (u: string) => /^https:\/\//.test(u) && !WATERMARKED.test(u);
     try {
-      const clips = order(await searchClips(q)).map((c) => c.url).filter(ok);
-      if (clips.length) return { ...h, query: q, media: "video" as const, candidates: clips.slice(0, 4) };
-      const photos = order(await searchPhotos(q)).map((c) => c.url).filter(ok);
-      if (photos.length) return { ...h, query: q, media: "photo" as const, candidates: photos.slice(0, 5) };
+      // stock libraries rank loosely: the vision pick keeps only a clip / photo that really shows the query
+      const firstFit = async (xs: { url: string; thumb?: string }[]) => {
+        const top = xs.filter((x) => ok(x.url)).slice(0, 5);
+        if (!top.length) return null;
+        const k = await pickClean(q, h.big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })));
+        return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
+      };
+      const clips = await firstFit(order(await searchClips(q)));
+      if (clips) return { ...h, query: q, media: "video" as const, candidates: clips };
+      const photos = await firstFit(order(await searchPhotos(q)));
+      if (photos) return { ...h, query: q, media: "photo" as const, candidates: photos };
       const noSites = excludeOperators((await getSitePrefs()).exclude);
       const hits = (await searchImages(`${q} ${noSites}`.trim())).hits
         .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? "")))
@@ -160,7 +170,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
 async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[]): Promise<number> {
   const r = await orChatVision({
     modelKey: "model_motion",
-    systemPrompt: "You pick a background picture for a TikTok split-screen headline panel. Choose the image that best shows the query as a clean, real photo (a scene, an object, a place). REJECT any image with a visible watermark or stock-site stamp, a screenshot of an app / social post / website, a meme, a poster or graphic full of text, a collage, a price tag or another brand's ad. Answer ONLY JSON: {\"pick\": n} (0-based) or {\"pick\": -1} when none is clean.",
+    systemPrompt: "You pick a background picture (a photo, or a still of a stock video) for a TikTok split-screen headline panel. Choose the image that most literally shows the query's main thing as a clean, real shot (a scene, an object, a place, people doing it) — an image of something else (a flower for 'cooking oil') does NOT fit. REJECT any image with a visible watermark or stock-site stamp, a screenshot of an app / social post / website, a meme, a poster or graphic full of text, a collage, a price tag or another brand's ad. Answer ONLY JSON: {\"pick\": n} (0-based) or {\"pick\": -1} when none is clean.",
     textPrompt: `Query: "${query}" (headline word: "${big}"). Images #0..#${hits.length - 1} attached in order.`,
     images: hits.map((h) => h.thumb || h.url),
     temperature: 0.1,
