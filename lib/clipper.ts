@@ -25,7 +25,7 @@ export async function clipperYoutubeAuth(): Promise<{ cookies?: string; proxy?: 
 export const CLIPPER_TAB = "clipper";
 const ANALYSE_STALE_MS = 50 * 60_000;
 
-export type ClipSourceType = "youtube" | "gdrive" | "upload";
+export type ClipSourceType = "youtube" | "gdrive" | "upload" | "tiktok";
 export type ClipDuration = "15" | "30" | "60" | "auto";
 export type ClipperOptions = {
   duration: ClipDuration;
@@ -96,6 +96,18 @@ export function cleanSource(type: unknown, url: unknown, name?: unknown): { type
   }
   if (type === "upload") {
     return UPLOAD_HOST.test(u) ? { type, url: u, name: String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || "Video" } : null;
+  }
+  // a TikTok LIVE replay (Seller Center → LIVE Dashboard → Replay): its HLS playlist on TikTok's CDN — signed, no login
+  if (type === "tiktok") {
+    let host = "";
+    try {
+      const x = new URL(u);
+      if (x.protocol !== "https:") return null;
+      host = x.hostname;
+    } catch { return null; }
+    const cdn = /(^|\.)(akamaized\.net|tiktokcdn\.com|tiktokcdn-us\.com|tiktokcdn-eu\.com|byteoversea\.com|tiktokv\.com|tiktokv\.us|ibytedtos\.com)$/;
+    return cdn.test(host) && /\.m3u8/i.test(u)
+      ? { type, url: u, name: String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || "TikTok LIVE" } : null;
   }
   return null;
 }

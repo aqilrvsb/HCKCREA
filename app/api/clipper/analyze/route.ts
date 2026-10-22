@@ -14,6 +14,7 @@ const BAD_LINK: Record<string, string> = {
   youtube: "Pautan YouTube tidak sah — tampal pautan video (youtube.com/watch?v=… atau youtu.be/…).",
   gdrive: "Pautan Google Drive tidak sah — tampal pautan fail (drive.google.com/file/d/…).",
   upload: "Upload video dahulu.",
+  tiktok: "Link replay LIVE tidak sah — guna butang \"Ambil link LIVE\" pada halaman LIVE Dashboard (Seller Center), kemudian tampal di sini.",
 };
 
 export async function POST(req: Request) {

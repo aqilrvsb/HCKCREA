@@ -9,13 +9,25 @@
 //      or one of the 40 styles) and render. Each clip is a History card below (Motion engine: 9:16 reframe around the
 //      speaker, captions, HyperFrames). Finished clips download one by one or as a ZIP.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, Download, Flame, HardDrive, Link2, Loader2, Play, ScissorsLineDashed, Search, Trash2, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, Flame, HardDrive, Link2, Loader2, Play, Radio, ScissorsLineDashed, Search, Trash2, Upload, X } from "lucide-react";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
 import { uploadImage } from "@/lib/upload-image";
 import MotionStylePicker from "./motion-style-picker";
 import { withRetry } from "./motion-photo-picker";
 
-type SrcType = "youtube" | "gdrive" | "upload";
+type SrcType = "youtube" | "gdrive" | "upload" | "tiktok";
+
+// "📌 Ambil link LIVE": a bookmark the client drags to Chrome's bookmark bar once. On a Seller Center LIVE Dashboard
+// (Replay playing) it finds the replay's HLS playlist among the page's network requests and copies it. First click
+// with nothing found: it starts watching the page's requests, so play the Replay and click again.
+const LIVE_BOOKMARKLET = "javascript:(()=>{const w=window;w.__plm=w.__plm||new Set();const add=e=>{if(/\\.m3u8/i.test(e.name))w.__plm.add(e.name)};"
+  + "performance.getEntriesByType('resource').forEach(add);if(!w.__plmObs){try{performance.setResourceTimingBufferSize(20000)}catch(_){}"
+  + "w.__plmObs=new PerformanceObserver(l=>l.getEntries().forEach(add));w.__plmObs.observe({type:'resource',buffered:true})}"
+  + "const L=[...w.__plm];const u=L[L.length-1];"
+  + "if(!u){alert('PeningLab: tekan PLAY pada video Replay, tunggu 5 saat, kemudian klik butang ini sekali lagi.\\n\\nMasih tiada? Muat semula halaman (F5), klik butang ini sekali, tekan play pada Replay, kemudian klik butang ini lagi.');return}"
+  + "const ok=()=>alert('PeningLab: link LIVE sudah disalin (OK).\\nPergi ke PeningLab > Clipper > TikTok LIVE, kemudian tampal (Ctrl+V).');"
+  + "navigator.clipboard.writeText(u).then(ok,()=>prompt('PeningLab: salin link LIVE ini (Ctrl+C):',u))})();void 0";
+const isLiveLink = (u: string) => /^https:\/\/[^\s]+\.m3u8/i.test(u);
 type Clip = {
   start: number; end: number; title: string; hook: string; score: number; reason: string; caption: string;
   hashtags: string[]; quote: string; text: string; interest?: number;
@@ -269,10 +281,13 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
       source = { type: "upload", url: file.url, name: file.name };
     } else {
       const u = link.trim();
-      if (!u) return setError(srcType === "youtube" ? "Tampal pautan YouTube." : "Tampal pautan Google Drive.");
+      if (!u) return setError(srcType === "youtube" ? "Tampal pautan YouTube." : srcType === "tiktok" ? "Tampal link replay LIVE (dari butang 📌 Ambil link LIVE)." : "Tampal pautan Google Drive.");
       if (srcType === "youtube" && !ytId(u)) return setError("Pautan YouTube tidak sah.");
       if (srcType === "gdrive" && !/drive\.google\.com|docs\.google\.com/.test(u)) return setError("Tampal pautan fail Google Drive (drive.google.com/file/d/…).");
-      source = { type: srcType, url: u };
+      if (srcType === "tiktok" && !isLiveLink(u)) return setError("Itu bukan link replay LIVE — guna butang 📌 Ambil link LIVE pada halaman LIVE Dashboard, kemudian tampal di sini.");
+      source = srcType === "tiktok"
+        ? { type: "tiktok", url: u, name: `TikTok LIVE ${new Date().toLocaleDateString("ms-MY", { day: "numeric", month: "short", year: "numeric" })}` }
+        : { type: srcType, url: u };
     }
     let range: { start: number; end: number } | null = null;
     if (more && (rangeFrom.trim() || rangeTo.trim())) {
@@ -411,25 +426,54 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
           <div>
             <h2 className="text-base font-extrabold text-[var(--color-text-primary)]">CLIPPER — video panjang jadi klip viral</h2>
             <p className="text-[11px] text-[var(--color-text-secondary)] leading-snug mt-0.5">
-              Tampal pautan YouTube / Google Drive atau upload video. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
+              Tampal pautan YouTube / replay TikTok LIVE / Google Drive atau upload video. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
               kemudian jana klip 9:16 — kamera ikut muka penutur, caption animasi, hook &amp; edit penuh AI.
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Chip active={srcType === "youtube"} onClick={() => setSrcType("youtube")}><Play className="w-3.5 h-3.5" />YouTube</Chip>
+          <Chip active={srcType === "tiktok"} onClick={() => setSrcType("tiktok")}><Radio className="w-3.5 h-3.5" />TikTok LIVE</Chip>
           <Chip active={srcType === "gdrive"} onClick={() => setSrcType("gdrive")}><HardDrive className="w-3.5 h-3.5" />Google Drive</Chip>
           <Chip active={srcType === "upload"} onClick={() => setSrcType("upload")}><Upload className="w-3.5 h-3.5" />Upload</Chip>
         </div>
 
+        {srcType === "tiktok" && (
+          <div className="rounded-xl p-3 space-y-2 text-[11px] leading-snug" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
+            <div className="text-xs font-extrabold text-[var(--color-text-primary)]">Cara ambil link replay LIVE (Seller Center) — setup sekali, kemudian 2 klik</div>
+            <ol className="list-decimal pl-4 space-y-1.5 text-[var(--color-text-secondary)]">
+              <li>
+                <b>Sekali sahaja:</b> seret butang ini ke <b>bookmark bar</b> Chrome (tekan <b>Ctrl+Shift+B</b> jika bookmark bar tak nampak):{" "}
+                <a ref={(el) => { if (el) el.setAttribute("href", LIVE_BOOKMARKLET); }} draggable
+                  onClick={(e) => { e.preventDefault(); setNotice("Seret butang 📌 Ambil link LIVE ke bookmark bar Chrome (jangan klik di sini) — kemudian klik bookmark itu pada halaman LIVE Dashboard."); }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-white font-extrabold cursor-grab align-middle" style={{ background: THEME.gradient }}>
+                  📌 Ambil link LIVE
+                </a>
+              </li>
+              <li>Buka <b>Seller Center → LIVE → Performance</b>, klik gambar LIVE yang anda mahu (atau butang <b>LIVE dashboard</b>).</li>
+              <li>Pada panel <b>Replay</b> di sebelah kanan, tekan <b>play</b> dan tunggu ~5 saat.</li>
+              <li>Klik bookmark <b>📌 Ambil link LIVE</b> — link replay disalin automatik.</li>
+              <li>Kembali ke sini, tampal (<b>Ctrl+V</b>) dalam kotak di bawah, kemudian tekan <b>Analisa</b>.</li>
+            </ol>
+            <p className="text-[10px] text-[var(--color-text-muted)]">
+              Link sah ~30 hari selepas LIVE. Tak boleh seret?{" "}
+              <button type="button" className="underline font-bold" style={{ color: THEME.primary }}
+                onClick={() => { navigator.clipboard.writeText(LIVE_BOOKMARKLET).then(() => setNotice("Kod butang disalin — klik kanan bookmark bar → Add page → nama \"Ambil link LIVE\", tampal kod dalam URL → Save."), () => undefined); }}>
+                Salin kod butang
+              </button>{" "}
+              → klik kanan bookmark bar → <i>Add page</i> → tampal dalam URL.
+            </p>
+          </div>
+        )}
+
         {srcType !== "upload" ? (
           <div className="space-y-2">
-            <label className={label}>{srcType === "youtube" ? "Pautan video YouTube" : "Pautan fail Google Drive"}</label>
+            <label className={label}>{srcType === "youtube" ? "Pautan video YouTube" : srcType === "tiktok" ? "Link replay TikTok LIVE" : "Pautan fail Google Drive"}</label>
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--color-bg)]" style={{ border: `1px solid ${THEME.soft}` }}>
               <Link2 className="w-4 h-4 shrink-0" style={{ color: THEME.primary }} />
               <input className="w-full bg-transparent outline-none text-sm text-[var(--color-text)]" value={link} onChange={(e) => setLink(e.target.value)}
-                placeholder={srcType === "youtube" ? "https://www.youtube.com/watch?v=…  /  https://youtu.be/…" : "https://drive.google.com/file/d/…/view"} />
+                placeholder={srcType === "youtube" ? "https://www.youtube.com/watch?v=…  /  https://youtu.be/…" : srcType === "tiktok" ? "Tampal link dari butang 📌 Ambil link LIVE (…m3u8…)" : "https://drive.google.com/file/d/…/view"} />
               {link && <button type="button" onClick={() => setLink("")} aria-label="Kosongkan"><X className="w-4 h-4 text-[var(--color-text-muted)]" /></button>}
             </div>
             {srcType === "gdrive" && <p className="text-[10px] text-[var(--color-text-muted)]">Fail video mesti dikongsi &quot;Anyone with the link&quot; (Share → General access). Sesuai untuk video besar / panjang (sehingga 12GB).</p>}

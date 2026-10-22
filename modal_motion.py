@@ -3289,6 +3289,86 @@ def _yt_audio(url: str, d: Path) -> Path:
 GDRIVE_MAX = 12 * 1024 ** 3  # a 3-hour 1080p recording is ~3–8 GB
 
 
+def _hls_download(url: str, dest: Path, workers: int = 16) -> Path:
+    """A TikTok LIVE replay (Seller Center → LIVE Dashboard → Replay: an HLS playlist of ~6 s .ts pieces, signed links that
+    need no login) → one MP4. The pieces come down in parallel (a 2-hour live ≈ 1,200 pieces / ~3 GB in a few minutes,
+    ~18 min one by one), then ffmpeg joins them through a local playlist (keeps the playlist's discontinuities)."""
+    import shutil
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+    from urllib.parse import urljoin
+    ses = requests.Session()
+    ses.headers["User-Agent"] = UA
+    r = ses.get(url, timeout=60)
+    if r.status_code in (401, 403, 404, 410):
+        raise RuntimeError("Link LIVE sudah tamat tempoh atau tidak sah — ambil link baru dari Replay (butang Ambil link LIVE).")
+    r.raise_for_status()
+    text = r.text
+    if "#EXTM3U" not in text[:200]:
+        raise RuntimeError("Itu bukan link replay LIVE (m3u8).")
+    if "#EXT-X-STREAM-INF" in text:  # a master playlist: the best variant
+        lines = text.splitlines()
+        best = None
+        for i, ln in enumerate(lines):
+            if ln.startswith("#EXT-X-STREAM-INF") and i + 1 < len(lines):
+                m = re.search(r"BANDWIDTH=(\d+)", ln)
+                bw = int(m.group(1)) if m else 0
+                if best is None or bw > best[0]:
+                    best = (bw, urljoin(url, lines[i + 1].strip()))
+        if not best:
+            raise RuntimeError("Link LIVE tiada video.")
+        url = best[1]
+        text = ses.get(url, timeout=60).text
+    if "#EXT-X-KEY" in text and "METHOD=NONE" not in text:
+        raise RuntimeError("Replay LIVE ini disulitkan — muat turun replay dan upload / guna Google Drive.")
+    work = dest.parent / "hls_parts"
+    work.mkdir(parents=True, exist_ok=True)
+    out_lines, jobs, total = [], [], 0.0
+    for ln in text.splitlines():
+        t = ln.strip()
+        if t.startswith("#EXTINF:"):
+            try:
+                total += float(t[8:].split(",")[0])
+            except ValueError:
+                pass
+        if t and not t.startswith("#"):
+            f = work / f"p{len(jobs):05d}.ts"
+            jobs.append((urljoin(url, t), f))
+            out_lines.append(str(f))
+        else:
+            out_lines.append(ln)
+    if not jobs:
+        raise RuntimeError("Link LIVE tiada video.")
+    if total > CLIP_MAX_SOURCE_SEC:
+        raise RuntimeError("LIVE terlalu panjang (maks 4 jam).")
+
+    def get(job):
+        u, f = job
+        last = None
+        for attempt in range(5):
+            try:
+                with ses.get(u, timeout=90, stream=True) as rr:
+                    rr.raise_for_status()
+                    with open(f, "wb") as fh:
+                        for chunk in rr.iter_content(1 << 20):
+                            fh.write(chunk)
+                return f.stat().st_size
+            except Exception as e:  # noqa: BLE001
+                last = e
+                time.sleep(1 + attempt * 2)
+        raise RuntimeError(f"Sebahagian video LIVE gagal dimuat turun: {str(last)[:120]}")
+    t0 = time.time()
+    with ThreadPoolExecutor(workers) as ex:
+        size = sum(ex.map(get, jobs))
+    print(f"live replay: {len(jobs)} pieces, {size / 1e6:.0f} MB, {total / 60:.1f} min in {round(time.time() - t0)} s", flush=True)
+    local = work / "local.m3u8"
+    local.write_text("\n".join(out_lines), encoding="utf-8")
+    _run(["ffmpeg", "-v", "error", "-y", "-allowed_extensions", "ALL", "-protocol_whitelist", "file", "-i", str(local), "-c", "copy",
+          "-bsf:a", "aac_adtstoasc", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", str(dest)], "live replay join", 1800)
+    shutil.rmtree(work, ignore_errors=True)
+    return dest
+
+
 def _gdrive_download(url: str, dest: Path) -> Path:
     """A Google Drive file shared as "Anyone with the link" → local file (server to server, no upload by the client).
     A big file first answers with Drive's "can't scan for viruses" page: its form is submitted to get the file."""
@@ -3594,13 +3674,13 @@ def _clip_analyze(p: dict, d: Path) -> dict:
             wav = _audio16k(str(audio), d / "audio16k.wav")
             lang = lang or (want if want != "auto" else None) or m.get("spoken")
     else:
-        if kind == "gdrive":
+        if kind in ("gdrive", "tiktok"):
             _progress("download", 6)
             gtmp = Path(tempfile.mkdtemp(prefix="gdrive_"))  # local disk (a 2–3 hour file is GBs)
-            local = _gdrive_download(url, gtmp / "source.mp4")
+            local = _gdrive_download(url, gtmp / "source.mp4") if kind == "gdrive" else _hls_download(url, gtmp / "source.mp4")
             info = _probe(local)
             if not info.get("w"):
-                raise RuntimeError("Fail Google Drive itu bukan video.")
+                raise RuntimeError("Fail Google Drive itu bukan video." if kind == "gdrive" else "Replay LIVE itu tiada video.")
             # the clip renders read their segments from a B2 copy: uploaded in the background meanwhile
             media_url = _b2_public_url(f"users/{uid}/clipper/{hid}-source.mp4")
             upbox: dict = {}
@@ -3698,7 +3778,7 @@ def _clip_analyze(p: dict, d: Path) -> dict:
     clips_out = (plan or {}).get("clips") or []
     if clips_out and p.get("vision_url"):
         vsrc = None
-        if kind == "gdrive":
+        if kind in ("gdrive", "tiktok"):
             vsrc = str(local)
         elif kind == "upload":
             vsrc = url
@@ -3714,7 +3794,7 @@ def _clip_analyze(p: dict, d: Path) -> dict:
                 clips_out = _visual_check(clips_out, vsrc, p, d, uid, hid)
             except Exception as e:  # noqa: BLE001
                 print("vision check failed (picks kept as they are):", str(e)[:200], flush=True)
-    if kind == "gdrive":
+    if kind in ("gdrive", "tiktok"):
         _progress("save", 92)
         upthread.join(timeout=1800)
         shutil.rmtree(gtmp, ignore_errors=True)
