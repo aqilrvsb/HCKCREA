@@ -33,6 +33,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -3175,8 +3176,8 @@ def _lines_speakers(lines: list, turns: list) -> None:
 
 # audio events → transcript tags the director reads ([KETAWA] after a punchline = the moment landed);
 # the reaction usually FOLLOWS the line, so laughter / applause / cheering look 2 s past its end
-EVENT_TAGS = (("laugh", "KETAWA", 0.35, 2.0), ("applause", "TEPUK", 0.35, 2.0), ("cheer", "SORAK", 0.4, 2.0),
-              ("shout", "JERIT", 0.45, 0.0), ("music", "MUZIK", 0.6, 0.0))
+EVENT_TAGS = (("laugh", "KETAWA", 0.18, 2.0), ("applause", "TEPUK", 0.3, 2.0), ("cheer", "SORAK", 0.3, 2.0),
+              ("shout", "JERIT", 0.3, 0.0), ("music", "MUZIK", 0.5, 0.0))
 
 
 def _tag_lines(lines: list, events: list) -> int:
@@ -3422,6 +3423,72 @@ def _asr_long(wav: Path, d: Path, language: str | None) -> list:
     return words
 
 
+# CLIPPER audio engine (GPU L4, clipper-asd/audio_intel.py): Whisper large-v3-turbo (MIT) + forced alignment (cahya
+# wav2vec2 Indonesian/Malay, Apache-2.0) + pyannote community-1 speakers (CC-BY-4.0; gated — skipped until the HF account
+# behind "lh-hf" accepts its terms, then bump diar_tag) + PANNs sound events (CC-BY-4.0). The image is built locally
+# only (inside containers the definition isn't rebuilt).
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "clipper-asd"))
+    from audio_intel_image import build_image as _audio_image_builder
+    audio_image = _audio_image_builder(modal, hf_secret="lh-hf", diar_mirror=False, diar_tag="1").add_local_file(
+        "clipper-asd/audio_intel.py", "/app/clipper-asd/audio_intel.py", copy=True)
+except Exception as _e:  # noqa: BLE001
+    if modal.is_local():
+        raise
+    audio_image = modal.Image.debian_slim(python_version="3.11")
+
+
+@app.function(image=audio_image, gpu="L4", cpu=8.0, memory=16384, timeout=1800, secrets=[modal.Secret.from_name("lh-hf")],
+              volumes={JOBS_ROOT: JOBS}, scaledown_window=180)
+def clip_audio(rel: str | None, data: bytes | None, language: str | None, hint: str | None, stages: list) -> dict:
+    """The audio engine on one file: a jobs-Volume path (a whole podcast) or bytes (a clip). → words / turns / events."""
+    if "/app/clipper-asd" not in sys.path:
+        sys.path.insert(0, "/app/clipper-asd")
+    import audio_intel
+    if rel:
+        JOBS.reload()
+        path = str(Path(JOBS_ROOT) / rel)
+    else:
+        f = Path(tempfile.mkdtemp(prefix="ai_")) / "clip.audio"
+        f.write_bytes(data or b"")
+        path = str(f)
+    t = time.time()
+    res = audio_intel.run(path, language=language or None, hint=(hint or None), stages=tuple(stages))
+    res["wall"] = round(time.time() - t, 1)
+    return res
+
+
+def _engine_get(call, what: str, timeout: int = 1700) -> dict | None:
+    try:
+        res = call.get(timeout=timeout)
+        print(f"audio engine ({what}): {len(res.get('words') or [])} words, {len(res.get('speakers') or [])} speakers, "
+              f"{len(res.get('turns') or [])} turns, {len(res.get('events') or [])} event seconds, timing {res.get('timing')}", flush=True)
+        for n in (res.get("notes") or [])[:6]:
+            print("  note:", str(n)[:200], flush=True)
+        return res
+    except Exception as e:  # noqa: BLE001
+        print(f"audio engine ({what}) failed — the CPU path instead:", str(e)[:300], flush=True)
+        return None
+
+
+def _assign_speakers(words: list, turns: list) -> None:
+    """Each word gets the speaker of the turn covering its midpoint (or the nearest turn within 1 s)."""
+    import bisect
+    starts = [t["s"] for t in turns]
+    for w in words:
+        mid = (w["t"] + w["e"]) / 2
+        i = bisect.bisect_right(starts, mid) - 1
+        best, dist = None, 1e9
+        for j in (i, i + 1):
+            if 0 <= j < len(turns):
+                t = turns[j]
+                dd = 0.0 if t["s"] <= mid <= t["e"] else min(abs(mid - t["s"]), abs(mid - t["e"]))
+                if dd < dist:
+                    best, dist = t["spk"], dd
+        if best and dist <= 1.0:
+            w["spk"] = best
+
+
 def _clip_analyze(p: dict, d: Path) -> dict:
     import shutil
     import requests
@@ -3487,14 +3554,63 @@ def _clip_analyze(p: dict, d: Path) -> dict:
         wav = _audio16k(src_for_audio, d / "audio16k.wav")
     if meta["duration"] > CLIP_MAX_SOURCE_SEC:
         raise RuntimeError("Video terlalu panjang (maks 4 jam).")
-    if not lines:
+    # ── the GPU audio engine: who speaks when + laughter / applause / music (+ the transcript when there are no
+    # captions: Whisper large-v3-turbo, word-aligned) ──
+    eng_path = None
+    if kind == "youtube" and wav is None:
+        try:
+            _progress("audio", 20)
+            audio = d / "yt_audio.ogg"
+            audio.write_bytes(_yt_call("audio", url, None, p.get("yt_auth"))["data"])
+            eng_path = audio
+        except Exception as e:  # noqa: BLE001
+            print("audio for the engine not fetched (captions only):", str(e)[:200], flush=True)
+    elif kind == "youtube":
+        eng_path = d / "yt_audio.ogg" if (d / "yt_audio.ogg").exists() else wav
+    else:
+        eng_path = wav
+    turns, events = [], []
+    if eng_path is not None and Path(eng_path).exists():
+        JOBS.commit()
+        rel = str(Path(eng_path).relative_to(JOBS_ROOT))
+        hint = str(meta.get("title") or "")[:120] or None
+        lang_hint = (want if want != "auto" else None) or lang
+        if lines:  # captions: speakers + sound events only
+            _progress("speakers", 30)
+            res = _engine_get(clip_audio.spawn(rel, None, lang_hint, hint, ["diar", "events", "energy"]), "speakers + events")
+        else:  # the transcript too — transcription and speaker separation side by side
+            _progress("transcript", 30)
+            main = clip_audio.spawn(rel, None, lang_hint, hint, ["asr", "align", "events", "energy"])
+            diar = clip_audio.spawn(rel, None, lang_hint, hint, ["diar"])
+            res = _engine_get(main, "transcript + events")
+            rd = _engine_get(diar, "speakers")
+            if res is not None and rd is not None:
+                res["turns"] = rd.get("turns") or []
+            if res and len(res.get("words") or []) >= 20:
+                words = res["words"]
+                if res.get("turns"):
+                    _assign_speakers(words, res["turns"])
+                lines = _words_to_lines(words)
+                cap_src = "whisper-turbo"
+                lang = res.get("language") or lang
+        if res:
+            turns, events = res.get("turns") or [], res.get("events") or []
+    if not lines:  # the engine failed: the CPU transcriber (Whisper small, in parallel chunks)
+        if wav is None and eng_path is not None:
+            wav = _audio16k(str(eng_path), d / "audio16k.wav")
+        if wav is None:
+            raise RuntimeError("Tak dapat baca audio video ini.")
         lang = (want if want != "auto" else None) or _detect_language(wav)
-        _progress("transcript", 30)
+        _progress("transcript", 40)
         words = _asr_long(wav, d, lang)
         lines = _words_to_lines(words)
         cap_src = "whisper"
-        if not heat:
-            heat = _energy_heatmap(wav)
+    if not heat and wav is not None:
+        heat = _energy_heatmap(wav)
+    if turns and cap_src == "youtube":
+        _lines_speakers(lines, turns)
+    if events:
+        print(f"audio tags on {_tag_lines(lines, events)} lines", flush=True)
     if len(lines) < 3:
         raise RuntimeError("Tiada percakapan yang boleh dibaca dalam video ini.")
     meta["language"] = lang
@@ -3524,6 +3640,8 @@ def _clip_analyze(p: dict, d: Path) -> dict:
         seg_url = _upload_b2(tf, f"users/{uid}/clipper/{hid}-transcript.json", "application/json")
     except Exception as e:  # noqa: BLE001
         print("transcript upload failed:", str(e)[:200], flush=True)
+    # the speaker turns (compact) — each clip render gets its own slice for the camera's speaker cuts
+    meta["turns"] = [[round(float(t["s"]), 2), round(float(t["e"]), 2), str(t["spk"])] for t in turns[:8000]]
     return {"ok": True, "analysis": {**meta, "media_url": media_url, "heatmap": heat, "caption_source": cap_src, "transcript_url": seg_url,
                                      "lines": len(lines), "summary": (plan or {}).get("summary") or "", "clips": (plan or {}).get("clips") or [],
                                      "director": (plan or {}).get("director"), "plan_error": err or None}}
@@ -3888,7 +4006,7 @@ def _reframe(src: Path, out: Path, d: Path, mode: str = "face", turns=None) -> d
     return {"mode": mode, "shots": report}
 
 
-def _clip_segments(words: list, dur: float):
+def _clip_segments(words: list, dur: float, gap: float = 0.6):
     """A clip's pace: pauses longer than 0.6 s shortened (0.12 s / 0.18 s padding keeps the breaths), "erm/aah" fillers
     cut — Malay particles ("eh") stay. Gentler than an Edit Video's jump cut: a podcast clip must still sound natural."""
     kept = [w for w in words if not (_is_filler(w["w"]) and _wnorm(w["w"]) not in ("eh", "ehh"))]
@@ -3897,7 +4015,7 @@ def _clip_segments(words: list, dur: float):
         s, e = max(0.0, w["t"] - 0.12), min(dur, w["e"] + 0.18)
         if e <= s:
             continue
-        if segs and s - segs[-1][1] <= 0.6:
+        if segs and s - segs[-1][1] <= gap:
             segs[-1][1] = max(segs[-1][1], e)
         else:
             segs.append([s, e])
@@ -3974,13 +4092,32 @@ def _clip_prepare(p: dict, d: Path) -> dict:
             seg.write_bytes(_yt_call("segment", str(c.get("url")), {"start": start, "end": end}, p.get("yt_auth"))["data"])
     else:
         _media_segment(str(c.get("media_url") or c.get("url")), start, end, seg)
+    lang = c.get("language") or p.get("language")
+    # the clip's words on the GPU engine (Whisper turbo + alignment), running while the camera is planned
+    asr_call = None
+    try:
+        a16 = d / "clip_audio.ogg"
+        _run(["ffmpeg", "-v", "error", "-y", "-i", str(seg), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "48k", str(a16)], "clip audio", 300)
+        asr_call = clip_audio.spawn(None, a16.read_bytes(), lang if lang in ("ms", "en", "id") else None,
+                                    str(c.get("title") or "")[:120] or None, ["asr", "align"])
+    except Exception as e:  # noqa: BLE001
+        print("clip audio engine not started:", str(e)[:200], flush=True)
+    # who speaks when (from the analysis, clip seconds) → the camera cuts on speaker turns
+    turns = [{"s": float(t["s"]), "e": float(t["e"]), "spk": str(t["spk"])} for t in (c.get("turns") or [])
+             if isinstance(t, dict) and float(t.get("e", 0)) > float(t.get("s", 0))] or None
     _progress("reframe", 8)
     framed = d / "framed.mp4"
-    rep = _reframe(seg, framed, d, str(c.get("frame") or "face"))
+    rep = _reframe(seg, framed, d, str(c.get("frame") or "face"), turns=turns)
     src = framed if framed.exists() else seg
     _progress("transcribe", 14)
-    lang = c.get("language") or p.get("language")
-    words = _transcribe(src, lang if lang in ("ms", "en", "id") else None, vad=True)
+    words, aligned = None, False
+    if asr_call is not None:
+        res = _engine_get(asr_call, "clip words", 900)
+        if res and res.get("words"):
+            words = [{"w": w["w"], "t": float(w["t"]), "e": float(w["e"])} for w in res["words"] if str(w.get("w") or "").strip()]
+            aligned = True
+    if not words:
+        words = _transcribe(src, lang if lang in ("ms", "en", "id") else None, vad=True)
     # the captions' spelling, cleaned like an Edit Video draft (one fast AI call; timing untouched)
     if p.get("captions") is not False and words:
         _progress("captions", 18)
@@ -4003,7 +4140,8 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     info = _probe(src)
     segs = None
     if c.get("jumpcut", True) is not False and words:
-        sg, kept = _clip_segments(words, info["duration"])
+        # aligned word edges are tight: a dropped "erm" / long breath shows as a gap — trim from 0.45 s
+        sg, kept = _clip_segments(words, info["duration"], 0.45 if aligned else 0.6)
         if sg and info["duration"] - sum(e - s for s, e in sg) > 0.8:  # worth a cut
             words, _ = _remap_words(kept, sg)
             segs = [[round(s, 3), round(e, 3)] for s, e in sg]

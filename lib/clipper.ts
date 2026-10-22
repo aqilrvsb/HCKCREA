@@ -73,6 +73,8 @@ export type ClipperAnalysis = {
   clips: ClipperClip[];
   director?: string | null;
   plan_error?: string | null;
+  /** diarized speaker turns [start, end, "S1"] (source seconds), when the audio engine had speakers */
+  turns?: [number, number, string][];
 };
 
 const YT_ID = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;

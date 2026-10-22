@@ -1,0 +1,30 @@
+{
+  "_note": "CLIPPER director eval set. lang = the director's language option (cleanOptions language) and the caption language fetch.py accepts. All 30-180 min, all had a YouTube 'most replayed' heatmap + auto captions when picked (2026-10-22). Entries with backup / exclude are skipped by fetch.py and run.ts unless named with --only (backups: fetch.py --backups).",
+  "videos": [
+    { "id": "RzTpVzrb5Ts", "lang": "ms", "channel": "YouCast" },
+    { "id": "_XTsQY2d75E", "lang": "ms", "channel": "YouCast" },
+    { "id": "IT1sGTGEPCo", "lang": "ms", "channel": "SembangOhhYeahh" },
+    { "id": "XBCAhejVryY", "lang": "ms", "channel": "SembangOhhYeahh" },
+    { "id": "UxOmx6revJ4", "lang": "ms", "channel": "SembangOhhYeahh" },
+    { "id": "gf18YIVsHg8", "lang": "ms", "channel": "Safwan Nazri Podcast" },
+    { "id": "LvDdKAMqFCY", "lang": "ms", "channel": "Safwan Nazri Podcast" },
+    { "id": "W8FRXpLtpYA", "lang": "ms", "channel": "zukiemohamad (Sembang Kopi Tebu)" },
+    { "id": "5THATcBPYtE", "lang": "ms", "channel": "zukiemohamad (Podcast Kopi Tebu)" },
+    { "id": "LfWsjoE3ODQ", "lang": "ms", "channel": "Hanif Asyraf" },
+    { "id": "uIE-lkMrFkg", "lang": "ms", "channel": "iK Studio" },
+    { "id": "0dyoC_HZsrs", "lang": "en", "channel": "Theo Von (This Past Weekend) ft. Uncle Roger" },
+    { "id": "Jj3ND_S6geU", "lang": "en", "channel": "Theo Von (This Past Weekend) ft. Ben Affleck" },
+    { "id": "O59hv39mnVo", "lang": "en", "channel": "The Game Of Impossible (Malaysian, English)" },
+    { "id": "_wWSIcIQfbA", "lang": "en", "channel": "The Game Of Impossible (Malaysian, English)" },
+
+    { "id": "l3pWuepxJ20", "lang": "ms", "channel": "YouCast", "backup": true },
+    { "id": "2F8NIRLY_V8", "lang": "ms", "channel": "SembangOhhYeahh", "backup": true },
+    { "id": "FRtc4v2Uheo", "lang": "ms", "channel": "Studio Sembang", "exclude": "captions cover 25 % of the video (18 words/min)" },
+    { "id": "gAxNYd01I6E", "lang": "en", "channel": "Modern Wisdom", "exclude": "4 tries: only the Arabic dub caption track (ar-orig) came back" },
+    { "id": "mbujnYV-USc", "lang": "ms", "channel": "Safwan Nazri Podcast", "exclude": "no caption track at all" },
+    { "id": "GlaSnROMqRY", "lang": "en", "channel": "The Diary Of A CEO", "exclude": "no heatmap" },
+    { "id": "VRPwzlLeudU", "lang": "ms", "channel": "abangcrime", "exclude": "no heatmap" },
+    { "id": "oFnuTgypMJU", "lang": "ms", "channel": "Too Pretty To Handle", "exclude": "no heatmap" },
+    { "id": "w1xEwL5wRnY", "lang": "ms", "channel": "AididitMyWay", "exclude": "no heatmap" }
+  ]
+}

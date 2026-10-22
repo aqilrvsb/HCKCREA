@@ -60,6 +60,13 @@ export async function POST(req: Request) {
   }
   const language = (["ms", "en", "id"].includes(String(a.language)) ? a.language : "ms") as "ms" | "en" | "id";
 
+  // the analysis' speaker turns [[s, e, "S1"], …] (source seconds) → one clip's, in clip seconds
+  const turnsIn = (all: unknown, s: number, e: number) =>
+    (Array.isArray(all) ? all : [])
+      .filter((t: any) => Array.isArray(t) && Number(t[1]) > s && Number(t[0]) < e)
+      .map((t: any) => ({ s: Math.round(Math.max(0, Number(t[0]) - s) * 100) / 100, e: Math.round((Math.min(e, Number(t[1])) - s) * 100) / 100, spk: String(t[2]) }))
+      .slice(0, 400);
+
   // the clips
   const dur = Number(a.duration) || 0;
   const clips = (Array.isArray(b?.clips) ? b.clips : []).slice(0, MAX_CLIPS).map((c: any) => {
@@ -172,6 +179,8 @@ export async function POST(req: Request) {
       clip: {
         source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language, jumpcut,
         ...(c.flash ? { flash: c.flash } : {}),
+        // who speaks when inside this clip (clip seconds) — the camera cuts on speaker turns
+        turns: turnsIn(a.turns, c.start, c.end),
         ...(wmText || wmImage ? { watermark: { ...(wmText ? { text: wmText } : {}), ...(wmImage ? { image: wmImage } : {}) } } : {}),
       },
     });
