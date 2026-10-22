@@ -147,7 +147,13 @@ export type EditInput = {
   engine?: MotionEngine;
   /** CLIPPER: a clip of a long video. mode "captions" = the clip with captions + its hook (no AI edit plan);
    *  "auto" / "style" = the full AI edit (AI Auto, or one of the 40 styles via locks.styleId). */
-  clip?: { mode: "captions" | "auto" | "style"; title: string; hook?: string; job_id?: string; start?: number; end?: number };
+  clip?: {
+    mode: "captions" | "auto" | "style"; title: string; hook?: string; job_id?: string; start?: number; end?: number;
+    /** the cold open: the clip's strongest line (source seconds) teased before it starts */
+    flash?: { start: number; end: number } | null;
+    /** captions mode: keyword colours + emoji, punch-in zooms and a progress bar (one quick AI call) */
+    polish?: boolean;
+  };
 };
 
 // ── config + Modal client ─────────────────────────────────────────────────────

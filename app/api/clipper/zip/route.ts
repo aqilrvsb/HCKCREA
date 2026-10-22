@@ -17,9 +17,20 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => ({} as any));
   const ids = (Array.isArray(b?.ids) ? b.ids : []).map(String).filter((x: string) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 40);
   if (!ids.length) return NextResponse.json({ error: "Tiada klip dipilih." }, { status: 400 });
-  const { data: rows } = await createAdminClient().from("history").select("id, prompt, output_url, status")
+  const admin = createAdminClient();
+  const { data: rows } = await admin.from("history").select("id, prompt, output_url, status, metadata->clipper")
     .in("id", ids).eq("user_id", user.id).eq("tab", CLIPPER_TAB).eq("status", "done");
-  const items = (rows ?? []).filter((r: any) => r.output_url).map((r: any) => ({ url: r.output_url, name: r.prompt || "klip" }));
+  // the posting kit per clip (title / hook / caption / hashtags) from its analysis
+  const jobIds = [...new Set((rows ?? []).map((r: any) => r.clipper?.job_id).filter((x: unknown): x is string => typeof x === "string"))];
+  const { data: jobs } = jobIds.length
+    ? await admin.from("history").select("id, metadata->analysis->clips").in("id", jobIds).eq("user_id", user.id)
+    : { data: [] as any[] };
+  const kitOf = (r: any) => {
+    const clips: any[] = (jobs ?? []).find((j: any) => j.id === r.clipper?.job_id)?.clips ?? [];
+    const c = clips.find((x) => Math.abs(Number(x?.start) - Number(r.clipper?.start)) < 6) ?? null;
+    return { title: r.clipper?.title || r.prompt || "", hook: r.clipper?.hook || c?.hook || "", caption: c?.caption || "", hashtags: Array.isArray(c?.hashtags) ? c.hashtags : [] };
+  };
+  const items = (rows ?? []).filter((r: any) => r.output_url).map((r: any) => ({ url: r.output_url, name: r.prompt || "klip", kit: kitOf(r) }));
   if (!items.length) return NextResponse.json({ error: "Tiada klip siap untuk dimuat turun." }, { status: 400 });
   const cfg = await getMotionConfig();
   if (!cfg) return NextResponse.json({ error: "Motion renderer not configured" }, { status: 500 });

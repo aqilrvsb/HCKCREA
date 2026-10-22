@@ -27,7 +27,12 @@ export async function POST(req: Request) {
 
   const num = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
   const lines: Line[] = (Array.isArray(b?.segments) ? b.segments : []).slice(0, 20000)
-    .map((l: any) => ({ start: num(l?.start), end: num(l?.end), text: String(l?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 400) }))
+    .map((l: any) => {
+      // the speaker (diarization) + audio events at the line, when the analysis has them
+      const spk = typeof l?.spk === "string" && /^S\d{1,2}$/.test(l.spk) ? l.spk : undefined;
+      const tags = Array.isArray(l?.tags) ? l.tags.map((t: unknown) => String(t ?? "").toUpperCase()).filter((t: string) => /^[A-Z ]{3,16}$/.test(t)).slice(0, 4) : [];
+      return { start: num(l?.start), end: num(l?.end), text: String(l?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 400), ...(spk ? { spk } : {}), ...(tags.length ? { tags } : {}) };
+    })
     .filter((l: Line) => l.text && l.end > l.start);
   const heatmap: HeatPoint[] = (Array.isArray(b?.heatmap) ? b.heatmap : []).slice(0, 400)
     .map((h: any) => ({ start: num(h?.start), end: num(h?.end), value: Math.max(0, Math.min(1, Number(h?.value) || 0)) }))

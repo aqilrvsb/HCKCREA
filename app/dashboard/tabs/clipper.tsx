@@ -19,6 +19,9 @@ type SrcType = "youtube" | "gdrive" | "upload";
 type Clip = {
   start: number; end: number; title: string; hook: string; score: number; reason: string; caption: string;
   hashtags: string[]; quote: string; text: string; interest?: number;
+  scores?: { hook: number; flow: number; value: number; payoff: number };
+  flash?: { start: number; end: number } | null;
+  speakers?: string[];
 };
 type Render = { id: string; status: string; url: string | null; title: string; start: number | null };
 type Job = {
@@ -135,6 +138,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const [music, setMusic] = useState(false);
   const [sfx, setSfx] = useState(true);
   const [jumpcut, setJumpcut] = useState(true);
+  const [coldOpen, setColdOpen] = useState(true);
+  const [polish, setPolish] = useState(true);
   const [wmText, setWmText] = useState("");
   const [wmImage, setWmImage] = useState("");
   const [wmBusy, setWmBusy] = useState(false);
@@ -157,6 +162,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
         if (typeof p.music === "boolean") setMusic(p.music);
         if (typeof p.sfx === "boolean") setSfx(p.sfx);
         if (typeof p.jumpcut === "boolean") setJumpcut(p.jumpcut);
+        if (typeof p.coldOpen === "boolean") setColdOpen(p.coldOpen);
+        if (typeof p.polish === "boolean") setPolish(p.polish);
         if (typeof p.wmText === "string") setWmText(p.wmText);
         if (typeof p.wmImage === "string") setWmImage(p.wmImage);
         if (["15", "30", "60", "auto"].includes(p.duration)) setDuration(p.duration);
@@ -165,8 +172,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => setRate(Number(d?.rate) || null)).catch(() => undefined);
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ mode, styleId, frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, wmText, wmImage, duration })); } catch { /* private mode */ }
-  }, [mode, styleId, frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, wmText, wmImage, duration]);
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ mode, styleId, frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration })); } catch { /* private mode */ }
+  }, [mode, styleId, frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration]);
 
   // ── the analyses list (polled while something runs) ──
   const load = useCallback(async () => {
@@ -338,8 +345,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
         body: JSON.stringify({
           job_id: job.id,
           project_id: projectId,
-          clips: selClips.map((c) => ({ start: c.start, end: c.end, title: c.title, hook: c.hook })),
-          settings: { mode, styleId, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
+          clips: selClips.map((c) => ({ start: c.start, end: c.end, title: c.title, hook: c.hook, flash: c.flash ?? null })),
+          settings: { mode, styleId, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
         }),
       });
       const d = await r.json();
@@ -623,6 +630,12 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                             </span>
                             <span className="text-[11px] font-bold text-[var(--color-text-secondary)]">#{i + 1} · {fmt(c.start)}–{fmt(c.end)} · {Math.round(c.end - c.start)}s</span>
                             {typeof c.interest === "number" && c.interest > 0 && <span className="text-[10px] text-[var(--color-text-muted)]">{job.source?.type === "youtube" ? "replay" : "tenaga"} {Math.round(c.interest * 100)}%</span>}
+                            {c.scores && (
+                              <span className="text-[10px] text-[var(--color-text-muted)]" title="Penilaian AI (0–10): hook 3 saat pertama · faham tanpa konteks · nilai/emosi · penutup padu">
+                                Hook {c.scores.hook} · Faham {c.scores.flow} · Nilai {c.scores.value} · Penutup {c.scores.payoff}
+                              </span>
+                            )}
+                            {c.flash && <span className="text-[10px] font-bold" style={{ color: THEME.primary }} title="Dibuka dengan ayat paling padu (cold open)">⚡ cold open</span>}
                             {/* oldest first: a failed attempt hides once a newer one exists (a retry that worked) */}
                             {rs.filter((r, k) => r.status !== "failed" || k === rs.length - 1).map((r) => (
                               <span key={r.id} className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md"
@@ -723,6 +736,22 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                         <Chip active={!hookOn} onClick={() => setHookOn(false)}>Tiada</Chip>
                       </div>
                     </div>
+                    <div>
+                      <label className={label}>Buka dengan punchline</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Chip active={coldOpen} onClick={() => setColdOpen(true)} title="Klip yang AI tanda ⚡ dibuka dengan ayat paling padu (2–3 saat), kemudian main dari awal">Ya</Chip>
+                        <Chip active={!coldOpen} onClick={() => setColdOpen(false)}>Tidak</Chip>
+                      </div>
+                    </div>
+                    {mode === "captions" && (
+                      <div>
+                        <label className={label}>Highlight kata kunci + zoom</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Chip active={polish} onClick={() => setPolish(true)} title="Kata penting berwarna + emoji, zoom masuk pada ayat penting, bar progres">Ya</Chip>
+                          <Chip active={!polish} onClick={() => setPolish(false)}>Tidak</Chip>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div>

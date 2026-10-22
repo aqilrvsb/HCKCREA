@@ -128,6 +128,8 @@ hf_render_image = (
         f"cd {HF_DIR} && PATH={NODE22}/bin:$PATH PUPPETEER_SKIP_DOWNLOAD=true npm ci --no-audit --no-fund",
         f"cd {HF_DIR} && PATH={NODE22}/bin:$PATH node build/bundle.mjs && ls -la dist",
     )
+    # CLIPPER: the virtual camera (static locks, eased re-centring, speaker cuts on diarized turns)
+    .add_local_file("clipper-asd/camera.py", "/app/clipper-asd/camera.py", copy=True)
 )
 
 
@@ -2891,11 +2893,45 @@ def yt_task(kind: str, url: str, args: dict) -> dict:
         shutil.rmtree(d, ignore_errors=True)
 
 
+def _first_ok(calls: list, timeout: float) -> dict:
+    """Several spawned yt_task calls racing: the first good answer wins (the rest are cancelled); none good → a
+    "blocked" answer when there is one (so the caller keeps retrying), else the last error."""
+    import queue
+    q: queue.Queue = queue.Queue()
+
+    def wait(c):
+        try:
+            q.put(c.get(timeout=timeout))
+        except Exception as e:  # noqa: BLE001
+            q.put({"ok": False, "error": str(e)[:300]})
+    for c in calls:
+        threading.Thread(target=wait, args=(c,), daemon=True).start()
+    seen: list = []
+    for _ in calls:
+        r = q.get()
+        seen.append(r)
+        if r.get("ok"):
+            for c in calls:
+                try:
+                    c.cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+            return r
+    return next((r for r in seen if r.get("blocked")), next((r for r in seen if r.get("nowarp")), seen[-1]))
+
+
 def _yt_call(kind: str, url: str, args: dict | None = None, auth: dict | None = None) -> dict:
-    last: dict = {}
     has_auth = bool(auth and (auth.get("cookies") or auth.get("proxy")))
-    # (via, fresh WARP identity, use the admin's auth)
-    plan = [("warp", False, False), ("warp", True, False), ("warp", True, False)] + [("direct", False, False)] * 2
+    # round 1: two WARP exits at once (the saved identity + a fresh one, two containers) — about 1 in 4 exits is
+    # bot-checked, so racing two cuts both the failures and the wait
+    last = _first_ok([yt_task.spawn(kind, url, {**(args or {}), "via": "warp", "fresh": f}) for f in (False, True)], 1800)
+    if last.get("ok"):
+        return last
+    if not last.get("blocked") and not last.get("nowarp"):
+        raise RuntimeError(str(last.get("error") or "YouTube gagal")[:400])
+    print(f"youtube {'unavailable via WARP' if last.get('nowarp') else 'blocked'} ({kind}, 2 WARP exits), retrying", flush=True)
+    # then one by one: (via, fresh WARP identity, use the admin's auth)
+    plan = [("warp", True, False), ("direct", False, False), ("direct", False, False)]
     plan += [("direct", False, True)] * 3 if has_auth else []
     for i, (via, fresh, use_auth) in enumerate(plan):
         if via == "warp" and last.get("nowarp"):
@@ -2913,6 +2949,58 @@ def _yt_call(kind: str, url: str, args: dict | None = None, auth: dict | None = 
     if last.get("blocked"):
         raise RuntimeError("YouTube menyekat pelayan kami untuk video ini buat masa ini — cuba lagi nanti, atau guna Upload / Google Drive untuk video yang sama.")
     raise RuntimeError(str(last.get("error") or "YouTube gagal")[:400])
+
+
+@app.function(image=yt_image.pip_install("boto3==1.34.0"), cpu=2.0, memory=4096, timeout=3600, secrets=SECRETS)
+def yt_mirror(url: str, key: str) -> dict:
+    """CLIPPER, a YouTube source: the whole video (≤ 1080p) copied to B2 in the background while the analysis runs,
+    so the clip renders cut their segments from our copy — no YouTube call (and no bot-check) at render time."""
+    import shutil
+    global _YT_AUTH
+    d = Path(tempfile.mkdtemp(prefix="ytm_"))
+    last = ""
+    t0 = time.time()
+    try:
+        for attempt in range(4):
+            _YT_AUTH = {}
+            if attempt < 3:  # three WARP exits, then direct
+                wp = _warp_proxy(fresh=attempt > 0)
+                if not wp:
+                    continue
+                _YT_AUTH["proxy"] = wp
+            for f in d.glob("src.*"):
+                f.unlink(missing_ok=True)
+            try:
+                # faststart: the renders seek into this file over HTTP — the index must sit at the front
+                _run(["yt-dlp", *_yt_cli_auth(), "--no-playlist", "--no-progress", "-f", YT_FORMAT, "--merge-output-format", "mp4",
+                      "--postprocessor-args", "Merger+ffmpeg_o:-movflags +faststart",
+                      "--http-chunk-size", "10M", "-o", str(d / "src.%(ext)s"), url], "youtube mirror", 3000)
+            except Exception as e:  # noqa: BLE001
+                last = str(e)[-300:]
+                if _yt_blocked(str(e)):
+                    print(f"mirror: blocked on attempt {attempt + 1}, next exit", flush=True)
+                    continue
+                break
+            got = sorted(d.glob("src.*"))
+            if got:
+                mb = round(got[0].stat().st_size / 1e6)
+                out = _upload_b2(got[0], key, "video/mp4")
+                print(f"mirror: {mb} MB in {round(time.time() - t0)} s", flush=True)
+                return {"ok": True, "url": out, "mb": mb}
+        print("mirror failed (renders fall back to YouTube segments):", last, flush=True)
+        return {"ok": False, "error": last}
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _remote_ok(url: str, min_bytes: int = 5_000_000) -> bool:
+    """A finished object at this URL (a B2 copy still uploading answers 404)."""
+    import requests
+    try:
+        r = requests.head(url, timeout=15, allow_redirects=True)
+        return r.ok and int(r.headers.get("content-length") or 0) >= min_bytes
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _yt_dl_opts(extra: dict | None = None) -> dict:
@@ -2952,10 +3040,13 @@ def _yt_info(url: str, want: str | None = None) -> dict:
 
 
 def _words_to_lines(words: list, max_words: int = 14, max_sec: float = 9.0, gap: float = 0.75) -> list:
-    """Timed words → transcript lines (sentence ends, pauses, ≤ max_words / max_sec)."""
+    """Timed words → transcript lines (sentence ends, pauses, ≤ max_words / max_sec; a new line where the speaker
+    changes when the words carry speakers — each line then has its "spk")."""
+    from collections import Counter
     lines, cur = [], []
     for w in words:
-        if cur and (len(cur) >= max_words or w["t"] - cur[-1]["e"] > gap or w["e"] - cur[0]["t"] > max_sec):
+        turn = cur and w.get("spk") and cur[-1].get("spk") and w["spk"] != cur[-1]["spk"]
+        if cur and (turn or len(cur) >= max_words or w["t"] - cur[-1]["e"] > gap or w["e"] - cur[0]["t"] > max_sec):
             lines.append(cur)
             cur = []
         cur.append(w)
@@ -2964,7 +3055,47 @@ def _words_to_lines(words: list, max_words: int = 14, max_sec: float = 9.0, gap:
             cur = []
     if cur:
         lines.append(cur)
-    return [{"start": round(c[0]["t"], 2), "end": round(c[-1]["e"], 2), "text": " ".join(x["w"] for x in c)} for c in lines]
+    out = []
+    for c in lines:
+        line = {"start": round(c[0]["t"], 2), "end": round(c[-1]["e"], 2), "text": " ".join(x["w"] for x in c)}
+        spk = Counter(x.get("spk") for x in c if x.get("spk")).most_common(1)
+        if spk:
+            line["spk"] = spk[0][0]
+        out.append(line)
+    return out
+
+
+def _lines_speakers(lines: list, turns: list) -> None:
+    """Caption lines (YouTube) + diarization turns: each line gets the speaker who talks most inside it."""
+    for ln in lines:
+        best, most = None, 0.0
+        for t in turns:
+            ov = min(ln["end"], t["e"]) - max(ln["start"], t["s"])
+            if ov > most:
+                best, most = t["spk"], ov
+        if best and most >= 0.3 * max(0.1, ln["end"] - ln["start"]):
+            ln["spk"] = best
+
+
+# audio events → transcript tags the director reads ([KETAWA] after a punchline = the moment landed);
+# the reaction usually FOLLOWS the line, so laughter / applause / cheering look 2 s past its end
+EVENT_TAGS = (("laugh", "KETAWA", 0.35, 2.0), ("applause", "TEPUK", 0.35, 2.0), ("cheer", "SORAK", 0.4, 2.0),
+              ("shout", "JERIT", 0.45, 0.0), ("music", "MUZIK", 0.6, 0.0))
+
+
+def _tag_lines(lines: list, events: list) -> int:
+    by = {int(e.get("t", -1)): e for e in events or []}
+    n = 0
+    for ln in lines:
+        tags = []
+        for key, tag, thr, after in EVENT_TAGS:
+            lo, hi = int(ln["start"]), int(ln["end"] + after)
+            if any(float((by.get(s) or {}).get(key) or 0) >= thr for s in range(lo, hi + 1)):
+                tags.append(tag)
+        if tags:
+            ln["tags"] = tags
+            n += 1
+    return n
 
 
 def _json3_words(data: dict) -> list:
@@ -3044,7 +3175,9 @@ def _yt_captions(info: dict, want: str | None, ydl=None) -> tuple:
 
 def _yt_audio(url: str, d: Path) -> Path:
     out = d / "yt_audio.%(ext)s"
-    _run(["yt-dlp", *_yt_cli_auth(), "--no-playlist", "-f", "ba[ext=m4a]/ba/b[height<=480]/b", "-o", str(out), "--no-progress", url], "youtube audio", 1800)
+    # the analysis only needs speech: the ~50 kbps tracks (249 Opus / 139 AAC) are a third of the default 128 kbps
+    _run(["yt-dlp", *_yt_cli_auth(), "--no-playlist", "-f", "249/250/139/ba[abr<=96]/ba/b[height<=480]/b", "--http-chunk-size", "10M",
+          "-o", str(out), "--no-progress", url], "youtube audio", 1800)
     got = sorted(d.glob("yt_audio.*"))
     if not got:
         raise RuntimeError("Tak dapat muat turun audio YouTube.")
@@ -3210,6 +3343,14 @@ def _clip_analyze(p: dict, d: Path) -> dict:
             raise RuntimeError("Siaran langsung belum tamat — cuba bila live sudah habis.")
         meta.update(title=m.get("title"), channel=m.get("channel"), duration=float(m.get("duration") or 0), thumb=m.get("thumb"), video_id=m.get("video_id"))
         heat = yi.get("heat") or []
+        # our own copy of the video for the clip renders, made in the background (renders check it exists first)
+        if 0 < meta["duration"] <= CLIP_MAX_SOURCE_SEC:
+            try:
+                mkey = f"users/{uid}/clipper/{hid}-source.mp4"
+                yt_mirror.spawn(url, mkey)
+                media_url = _b2_public_url(mkey)
+            except Exception as e:  # noqa: BLE001
+                print("mirror not started:", str(e)[:200], flush=True)
         _progress("transcript", 15)
         lines, lang = yi.get("lines") or [], yi.get("lang")
         cap_src = "youtube" if lines else ""
@@ -3399,6 +3540,9 @@ asd_image = (
         " && test $(stat -c%s /models/lrasd_ava.model) -gt 1000000",
         "curl -fsSL -o /models/yunet.onnx https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
         " && test $(stat -c%s /models/yunet.onnx) -gt 100000",
+        # TransNetV2 shot cuts (MIT): PyTorch conversion of the official weights, checked against its hash
+        "curl -fsSL -o /models/transnetv2.pth https://huggingface.co/Sn4kehead/TransNetV2/resolve/db6ceabeb692ec71ecc6beb6d00db67ad1412d7f/transnetv2-pytorch-weights.pth"
+        " && echo '834b10f25ae9e1b4e4f2652fe2843bd2b1388057a435d68b7c52635578fcc04d  /models/transnetv2.pth' | sha256sum -c -",
     )
     .add_local_dir("clipper-asd", "/app/clipper-asd", copy=True)
 )
@@ -3422,6 +3566,11 @@ def clip_asd(video: bytes) -> dict:
     t = time.time()
     res = active_speakers(str(p), _ASD_NET, "/models/yunet.onnx")
     res["sec"] = round(time.time() - t, 1)
+    try:
+        from camera import shot_cuts
+        res["cuts"] = [float(c) for c in shot_cuts(str(p), weights="/models/transnetv2.pth")]
+    except Exception as e:  # noqa: BLE001
+        print("transnet cuts failed:", str(e)[:200], flush=True)
     return res
 
 
@@ -3432,8 +3581,8 @@ def _clip_asd_for(src: Path, d: Path) -> dict | None:
         _run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast",
               "-crf", "22", "-c:a", "aac", "-b:a", "96k", str(small)], "asd copy", 600)
         res = clip_asd.remote(small.read_bytes())
-        print(f"asd: {len(res.get('tracks') or [])} face tracks in {res.get('sec')} s", flush=True)
-        return res if res.get("tracks") else None
+        print(f"asd: {len(res.get('tracks') or [])} face tracks in {res.get('sec')} s, {len(res.get('cuts') or [])} shot cuts", flush=True)
+        return res
     except Exception as e:  # noqa: BLE001
         print("asd failed (camera falls back to the face follow):", str(e)[:300], flush=True)
         return None
@@ -3492,7 +3641,28 @@ def _asd_cut(asd: dict, a: float, b: float, W: float, H: float, cw: float):
     return f"crop={cw:.0f}:{H}:x='{expr}':y=0,scale=1080:1920:flags=lanczos", len(segs) - 1
 
 
-def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
+def _cam():
+    import sys
+    if "/app/clipper-asd" not in sys.path:
+        sys.path.insert(0, "/app/clipper-asd")
+    import camera
+    return camera
+
+
+def _stack_vf(lcx: float, rcx: float, W: float, H: float):
+    """Two people far apart in one shot: each in their own half (left on top), or None when they don't fit."""
+    hh = H * 0.62
+    ww = hh * 9 / 8
+    if ww > W / 2 + 40:
+        return None
+
+    def box(cx):
+        x = min(max(cx * W - ww / 2, 0), W - ww)
+        return f"crop={ww:.0f}:{hh:.0f}:{x:.0f}:{(H - hh) * 0.35:.0f},scale=1080:960:flags=lanczos"
+    return f"split=2[a][b];[a]{box(lcx)}[t];[b]{box(rcx)}[u];[t][u]vstack"
+
+
+def _reframe(src: Path, out: Path, d: Path, mode: str = "face", turns=None) -> dict:
     """A wide clip → 9:16 1080x1920, shot by shot: the camera follows the main speaker (dead zone + eased pans);
     two people far apart in one shot → stacked halves; no face → the whole frame over a blurred copy."""
     info = _probe(src)
@@ -3506,7 +3676,10 @@ def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
     samples = _faces_wide(src) if mode in ("face", "split") else []
     # who is talking (face mode): two or more people in a shot → the camera cuts to the speaker
     asd = _clip_asd_for(src, d) if mode == "face" and any(len(s["faces"]) >= 2 for s in samples) else None
-    cuts = [c for c in _scene_cuts(src, 0.3) if 0.6 < c < dur - 0.6]
+    # shot cuts: TransNetV2 (from the ASD container) when it ran, else ffmpeg's scene score
+    raw_cuts = asd.get("cuts") if asd and asd.get("cuts") is not None else _scene_cuts(src, 0.3)
+    asd = asd if asd and asd.get("tracks") else None
+    cuts = [c for c in raw_cuts if 0.6 < c < dur - 0.6]
     edges = [0.0] + cuts + [dur]
     shots = []
     for a, b in zip(edges, edges[1:]):
@@ -3523,7 +3696,24 @@ def _reframe(src: Path, out: Path, d: Path, mode: str = "face") -> dict:
         withf = [s for s in ss if s["faces"]]
         layout, vf = "center", None
         switches = 0
-        if mode in ("face", "split") and len(withf) >= max(1, len(ss) * 0.3):
+        if mode == "face":
+            # the virtual camera: a static crop while the face stays central, eased re-centring, a hard cut to
+            # whoever talks (per diarized turn when we have turns, else LR-ASD's per-frame evidence)
+            try:
+                cam = _cam()
+                pl = cam.plan_shot(fa / fps, fb / fps, W, H, cw, fps, samples, asd, turns)
+                if pl["layout"] in ("static", "follow", "speaker") and pl.get("xs"):
+                    cmds = d / f"shot_{k:03d}.cmd"
+                    cmds.write_text(cam.crop_sendcmd(pl["xs"], fps), encoding="utf-8")
+                    vf = cam.crop_filter(cw, H, cmds, pl["xs"][0])
+                    layout, switches = pl["layout"], int(pl.get("switches") or 0)
+                elif pl["layout"] == "split" and pl.get("split"):
+                    vf = _stack_vf(pl["split"][0], pl["split"][1], W, H)
+                    layout = "split" if vf else layout
+            except Exception as e:  # noqa: BLE001
+                print("camera planner failed on a shot (old follow instead):", str(e)[:200], flush=True)
+                vf = None
+        if vf is None and mode in ("face", "split") and len(withf) >= max(1, len(ss) * 0.3):
             # face clusters across the shot (by x position)
             clusters: list = []
             for s in withf:
@@ -3622,6 +3812,36 @@ def _clip_segments(words: list, dur: float):
     return segs, kept
 
 
+def _cold_open(src: Path, words: list, fs: float, fe: float, d: Path):
+    """The clip's punchline teased first (the director's "flash" line, snapped to its words), a quick white flash,
+    then the clip from its start — (video, words in the new timeline) or None when the line can't be used."""
+    info = _probe(src)
+    dur = info["duration"] or 0
+    inside = [w for w in words if w["t"] >= fs - 0.2 and w["e"] <= fe + 0.35]
+    if len(inside) < 2 or not dur:
+        return None
+    fs, fe = max(0.0, inside[0]["t"] - 0.08), min(dur, inside[-1]["e"] + 0.15)
+    ln = fe - fs
+    if not 0.8 <= ln <= 4.0:
+        return None
+    out = d / "coldopen.mp4"
+    fc = (f"[0:v]trim={fs:.3f}:{fe:.3f},setpts=PTS-STARTPTS,fade=t=out:st={ln - 0.1:.3f}:d=0.1:color=white[v0];"
+          "[0:v]setpts=PTS-STARTPTS,fade=t=in:st=0:d=0.15:color=white[v1];")
+    if info.get("audio"):
+        fc += (f"[0:a]atrim={fs:.3f}:{fe:.3f},asetpts=PTS-STARTPTS,afade=t=out:st={ln - 0.06:.3f}:d=0.06[a0];"
+               "[0:a]asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.05[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]")
+        maps = ["-map", "[v]", "-map", "[a]", "-c:a", "aac", "-b:a", "192k"]
+    else:
+        fc += "[v0][v1]concat=n=2:v=1:a=0[v]"
+        maps = ["-map", "[v]"]
+    _run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-filter_complex", fc, *maps, "-c:v", "libx264", "-preset", "veryfast",
+          "-crf", "17", str(out)], "cold open", 600)
+    nw = [{**w, "t": round(w["t"] - fs, 3), "e": round(w["e"] - fs, 3)} for w in inside]
+    nw += [{**w, "t": round(w["t"] + ln, 3), "e": round(w["e"] + ln, 3)} for w in words]
+    print(f"cold open: {ln:.1f} s teased ({' '.join(w['w'] for w in inside)[:80]})", flush=True)
+    return out, nw
+
+
 def _clip_prepare(p: dict, d: Path) -> dict:
     """CLIPPER render, before the Edit Video pipeline: the clip's segment, reframed, with its own word timings."""
     c = p.get("clip") or {}
@@ -3631,7 +3851,17 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     _progress("download", 3)
     seg = d / "segment.mp4"
     if c.get("source_type") == "youtube":
-        seg.write_bytes(_yt_call("segment", str(c.get("url")), {"start": start, "end": end}, p.get("yt_auth"))["data"])
+        # our B2 copy of the video when it's ready (no YouTube call), else the segment straight from YouTube
+        mu = str(c.get("media_url") or "")
+        got = False
+        if mu.startswith("https://") and _remote_ok(mu):
+            try:
+                _media_segment(mu, start, end, seg)
+                got = _probe(seg)["duration"] > (end - start) * 0.8
+            except Exception as e:  # noqa: BLE001
+                print("segment from our copy failed, asking YouTube:", str(e)[:200], flush=True)
+        if not got:
+            seg.write_bytes(_yt_call("segment", str(c.get("url")), {"start": start, "end": end}, p.get("yt_auth"))["data"])
     else:
         _media_segment(str(c.get("media_url") or c.get("url")), start, end, seg)
     _progress("reframe", 8)
@@ -3651,6 +3881,15 @@ def _clip_prepare(p: dict, d: Path) -> dict:
                     words[i]["w"] = w
             except Exception:  # noqa: BLE001
                 continue
+    # the cold open: the director's punchline line teased before the clip
+    fl = c.get("flash") or None
+    if isinstance(fl, dict) and words:
+        try:
+            got = _cold_open(src, words, float(fl.get("start")) - start, float(fl.get("end")) - start, d)
+            if got:
+                src, words = got
+        except Exception as e:  # noqa: BLE001
+            print("cold open skipped:", str(e)[:200], flush=True)
     info = _probe(src)
     segs = None
     if c.get("jumpcut", True) is not False and words:
@@ -3688,7 +3927,7 @@ def _clip_watermark(video: Path, wm: dict, d: Path) -> None:
 
 
 # image = upload_image's spec (that name is defined further down)
-@app.function(image=web_image.pip_install("boto3==1.34.0"), secrets=SECRETS, timeout=900)
+@app.function(image=web_image.apt_install("ffmpeg").pip_install("boto3==1.34.0"), secrets=SECRETS, timeout=900)
 def clip_zip(items: list, key: str) -> str:
     """The client's rendered clips in one ZIP on B2 (stored, not compressed: MP4s don't shrink)."""
     import shutil
@@ -3708,6 +3947,26 @@ def clip_zip(items: list, key: str) -> str:
             used.add(name)
             with urllib.request.urlopen(url, timeout=120) as r, z.open(name, "w", force_zip64=True) as f:
                 shutil.copyfileobj(r, f, 1 << 20)
+            stem = name[:-4]
+            # the posting kit: title / caption / hashtags, and a cover frame (the hook is on screen at ~1.2 s)
+            kit = it.get("kit") or {}
+            if kit:
+                lines = [f"Tajuk: {kit.get('title') or ''}".strip()]
+                if kit.get("hook"):
+                    lines.append(f"Hook: {kit['hook']}")
+                if kit.get("caption"):
+                    lines += ["", "Caption:", str(kit["caption"])]
+                if kit.get("hashtags"):
+                    lines += ["", " ".join(str(h) for h in kit["hashtags"])]
+                z.writestr(f"{stem}.txt", "\n".join(lines) + "\n")
+            try:
+                cover = tmp.parent / f"cover_{len(used)}.jpg"
+                subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "1.2", "-i", url, "-frames:v", "1", "-q:v", "3", str(cover)],
+                               capture_output=True, timeout=120)
+                if cover.exists() and cover.stat().st_size > 2000:
+                    z.write(cover, f"{stem}.jpg")
+            except Exception as e:  # noqa: BLE001
+                print("cover skipped:", str(e)[:120], flush=True)
     return _upload_b2(tmp, key, "application/zip")
 
 

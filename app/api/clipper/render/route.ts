@@ -47,6 +47,8 @@ export async function POST(req: Request) {
   const music = s.music === true;
   const sfx = s.sfx !== false;
   const jumpcut = s.jumpcut !== false; // long pauses inside the clip shortened
+  const coldOpen = s.coldOpen !== false; // the clip's punchline teased first, when the director marked one
+  const polish = s.polish !== false; // captions mode: keyword colours, emoji, punch-ins, progress bar
   const wmText = String(s.watermark?.text ?? "").replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
   const wmImage = /^https:\/\/[^\s]+$/.test(String(s.watermark?.image ?? "")) ? String(s.watermark.image).slice(0, 1000) : "";
   let styleId: string | undefined, styleName: string | undefined;
@@ -63,10 +65,15 @@ export async function POST(req: Request) {
   const clips = (Array.isArray(b?.clips) ? b.clips : []).slice(0, MAX_CLIPS).map((c: any) => {
     const start = Math.max(0, Number(c?.start) || 0);
     const end = Math.min(dur || Infinity, Number(c?.end) || 0);
+    // the cold open must sit inside the (possibly nudged) clip, past its opening
+    const fs0 = Number(c?.flash?.start), fe0 = Number(c?.flash?.end);
+    const flash = coldOpen && Number.isFinite(fs0) && Number.isFinite(fe0) && fs0 >= start + 2 && fe0 <= end + 0.5 && fe0 - fs0 >= 0.8
+      ? { start: Math.round(fs0 * 100) / 100, end: Math.round(Math.min(fe0, fs0 + 3.2) * 100) / 100 } : null;
     return {
       start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100,
       title: String(c?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90) || "Klip",
       hook: String(c?.hook ?? "").replace(/\s+/g, " ").trim().slice(0, 60),
+      flash,
     };
   }).filter((c: { start: number; end: number }) => c.end - c.start >= 3 && c.end - c.start <= 120);
   if (!clips.length) return NextResponse.json({ error: "Pilih sekurang-kurangnya satu klip (3–120 saat)." }, { status: 400 });
@@ -106,7 +113,8 @@ export async function POST(req: Request) {
       auto: true,
       ...(styleId || captionLook ? { locks: { ...(styleId ? { styleId, styleName } : {}), ...(captionLook ? { captionLook: captionLook as any } : {}) } } : {}),
       engine: "laju",
-      clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end },
+      clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
+        ...(c.flash ? { flash: c.flash } : {}), ...(mode === "captions" ? { polish } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({
       user_id: user.id,
@@ -163,6 +171,7 @@ export async function POST(req: Request) {
       ...(ytAuth ? { yt_auth: ytAuth } : {}),
       clip: {
         source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language, jumpcut,
+        ...(c.flash ? { flash: c.flash } : {}),
         ...(wmText || wmImage ? { watermark: { ...(wmText ? { text: wmText } : {}), ...(wmImage ? { image: wmImage } : {}) } } : {}),
       },
     });
