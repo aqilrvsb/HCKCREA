@@ -4357,6 +4357,44 @@ def _clip_watermark(video: Path, wm: dict, d: Path) -> None:
     out.replace(video)
 
 
+@app.function(image=hf_render_image, cpu=2.0, memory=4096, timeout=180, scaledown_window=300)
+def clip_faces(url: str, start: float, end: float) -> dict:
+    """CLIPPER Studio preview: the largest face 4× a second over one clip of the source (YuNet, source-normalised
+    0..1, clip seconds), so the preview keeps captions / the hook clear of the face and frames the speaker the way
+    the render's face track does. → {w, h, faces: [{t, x, y, w, h}]}"""
+    import numpy as np
+    import cv2
+    info = _probe_url(url)
+    sw, sh = int(info.get("w") or 1920), int(info.get("h") or 1080)
+    W = 640 if sw >= sh else 360
+    H = max(2, int(round(W * sh / sw / 2)) * 2)
+    det = cv2.FaceDetectorYN.create(YUNET_MODEL, "", (W, H), 0.6, 0.3, 5000)
+    dur = max(0.5, min(130.0, float(end) - float(start)))
+    proc = subprocess.Popen(["ffmpeg", "-v", "error", "-ss", f"{float(start):.3f}", "-i", url, "-t", f"{dur:.3f}",
+                             "-vf", f"fps=4,scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"], stdout=subprocess.PIPE)
+    raw, i, size = [], 0, W * H * 3
+    while True:
+        buf = proc.stdout.read(size)
+        if not buf or len(buf) < size:
+            break
+        _n, faces = det.detect(np.frombuffer(buf, np.uint8).reshape(H, W, 3))
+        best = None
+        for f in (faces if faces is not None else []):
+            x, y, w, h = float(f[0]), float(f[1]), float(f[2]), float(f[3])
+            if w / W >= 0.025 and (best is None or w * h > best[2] * best[3]):
+                best = (x, y, w, h)
+        if best:
+            x, y, w, h = best
+            raw.append({"t": round(i / 4, 2), "x": max(0.0, x / W), "y": max(0.0, y / H), "w": min(1.0, w / W), "h": min(1.0, h / H)})
+        i += 1
+    proc.wait(timeout=60)
+    out = []
+    for k, f in enumerate(raw):  # 3-sample moving average, as _faces
+        win = raw[max(0, k - 1): k + 2]
+        out.append({"t": f["t"], **{q: round(sum(x[q] for x in win) / len(win), 4) for q in ("x", "y", "w", "h")}})
+    return {"w": sw, "h": sh, "faces": out[:600]}
+
+
 # image = upload_image's spec (that name is defined further down)
 @app.function(image=web_image.apt_install("ffmpeg").pip_install("boto3==1.34.0"), secrets=SECRETS, timeout=900)
 def clip_zip(items: list, key: str) -> str:
@@ -4497,6 +4535,19 @@ def api():
         try:
             url = await clip_zip.remote.aio(list(payload.get("items") or []), key)
             return {"ok": True, "url": url}
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
+
+    @web.post("/faces")
+    async def faces_(payload: dict):
+        if not _authorised(str(payload.get("secret") or "")):
+            return JSONResponse({"ok": False, "error": "unauthorised"}, status_code=401)
+        url = str(payload.get("url") or "")
+        if not url.startswith("https://"):
+            return JSONResponse({"ok": False, "error": "bad url"}, status_code=400)
+        try:
+            res = await clip_faces.remote.aio(url, float(payload.get("start") or 0), float(payload.get("end") or 0))
+            return {"ok": True, **res}
         except Exception as e:  # noqa: BLE001
             return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
 

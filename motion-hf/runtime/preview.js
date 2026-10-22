@@ -4,7 +4,8 @@
 // and changes them before paying for a render.
 //
 // The parent page (same origin) calls window.__clipPreview.load(cfg) with
-//   { props, src, frame, segs: [{a, b, at, teaser?}], dur, flashAt, clipStart, watermark: {text?, image?} }
+//   { props, src, frame, segs: [{a, b, at, teaser?}], dur, flashAt, clipStart, watermark: {text?, image?}, track? }
+// track: "face" on a wide source — the speaker's face centre x over the clip (clip seconds), for the camera.
 // segs: what plays — clip seconds [a, b) at timeline second `at` (cold open first, long pauses cut).
 import { h, render } from "preact";
 import { FrameContext, setVideoConfig } from "remotion";
@@ -60,7 +61,31 @@ function draw(force) {
   render(h(FrameContext.Provider, { value: { frame, abs: 0, dur: Infinity } }, h(MotionEditPro, props)), stage);
 }
 
-// the frame mode's layers (ffmpeg's _reframe / _normalise, approximated: no face tracking in the browser)
+// "face" on a wide source: the crop follows the speaker's face (camera.py: holds still, eases to a new centre)
+let camX = null;
+function follow() {
+  const tr = cfg.track;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!tr || !tr.length || !vw || !vh) {
+    video.style.objectPosition = "50% 50%";
+    return;
+  }
+  const fr = (9 / 16) / (vw / vh); // the part of the width the 9:16 crop keeps
+  if (fr >= 0.99) return;
+  const ct = video.currentTime - cfg.clipStart;
+  let lo = 0, hi = tr.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (tr[mid].t < ct) lo = mid + 1; else hi = mid;
+  }
+  const s = lo > 0 && Math.abs(tr[lo - 1].t - ct) < Math.abs(tr[lo].t - ct) ? tr[lo - 1] : tr[lo];
+  const target = Math.min(1, Math.max(0, (s.cx - fr / 2) / (1 - fr)));
+  if (camX === null || !playing) camX = target;
+  else if (Math.abs(target - camX) > 0.04) camX += (target - camX) * 0.12;
+  video.style.objectPosition = `${(camX * 100).toFixed(2)}% 50%`;
+}
+
+// the frame mode's layers (ffmpeg's _reframe / _normalise, approximated)
 function paintLayers() {
   if (!cfg || video.readyState < 2) return;
   const vw = video.videoWidth, vh = video.videoHeight;
@@ -138,6 +163,7 @@ function frameStep() {
         t = s.at + Math.max(0, ct - s.a);
       }
     }
+    follow();
     const f = cfg.flashAt;
     flash.style.opacity = f == null ? "0" : t >= f - 0.1 && t < f ? String((t - (f - 0.1)) / 0.1) : t >= f && t < f + 0.15 ? String(1 - (t - f) / 0.15) : "0";
     paintLayers();
@@ -190,6 +216,7 @@ async function load(next) {
     wm.appendChild(sp);
   }
   if (keepSrc == null) {
+    camX = null;
     if (srcChanged) video.src = next.src;
     t = 0;
     seg = 0;

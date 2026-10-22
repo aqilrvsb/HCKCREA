@@ -3,15 +3,17 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { clipPolish } from "@/lib/clipper-polish";
-import { clipKey, previewWords, type PolishRef, type TLine } from "@/lib/clipper-preview";
+import { getMotionConfig } from "@/lib/motion";
+import { clipKey, previewWords, type PolishRef, type SrcFaces, type TLine } from "@/lib/clipper-preview";
 
-// POST /api/clipper/preview { job_id, start, end, title?, polish? } — the Studio's live preview of one clip:
-// its words (from the analysis transcript, clip seconds) and, with polish on, the keyword colours / emoji /
-// zooms (one quick AI call per clip, kept on the analysis row — the render reuses it, so the clip comes out
-// the way the preview showed it). Free, like the analysis.
+// POST /api/clipper/preview { job_id, start, end, title?, polish?, faces? } — the Studio's live preview of one clip:
+// its words (from the analysis transcript, clip seconds); with polish, the keyword colours / emoji / zooms (one
+// quick AI call per clip, kept on the analysis row — the render reuses it, so the clip comes out the way the
+// preview showed it); with faces, the speaker's face 4× a second (Modal clip_faces — the preview keeps captions
+// clear of it and frames the speaker, as the render's face track does). Free, like the analysis.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 // one warm instance serves many previews of the same analysis: its transcript is read once
 const TRANSCRIPTS = new Map<string, { at: number; lines: TLine[] }>();
@@ -26,6 +28,20 @@ async function transcript(url: string): Promise<TLine[] | null> {
   if (TRANSCRIPTS.size > 20) TRANSCRIPTS.delete(TRANSCRIPTS.keys().next().value as string);
   TRANSCRIPTS.set(url, { at: Date.now(), lines: j as TLine[] });
   return j as TLine[];
+}
+
+/** The speaker's face over one clip of the source (Modal clip_faces, ≤ 100 s), or undefined. */
+async function sourceFaces(url: string, start: number, end: number): Promise<(SrcFaces & { at: number }) | undefined> {
+  const cfg = await getMotionConfig();
+  if (!cfg) return undefined;
+  const r = await fetch(`${cfg.api_url}/faces`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: cfg.secret, url, start, end }),
+    signal: AbortSignal.timeout(100_000),
+  }).catch(() => null);
+  const j = r?.ok ? await r.json().catch(() => null) : null;
+  if (!j?.ok || !Array.isArray(j.faces)) return undefined;
+  return { w: Number(j.w) || 0, h: Number(j.h) || 0, faces: j.faces.slice(0, 600), at: Date.now() };
 }
 
 export async function POST(req: Request) {
@@ -52,23 +68,38 @@ export async function POST(req: Request) {
   const { words, aligned } = previewWords(lines, start, end);
 
   const key = clipKey(start, end);
-  let ref = ((job as any).metadata?.previews ?? {})[key] as (PolishRef & { at?: number }) | undefined;
-  if (b?.polish && !ref && words.length >= 8) {
-    const title = String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90);
-    const p = await clipPolish(words.map((w, i) => ({ i, ...w })), end - start, title, Date.now() + 50_000);
-    if (p.keywords.length || p.zooms.length) {
-      ref = { words: words.map((w) => w.w), keywords: p.keywords, zooms: p.zooms, at: Date.now() };
-      // kept on the analysis row (the newest 40 clips) — read fresh so a parallel preview isn't lost
-      const { data: cur } = await admin.from("history").select("metadata").eq("id", jobId).maybeSingle();
-      const all = { ...((cur?.metadata as any)?.previews ?? {}), [key]: ref } as Record<string, PolishRef & { at?: number }>;
-      const keep = Object.entries(all).sort((x, y) => (y[1].at ?? 0) - (x[1].at ?? 0)).slice(0, 40);
-      await admin.from("history").update({ metadata: { ...(cur?.metadata || {}), previews: Object.fromEntries(keep) } }).eq("id", jobId);
-    }
+  const meta = (job as any).metadata ?? {};
+  let ref = (meta.previews ?? {})[key] as (PolishRef & { at?: number }) | undefined;
+  let fx = (meta.preview_faces ?? {})[key] as (SrcFaces & { at?: number }) | undefined;
+  const mediaUrl = String(meta.analysis?.media_url || "");
+  const [newRef, newFx] = await Promise.all([
+    b?.polish && !ref && words.length >= 8
+      ? clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000)
+        .then((p) => (p.keywords.length || p.zooms.length ? { words: words.map((w) => w.w), keywords: p.keywords, zooms: p.zooms, at: Date.now() } : undefined))
+      : Promise.resolve(undefined),
+    b?.faces && !fx && mediaUrl.startsWith("https://") ? sourceFaces(mediaUrl, start, end) : Promise.resolve(undefined),
+  ]);
+  if (newRef || newFx) {
+    ref = newRef ?? ref;
+    fx = newFx ?? fx;
+    // kept on the analysis row (the newest 40 clips) — read fresh so a parallel preview isn't lost
+    const { data: cur } = await admin.from("history").select("metadata").eq("id", jobId).maybeSingle();
+    const m = (cur?.metadata as any) ?? {};
+    const newest = <T extends { at?: number }>(all: Record<string, T>) =>
+      Object.fromEntries(Object.entries(all).sort((x, y) => (y[1].at ?? 0) - (x[1].at ?? 0)).slice(0, 40));
+    await admin.from("history").update({
+      metadata: {
+        ...m,
+        ...(newRef ? { previews: newest({ ...(m.previews ?? {}), [key]: newRef }) } : {}),
+        ...(newFx ? { preview_faces: newest({ ...(m.preview_faces ?? {}), [key]: newFx }) } : {}),
+      },
+    }).eq("id", jobId);
   }
   // the polish was made on these very words; a transcript read differently (rare) drops it rather than misplace it
   const fits = ref && ref.words.length === words.length;
   return NextResponse.json({
     ok: true, words, aligned,
     keywords: fits ? ref!.keywords : [], zooms: fits ? ref!.zooms : [], polished: !!fits,
+    faces: fx ? { w: fx.w, h: fx.h, faces: fx.faces } : null, faced: !!fx,
   });
 }

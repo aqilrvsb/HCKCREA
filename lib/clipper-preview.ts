@@ -259,6 +259,49 @@ export function reusePolish(ref: PolishRef, words: { w: string; t: number }[]) {
   return { keywords, zooms };
 }
 
+/** The source's faces over one clip (Modal clip_faces: largest face 4× a second, source-normalised, clip seconds). */
+export type SrcFaces = { w: number; h: number; faces: { t: number; x: number; y: number; w: number; h: number }[] };
+const OUT = 9 / 16;
+
+/** The faces on the preview's 9:16 frame and timeline — what the render's face track sees on the framed clip:
+ *  "face" centres the speaker (the camera follows them), "center" crops the middle, "fit" shows the whole frame. */
+export function previewFaces(src: SrcFaces | null | undefined, tl: Timeline, frame: string) {
+  if (!src?.faces?.length || !src.w || !src.h || frame === "split") return [];
+  const A = src.w / src.h;
+  const map = (f: SrcFaces["faces"][number]) => {
+    if (frame === "fit") {
+      if (A >= OUT) {
+        const hh = OUT / A; // the whole frame's height on the 9:16 canvas
+        return { x: f.x, w: f.w, y: (1 - hh) / 2 + f.y * hh, h: f.h * hh };
+      }
+      const ww = A / OUT;
+      return { x: (1 - ww) / 2 + f.x * ww, w: f.w * ww, y: f.y, h: f.h };
+    }
+    if (A > OUT) {
+      const fr = OUT / A; // the part of the width a 9:16 crop keeps
+      const w = Math.min(1, f.w / fr);
+      return frame === "face" ? { x: 0.5 - w / 2, w, y: f.y, h: f.h } : { x: (f.x - (1 - fr) / 2) / fr, w, y: f.y, h: f.h };
+    }
+    const fr = A / OUT; // a source taller than 9:16 loses a little top and bottom
+    return { x: f.x, w: f.w, y: (f.y - (1 - fr) / 2) / fr, h: Math.min(1, f.h / fr) };
+  };
+  const out: { t: number; x: number; y: number; w: number; h: number }[] = [];
+  for (const s of tl.segs) {
+    for (const f of src.faces) {
+      if (f.t < s.a - 0.01 || f.t >= s.b) continue;
+      const m = map(f);
+      out.push({ t: r3(s.at + f.t - s.a), x: r3(Math.max(0, m.x)), y: r3(Math.max(0, m.y)), w: r3(m.w), h: r3(m.h) });
+    }
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+/** "face" on a wide source: where the camera centres over time (face centre x, clip seconds) — null: no follow. */
+export function faceTrack(src: SrcFaces | null | undefined, frame: string) {
+  if (frame !== "face" || !src?.faces?.length || !src.w || !src.h || src.w / src.h <= OUT + 0.01) return null;
+  return src.faces.map((f) => ({ t: f.t, cx: r3(f.x + f.w / 2) }));
+}
+
 /** Google Noto animated emoji (as the render fetches them) for the keywords' emoji: char → Lottie URL. */
 export function emojiLottie(keywords: PolishKeyword[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -274,6 +317,7 @@ export function emojiLottie(keywords: PolishKeyword[]): Record<string, string> {
 export function previewProps(o: {
   video: string; tl: Timeline; seed: number; hook?: string | null; captions: boolean; captionLook?: string | null;
   captionPos: "low" | "mid"; polish: boolean; keywords: PolishKeyword[]; zooms: PolishZoom[];
+  faces?: { t: number; x: number; y: number; w: number; h: number }[];
 }) {
   const picks = clipPicks(o.seed, o.captionLook);
   const words = o.tl.words.map((w) => ({ w: w.w, t: w.t, e: w.e }));
@@ -281,7 +325,7 @@ export function previewProps(o: {
     fps: 30, durationInFrames: Math.max(1, Math.floor(o.tl.dur * 30)), video: o.video, words,
     captions: { on: o.captions, style: o.captionLook === "tiktok" ? "tiktok" : "pop", pos: o.captionPos, maxWords: 3 },
     accent: "#FFD93B", overlays: [], zooms: o.polish ? o.zooms : [], hook: o.hook ? { text: o.hook } : null,
-    sfx: false, style: "gempak", faces: [], broll: [], facts: [], keywords: o.polish ? o.keywords : [],
+    sfx: false, style: "gempak", faces: o.faces ?? [], broll: [], facts: [], keywords: o.polish ? o.keywords : [],
     lottie: o.polish ? emojiLottie(o.keywords) : {}, progress: true, cuts: o.tl.cuts,
     direction: { ...picks, end_card: "none", progress: o.polish && o.tl.dur > 35 ? "bar" : "none", fx: "light", captions: "big", camera: "calm" },
     lookSeed: o.seed,

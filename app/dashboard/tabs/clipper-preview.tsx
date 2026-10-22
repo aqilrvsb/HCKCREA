@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import {
-  clipFlash, clipKey, clipSeed, polishOnTimeline, previewProps, previewTimeline,
-  type PWord, type PolishKeyword, type PolishZoom,
+  clipFlash, clipKey, clipSeed, faceTrack, polishOnTimeline, previewFaces, previewProps, previewTimeline,
+  type PWord, type PolishKeyword, type PolishZoom, type SrcFaces,
 } from "@/lib/clipper-preview";
 
 // CLIPPER Studio — live preview of one clip with the client's settings, drawn by the render's own composition
@@ -16,7 +16,10 @@ export type PreviewSettings = {
   frame: "face" | "fit" | "center" | "split"; captions: boolean; captionLook?: string; captionPos: "low" | "mid";
   hookOn: boolean; jumpcut: boolean; coldOpen: boolean; polish: boolean; wmText: string; wmImage: string;
 };
-type Data = { key: string; words: PWord[]; aligned: boolean; keywords: PolishKeyword[]; zooms: PolishZoom[]; polished: boolean };
+type Data = {
+  key: string; words: PWord[]; aligned: boolean; keywords: PolishKeyword[]; zooms: PolishZoom[]; polished: boolean;
+  faces: SrcFaces | null; faced: boolean;
+};
 type PState = { t: number; dur: number; playing: boolean; muted: boolean; ready: boolean; waiting: boolean };
 type Api = {
   load: (cfg: unknown) => Promise<void>; play: () => void; pause: () => void; seek: (t: number) => void; restart: () => void;
@@ -54,7 +57,8 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         const d = await r.json();
         if (off) return;
         if (!r.ok || !d?.ok) throw new Error(d?.error || "Pratonton gagal");
-        setData({ key, words: d.words, aligned: !!d.aligned, keywords: d.keywords ?? [], zooms: d.zooms ?? [], polished: !!d.polished });
+        setData({ key, words: d.words, aligned: !!d.aligned, keywords: d.keywords ?? [], zooms: d.zooms ?? [], polished: !!d.polished,
+          faces: d.faces ?? null, faced: !!d.faced });
       } catch (e: any) {
         if (!off) setErr(e?.message || "Pratonton gagal");
       }
@@ -63,19 +67,29 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, mediaUrl]);
   useEffect(() => {
-    if (!clip || !data || data.key !== key || data.polished || !settings.polish || !settings.captions || busy.current === key) return;
-    busy.current = key;
-    setPolishing(true);
+    if (!clip || !data || data.key !== key) return;
+    const wantPolish = settings.polish && settings.captions && !data.polished;
+    const wantFaces = !data.faced;
+    const tag = `${key}|${wantPolish}|${wantFaces}`;
+    if ((!wantPolish && !wantFaces) || busy.current === tag) return;
+    busy.current = tag;
+    setPolishing(wantPolish);
     (async () => {
       try {
         const r = await fetch("/api/clipper/preview", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ job_id: jobId, start: clip.start, end: clip.end, title: clip.title, polish: true }),
+          body: JSON.stringify({ job_id: jobId, start: clip.start, end: clip.end, title: clip.title, polish: wantPolish, faces: wantFaces }),
         });
         const d = await r.json();
-        if (r.ok && d?.ok) setData((cur) => (cur && cur.key === key ? { ...cur, keywords: d.keywords ?? [], zooms: d.zooms ?? [], polished: true } : cur));
-      } catch { /* the preview stays without colours */ } finally {
-        busy.current = null;
+        if (r.ok && d?.ok) {
+          setData((cur) => (cur && cur.key === key ? {
+            ...cur,
+            ...(wantPolish ? { keywords: d.keywords ?? [], zooms: d.zooms ?? [], polished: true } : {}),
+            ...(wantFaces ? { faces: d.faces ?? null, faced: true } : {}),
+          } : cur));
+        }
+      } catch { /* the preview stays without colours / faces */ } finally {
+        if (busy.current === tag) busy.current = null;
         setPolishing(false);
       }
     })();
@@ -94,11 +108,12 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
     const props = previewProps({
       video: "clip://preview", tl, seed: clipSeed(jobId, clip.start, clip.end), hook: settings.hookOn ? clip.hook : null,
       captions: settings.captions, captionLook: settings.captionLook, captionPos: settings.captionPos, polish: settings.polish,
-      keywords: pol.keywords, zooms: pol.zooms,
+      keywords: pol.keywords, zooms: pol.zooms, faces: previewFaces(data.faces, tl, settings.frame),
     });
     const wmText = settings.wmText.replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
     return {
       props, src: mediaUrl, frame: settings.frame, segs: tl.segs, dur: tl.dur, flashAt: tl.flashAt, clipStart: clip.start,
+      track: faceTrack(data.faces, settings.frame),
       watermark: settings.wmImage ? { image: settings.wmImage } : wmText ? { text: wmText } : null, autoplay: true,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,7 +211,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
       )}
       <p className="text-[10px] leading-snug text-[var(--color-text-muted)] mx-auto" style={{ maxWidth: 300 }}>
         Dilukis oleh enjin render sebenar — caption, hook, warna kata kunci &amp; zoom sama seperti klip akhir.
-        {settings.frame === "face" || settings.frame === "split" ? " Kamera ikut muka penutur ditambah semasa jana." : ""}{" "}Muzik &amp; SFX ditambah semasa jana.
+        {settings.frame === "split" ? " Susunan 2 orang dibuat tepat ikut muka semasa jana." : ""}{" "}Muzik &amp; SFX ditambah semasa jana.
       </p>
     </div>
   );
