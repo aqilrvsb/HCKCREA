@@ -12,7 +12,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, Download, Flame, HardDrive, Link2, Loader2, Play, Radio, ScissorsLineDashed, Search, Trash2, Upload, X } from "lucide-react";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
 import { uploadImage } from "@/lib/upload-image";
-import MotionStylePicker from "./motion-style-picker";
 import { withRetry } from "./motion-photo-picker";
 
 type SrcType = "youtube" | "gdrive" | "upload" | "tiktok";
@@ -142,8 +141,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const [copied, setCopied] = useState<string | null>(null);
 
   // ── studio ──
-  const [mode, setMode] = useState<"captions" | "auto" | "style">("captions");
-  const [styleId, setStyleId] = useState<string | undefined>();
+  // CLIPPER renders "Klip + caption" only (the owner's call, 2026-10-22: no full AI edit / 40-style mode here)
+  const mode = "captions" as const;
   const [frame, setFrame] = useState<"face" | "fit" | "center" | "split">("face");
   const [captions, setCaptions] = useState(true);
   const [captionLook, setCaptionLook] = useState<string | undefined>();
@@ -166,8 +165,6 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
     try {
       const p = JSON.parse(localStorage.getItem(PREFS_KEY) || "null");
       if (p && typeof p === "object") {
-        if (["captions", "auto", "style"].includes(p.mode)) setMode(p.mode);
-        if (typeof p.styleId === "string") setStyleId(p.styleId);
         if (["face", "fit", "center", "split"].includes(p.frame)) setFrame(p.frame);
         if (typeof p.captions === "boolean") setCaptions(p.captions);
         if (typeof p.captionLook === "string") setCaptionLook(p.captionLook);
@@ -186,8 +183,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => setRate(Number(d?.rate) || null)).catch(() => undefined);
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ mode, styleId, frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration })); } catch { /* private mode */ }
-  }, [mode, styleId, frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration]);
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration })); } catch { /* private mode */ }
+  }, [frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration]);
 
   // ── the analyses list (polled while something runs) ──
   const load = useCallback(async () => {
@@ -353,7 +350,6 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
     setError(null);
     setNotice(null);
     if (!selClips.length) return setError("Tick sekurang-kurangnya satu klip.");
-    if (mode === "style" && !styleId) return setError("Pilih satu style dulu.");
     setRendering(true);
     try {
       const r = await fetch("/api/clipper/render", {
@@ -363,7 +359,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
           job_id: job.id,
           project_id: projectId,
           clips: selClips.map((c) => ({ start: c.start, end: c.end, title: c.title, hook: c.hook, flash: c.flash ?? null })),
-          settings: { mode, styleId, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
+          settings: { mode, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
         }),
       });
       const d = await r.json();
@@ -749,19 +745,12 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
               {clips.length > 0 && (
                 <div className="rounded-xl p-3 sm:p-4 space-y-4" style={{ border: `1px solid ${THEME.soft}`, background: THEME.faint }}>
                   <div className="text-xs font-extrabold text-[var(--color-text-primary)]">🎬 Studio — cara klip dijana</div>
-                  <div className="grid sm:grid-cols-3 gap-2">
-                    {([
-                      ["captions", "⚡ Klip + caption", "Pantas. Kamera ikut muka, caption animasi & hook — tiada edit tambahan."],
-                      ["auto", "🤖 Edit penuh AI", "Master director (Sonnet 5.5) edit setiap klip — hook, sticker, skrin grafik, B-roll."],
-                      ["style", "🎨 Ikut style", "Edit penuh AI ikut satu daripada 40 style."],
-                    ] as const).map(([k, t, dsc]) => (
-                      <button key={k} type="button" onClick={() => setMode(k)} className="text-left px-3 py-2.5 rounded-xl transition-all" style={mode === k ? on : off}>
-                        <span className="block text-xs font-extrabold">{t}</span>
-                        <span className="block text-[10px] leading-snug mt-0.5" style={{ color: mode === k ? "rgba(255,255,255,0.88)" : "var(--color-text-muted)" }}>{dsc}</span>
-                      </button>
-                    ))}
+                  <div className="px-3 py-2.5 rounded-xl" style={on}>
+                    <span className="block text-xs font-extrabold">⚡ Klip + caption</span>
+                    <span className="block text-[10px] leading-snug mt-0.5" style={{ color: "rgba(255,255,255,0.88)" }}>
+                      Kamera ikut muka penutur, caption animasi, kata kunci berwarna, zoom &amp; hook.
+                    </span>
                   </div>
-                  {mode === "style" && <MotionStylePicker value={styleId} onChange={setStyleId} />}
 
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div>
@@ -794,15 +783,13 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                         <Chip active={!coldOpen} onClick={() => setColdOpen(false)}>Tidak</Chip>
                       </div>
                     </div>
-                    {mode === "captions" && (
-                      <div>
-                        <label className={label}>Highlight kata kunci + zoom</label>
-                        <div className="flex flex-wrap gap-1.5">
-                          <Chip active={polish} onClick={() => setPolish(true)} title="Kata penting berwarna + emoji, zoom masuk pada ayat penting, bar progres">Ya</Chip>
-                          <Chip active={!polish} onClick={() => setPolish(false)}>Tidak</Chip>
-                        </div>
+                    <div>
+                      <label className={label}>Highlight kata kunci + zoom</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Chip active={polish} onClick={() => setPolish(true)} title="Kata penting berwarna + emoji, zoom masuk pada ayat penting, bar progres">Ya</Chip>
+                        <Chip active={!polish} onClick={() => setPolish(false)}>Tidak</Chip>
                       </div>
-                    )}
+                    </div>
                   </div>
 
                   <div>

@@ -5,12 +5,11 @@ import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
-import { vgcStyle } from "@/lib/vgc-styles";
 import { CLIPPER_JOB_TAB, CLIPPER_TAB, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
 
 // POST /api/clipper/render { job_id, clips: [{start, end, title, hook}], settings, project_id? } — CLIPPER step 2:
 // every chosen clip becomes a History row (tab "clipper") rendered by the Motion engine (modal_motion.py flow
-// "clip"): segment → 9:16 reframe around the speaker → captions + hook, or the full AI edit (AI Auto / a style).
+// "clip"): segment → 9:16 reframe around the speaker → captions + hook ("Klip + caption" is the only mode).
 // Charged like a Motion edit: the clip's seconds × the Motion rate (held now, trued up on the real length).
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +37,8 @@ export async function POST(req: Request) {
 
   // settings
   const s = b?.settings ?? {};
-  const mode: "captions" | "auto" | "style" = s.mode === "auto" || s.mode === "style" ? s.mode : "captions";
+  // CLIPPER renders "Klip + caption" only (2026-10-22) — an old client asking for "auto" / "style" gets captions too
+  const mode = "captions" as const;
   const frame = ["face", "fit", "center", "split"].includes(s.frame) ? s.frame : "face";
   const captions = s.captions !== false;
   const captionLook = LOCK_CAPTION_LOOKS.some((c) => c.id === s.captionLook) ? String(s.captionLook) : undefined;
@@ -51,13 +51,6 @@ export async function POST(req: Request) {
   const polish = s.polish !== false; // captions mode: keyword colours, emoji, punch-ins, progress bar
   const wmText = String(s.watermark?.text ?? "").replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
   const wmImage = /^https:\/\/[^\s]+$/.test(String(s.watermark?.image ?? "")) ? String(s.watermark.image).slice(0, 1000) : "";
-  let styleId: string | undefined, styleName: string | undefined;
-  if (mode === "style") {
-    const st = await vgcStyle(String(s.styleId || ""));
-    if (!st) return NextResponse.json({ error: "Pilih satu style dulu." }, { status: 400 });
-    styleId = st.id;
-    styleName = st.name;
-  }
   const language = (["ms", "en", "id"].includes(String(a.language)) ? a.language : "ms") as "ms" | "en" | "id";
 
   // the analysis' speaker turns [[s, e, "S1"], …] (source seconds) → one clip's, in clip seconds
@@ -114,14 +107,14 @@ export async function POST(req: Request) {
       style: "gempak",
       resolution: "1080",
       jumpcut: false,
-      broll: mode !== "captions",
+      broll: false,
       facts: false,
       guard: false,
       auto: true,
-      ...(styleId || captionLook ? { locks: { ...(styleId ? { styleId, styleName } : {}), ...(captionLook ? { captionLook: captionLook as any } : {}) } } : {}),
+      ...(captionLook ? { locks: { captionLook: captionLook as any } } : {}),
       engine: "laju",
       clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
-        ...(c.flash ? { flash: c.flash } : {}), ...(mode === "captions" ? { polish } : {}) },
+        ...(c.flash ? { flash: c.flash } : {}), polish },
     };
     const { data: row, error } = await admin.from("history").insert({
       user_id: user.id,
