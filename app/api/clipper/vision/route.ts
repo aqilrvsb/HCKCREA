@@ -42,7 +42,9 @@ Return ONLY JSON: {"clips": [{"n": 1, "visual": 7, "note": "…"}]} — one entr
     images: items.map((x: { image: string }) => x.image),
     temperature: 0.2,
     maxTokens: 1500,
-    timeoutMs: 90_000,
+    timeoutMs: 70_000,
+    // DragonAPI is sometimes slow with images: the next slot starts alongside after 25 s, the first answer wins
+    hedgeAfterMs: 25_000,
     deadline: t0 + 95_000,
   })).catch((e: any) => ({ ok: false, error: e?.message } as { ok: boolean; content?: string; error?: string }));
   if (!r.ok || !r.content) return NextResponse.json({ ok: false, error: r.error || "vision failed" }, { status: 502 });
