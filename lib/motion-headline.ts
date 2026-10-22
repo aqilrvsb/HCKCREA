@@ -8,10 +8,14 @@
 // The director (or the CLIPPER polish call) writes the words and the B-roll searches; cleanHeadlines() guarantees
 // the set for the video's length (over + split; + pip from 20 s; + a second split from 45 s) even when it wrote
 // none; the renderer (motion-hf/overrides/headline.tsx) picks a layout / entrance variant per video.
-import { searchClips } from "@/lib/motion-media";
+import { searchClips, searchPhotos } from "@/lib/motion-media";
 import { searchImages } from "@/lib/motion-search";
 
 export type Cue = string | number;
+/** bumped when the headline logic changes: a cached polish from before is made again */
+export const HEADLINE_VERSION = 2;
+// web images from these carry watermarks / licence terms: never on a headline
+const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 export type HeadKind = "over" | "split" | "pip";
 export type HeadlinePlan = {
   kind: HeadKind;
@@ -54,7 +58,21 @@ function wordAt(words: { t: number }[], sec: number) {
   return best;
 }
 
-/** Words for a headline when the AI wrote none: the hook / title cut into lead-in, punch and payoff. */
+const STOP = new Set(["yang", "dan", "ini", "itu", "dia", "kita", "saya", "aku", "kau", "korang", "awak", "dengan", "untuk", "dalam", "pada", "tapi", "kalau", "sebab", "macam", "dah", "nak", "tak", "ada", "lah", "kan", "pun", "jadi", "the", "and", "that", "this", "with", "for", "you", "kat", "dekat", "sangat", "boleh", "memang", "betul", "okay", "okey"]);
+/** Words for a headline when the AI wrote none, from what the speaker says right there: the strongest word is the
+ *  punch, the words before it the lead-in, the words after it the payoff (else the hook / title). */
+function spokenText(words: { w: string; t: number }[], t: number, source: string, n: number) {
+  const near = words.filter((w) => w.t >= t - 1.5 && w.t <= t + 4).map((w) => w.w.replace(/[^\p{L}\p{N}%-]/gu, "")).filter(Boolean);
+  if (near.length < 4) return fallbackText(source, n);
+  let bi = -1;
+  near.forEach((w, i) => { if (!STOP.has(w.toLowerCase()) && w.length >= 4 && (bi < 0 || w.length > near[bi].length)) bi = i; });
+  if (bi < 0) return fallbackText(source, n);
+  const lead = near.slice(Math.max(0, bi - 3), bi).join(" ") || (n === 0 ? "Ini dia" : "Sebab itu");
+  const box = near.slice(bi + 1, bi + 5).join(" ") || "tonton sampai habis";
+  return { lead: (lead[0].toUpperCase() + lead.slice(1)).slice(0, 34), big: near[bi].toUpperCase().slice(0, 16), box: box.slice(0, 34) };
+}
+
+/** Words for a headline when nothing was said near it: the hook / title cut into lead-in, punch and payoff. */
 function fallbackText(source: string, n: number): { lead: string; big: string; box: string } {
   const ws = source.replace(/[^\p{L}\p{N}\s%-]/gu, " ").split(/\s+/).filter(Boolean);
   if (!ws.length) return n === 0 ? { lead: "Tonton", big: "SAMPAI", box: "habis" } : { lead: "Ini dia", big: "RAHSIA", box: "yang ramai tak tahu" };
@@ -97,7 +115,7 @@ export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], 
     const have = got.filter((h) => h.kind === kind && !out.includes(h));
     if (have.length) { out.push(have[0]); continue; }
     const t = Math.max(3, Math.min(duration - 4.5, duration * frac));
-    const txt = fallbackText(fallback, out.length);
+    const txt = spokenText(words, t, fallback, out.length);
     out.push({ kind, at: `w${wordAt(words, t)}`, ...txt, ...(kind !== "over" ? { query: "", media: "video" as const } : {}) });
   }
   return out;
@@ -110,17 +128,18 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
     if (h.kind === "over") return h;
     const q = (h.query || `${context} ${h.big}`).replace(/\s+/g, " ").trim().slice(0, 80);
     if (!q) return h;
+    // stock video first (moves, free licence), then free stock photos, then web images that aren't watermarked stock;
+    // a split panel is 1080 × 900 (landscape-ish first), a pip fills the 9:16 frame (portrait first)
+    const land = (c: { width: number; height: number }) => Number(c.width >= c.height);
+    const order = <T extends { width: number; height: number }>(xs: T[]) => xs.sort((a, b) => (h.kind === "split" ? land(b) - land(a) : land(a) - land(b)));
+    const ok = (u: string) => /^https:\/\//.test(u) && !WATERMARKED.test(u);
     try {
-      if (h.media !== "photo") {
-        const clips = await searchClips(q);
-        // a split panel is 1080 × 900 (landscape-ish first); a pip fills the 9:16 frame (portrait first)
-        const land = (c: { width: number; height: number }) => Number(c.width >= c.height);
-        const urls = clips.sort((a, b) => (h.kind === "split" ? land(b) - land(a) : land(a) - land(b))).map((c) => c.url).filter((u) => /^https:\/\//.test(u));
-        if (urls.length) return { ...h, query: q, media: "video" as const, candidates: urls.slice(0, 4) };
-      }
-      const imgs = await searchImages(q);
-      const urls = imgs.hits.map((x) => x.url).filter((u) => /^https:\/\//.test(u));
-      return urls.length ? { ...h, query: q, media: "photo" as const, candidates: urls.slice(0, 5) } : { ...h, query: q };
+      const clips = order(await searchClips(q)).map((c) => c.url).filter(ok);
+      if (clips.length) return { ...h, query: q, media: "video" as const, candidates: clips.slice(0, 4) };
+      const photos = order(await searchPhotos(q)).map((c) => c.url).filter(ok);
+      if (photos.length) return { ...h, query: q, media: "photo" as const, candidates: photos.slice(0, 5) };
+      const imgs = (await searchImages(q)).hits.filter((x) => ok(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? ""))).map((x) => x.url);
+      return imgs.length ? { ...h, query: q, media: "photo" as const, candidates: imgs.slice(0, 5) } : { ...h, query: q, candidates: [] };
     } catch {
       return h;
     }

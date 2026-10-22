@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { clipPolish } from "@/lib/clipper-polish";
 import { getMotionConfig } from "@/lib/motion";
-import { enrichHeadlines } from "@/lib/motion-headline";
+import { HEADLINE_VERSION, enrichHeadlines } from "@/lib/motion-headline";
 import { clipKey, previewWords, type PolishRef, type SrcFaces, type TLine } from "@/lib/clipper-preview";
 
 // POST /api/clipper/preview { job_id, start, end, title?, polish?, faces? } — the Studio's live preview of one clip:
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
   const key = clipKey(start, end);
   const meta = (job as any).metadata ?? {};
   let ref = (meta.previews ?? {})[key] as (PolishRef & { at?: number }) | undefined;
-  if (ref && !Array.isArray(ref.headlines)) ref = undefined; // made before the headlines: polish it again
+  if (ref && (!Array.isArray(ref.headlines) || (ref as { hv?: number }).hv !== HEADLINE_VERSION)) ref = undefined; // older headline logic: polish again
   let fx = (meta.preview_faces ?? {})[key] as (SrcFaces & { at?: number }) | undefined;
   const mediaUrl = String(meta.analysis?.media_url || "");
   const [newRef, newFx] = await Promise.all([
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
       ? clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000)
         .then(async (p) => {
           const headlines = await enrichHeadlines(p.headlines, String(b?.title ?? "")).catch(() => p.headlines);
-          return { words: words.map((w) => w.w), keywords: p.keywords, zooms: p.zooms, headlines, at: Date.now() };
+          return { words: words.map((w) => w.w), keywords: p.keywords, zooms: p.zooms, headlines, hv: HEADLINE_VERSION, at: Date.now() };
         })
       : Promise.resolve(undefined),
     b?.faces && !fx && mediaUrl.startsWith("https://") ? sourceFaces(mediaUrl, start, end) : Promise.resolve(undefined),

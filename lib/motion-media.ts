@@ -94,6 +94,46 @@ async function pixabay(q: string, key: string): Promise<ClipHit[]> {
     .sort((a: ClipHit, b: ClipHit) => Number(b.height > b.width) - Number(a.height > a.width)); // portrait first
 }
 
+// ── stock photos (the same Pexels / Pixabay keys): free licence, no watermark ──
+async function pexelsPhotos(q: string, key: string): Promise<ClipHit[]> {
+  const u = `https://api.pexels.com/v1/search?${new URLSearchParams({ query: q, per_page: "12" })}`;
+  const r = await fetch(u, { headers: { Authorization: key }, signal: AbortSignal.timeout(TIMEOUT) });
+  if (!r.ok) throw new Error(`pexels photos HTTP ${r.status}`);
+  const j: any = await r.json();
+  return (Array.isArray(j?.photos) ? j.photos : [])
+    .map((p: any) => {
+      const url = p?.src?.large2x || p?.src?.large || p?.src?.original;
+      return url ? { url: String(url), thumb: String(p?.src?.medium || ""), width: Number(p?.width) || 0, height: Number(p?.height) || 0, duration: 0, provider: "pexels" } : null;
+    })
+    .filter((h: ClipHit | null): h is ClipHit => !!h && /^https:\/\//.test(h.url));
+}
+async function pixabayPhotos(q: string, key: string): Promise<ClipHit[]> {
+  const u = `https://pixabay.com/api/?${new URLSearchParams({ key, q: q.slice(0, 100), image_type: "photo", per_page: "12", safesearch: "true" })}`;
+  const r = await fetch(u, { signal: AbortSignal.timeout(TIMEOUT) });
+  if (!r.ok) throw new Error(`pixabay photos HTTP ${r.status}`);
+  const j: any = await r.json();
+  return (Array.isArray(j?.hits) ? j.hits : [])
+    .map((h: any) => (h?.largeImageURL ? { url: String(h.largeImageURL), thumb: String(h?.previewURL || ""), width: Number(h?.imageWidth) || 0, height: Number(h?.imageHeight) || 0, duration: 0, provider: "pixabay" } : null))
+    .filter((h: ClipHit | null): h is ClipHit => !!h && /^https:\/\//.test(h.url));
+}
+
+/** Stock photos for a moment (Pexels → Pixabay, free licence, no watermark); empty when no provider is set. */
+export async function searchPhotos(query: string): Promise<ClipHit[]> {
+  const provs = await providers("video_providers", ["pexels", "pixabay"]);
+  if (!provs.length) return [];
+  return cached<ClipHit>("photos", query, async () => {
+    for (const p of provs) {
+      try {
+        const hits = p.provider === "pexels" ? await pexelsPhotos(query, p.key) : await pixabayPhotos(query, p.key);
+        if (hits.length) return { provider: p.provider, hits: hits.slice(0, 10) };
+      } catch (e) {
+        console.warn("[motion-media] photos", p.provider, (e as Error)?.message);
+      }
+    }
+    return null;
+  });
+}
+
 /** Stock video clips for a B-roll moment (empty when no provider is set). */
 export async function searchClips(query: string): Promise<ClipHit[]> {
   const provs = await providers("video_providers", ["pexels", "pixabay"]);

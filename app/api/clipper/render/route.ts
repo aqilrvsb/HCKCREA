@@ -7,6 +7,7 @@ import { costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } f
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
 import { CLIPPER_JOB_TAB, CLIPPER_TAB, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
 import { clipFlash, clipKey, clipSeed, type PolishRef } from "@/lib/clipper-preview";
+import { HEADLINE_VERSION } from "@/lib/motion-headline";
 
 // POST /api/clipper/render { job_id, clips: [{start, end, title, hook}], settings, project_id? } — CLIPPER step 2:
 // every chosen clip becomes a History row (tab "clipper") rendered by the Motion engine (modal_motion.py flow
@@ -130,7 +131,7 @@ export async function POST(req: Request) {
       clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
         ...(c.flash ? { flash: c.flash } : {}), polish, seed,
         ...(c.captionFix ? { caption_fix: c.captionFix } : {}),
-        ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [], ...(Array.isArray(ref.headlines) ? { headlines: ref.headlines } : {}) } } : {}) },
+        ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [], ...(Array.isArray(ref.headlines) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { headlines: ref.headlines } : {}) } } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({
       user_id: user.id,
