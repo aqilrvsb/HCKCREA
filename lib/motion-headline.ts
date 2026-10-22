@@ -9,13 +9,17 @@
 // the set for the video's length (over + split; + pip from 20 s; + a second split from 45 s) even when it wrote
 // none; the renderer (motion-hf/overrides/headline.tsx) picks a layout / entrance variant per video.
 import { searchClips, searchPhotos } from "@/lib/motion-media";
-import { searchImages } from "@/lib/motion-search";
+import { excludeOperators, getSitePrefs, searchImages } from "@/lib/motion-search";
+import { extractJson } from "@/lib/motion";
+import { orChatVision } from "@/lib/openrouter";
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 2;
+export const HEADLINE_VERSION = 3;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
+// social / marketplace pictures are screenshots, collages or someone else's post
+const SOCIAL = /instagram|lemon8|tiktok|fbcdn|facebook|fbsbx|threads\.net|twimg|twitter|x\.com\/|shopee|susercontent|lazada|slatic|ytimg|youtube|ggpht|carousell|mudah\.my|reddit|redd\.it/i;
 export type HeadKind = "over" | "split" | "pip";
 export type HeadlinePlan = {
   kind: HeadKind;
@@ -138,12 +142,39 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
       if (clips.length) return { ...h, query: q, media: "video" as const, candidates: clips.slice(0, 4) };
       const photos = order(await searchPhotos(q)).map((c) => c.url).filter(ok);
       if (photos.length) return { ...h, query: q, media: "photo" as const, candidates: photos.slice(0, 5) };
-      const imgs = (await searchImages(q)).hits.filter((x) => ok(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? ""))).map((x) => x.url);
-      return imgs.length ? { ...h, query: q, media: "photo" as const, candidates: imgs.slice(0, 5) } : { ...h, query: q, candidates: [] };
+      const noSites = excludeOperators((await getSitePrefs()).exclude);
+      const hits = (await searchImages(`${q} ${noSites}`.trim())).hits
+        .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? "")))
+        .slice(0, 4);
+      const pick = hits.length ? await pickClean(q, h.big, hits) : -1;
+      return pick >= 0 ? { ...h, query: q, media: "photo" as const, candidates: [hits[pick].url, ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) }
+        : { ...h, query: q, candidates: [] };
     } catch {
       return h;
     }
   }));
+}
+
+/** Web pictures for a headline panel get the same eye as the B-roll: the cleanest literal match — no watermark, no
+ *  screenshot / meme / text-heavy poster, no other brand's ad — or none (-1: the panel uses the look's surface). */
+async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[]): Promise<number> {
+  const r = await orChatVision({
+    modelKey: "model_motion",
+    systemPrompt: "You pick a background picture for a TikTok split-screen headline panel. Choose the image that best shows the query as a clean, real photo (a scene, an object, a place). REJECT any image with a visible watermark or stock-site stamp, a screenshot of an app / social post / website, a meme, a poster or graphic full of text, a collage, a price tag or another brand's ad. Answer ONLY JSON: {\"pick\": n} (0-based) or {\"pick\": -1} when none is clean.",
+    textPrompt: `Query: "${query}" (headline word: "${big}"). Images #0..#${hits.length - 1} attached in order.`,
+    images: hits.map((h) => h.thumb || h.url),
+    temperature: 0.1,
+    maxTokens: 60,
+    timeoutMs: 40_000,
+    hedgeAfterMs: 20_000,
+  }).catch(() => null);
+  if (!r?.ok || !r.content) return -1;
+  try {
+    const n = Number(extractJson(r.content)?.pick);
+    return Number.isInteger(n) && n >= 0 && n < hits.length ? n : -1;
+  } catch {
+    return -1;
+  }
 }
 
 /** Headlines made on one word list, moved onto another (the CLIPPER render re-transcribes the clip). */
