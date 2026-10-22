@@ -140,9 +140,9 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         {n > 1 && (
           <span className="ml-auto flex items-center gap-1">
             <button type="button" aria-label="Klip sebelum" className="p-1 rounded-md" style={{ border: "1px solid var(--color-border)" }}
-              onClick={() => setPick((idx - 1 + n) % n)}><ChevronLeft className="w-3.5 h-3.5" /></button>
+              onClick={() => setPick((p) => (Math.min(n - 1, Math.max(0, p ?? auto)) - 1 + n) % n)}><ChevronLeft className="w-3.5 h-3.5" /></button>
             <button type="button" aria-label="Klip seterusnya" className="p-1 rounded-md" style={{ border: "1px solid var(--color-border)" }}
-              onClick={() => setPick((idx + 1) % n)}><ChevronRight className="w-3.5 h-3.5" /></button>
+              onClick={() => setPick((p) => (Math.min(n - 1, Math.max(0, p ?? auto)) + 1) % n)}><ChevronRight className="w-3.5 h-3.5" /></button>
           </span>
         )}
       </div>
@@ -196,7 +196,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
       )}
       <p className="text-[10px] leading-snug text-[var(--color-text-muted)] mx-auto" style={{ maxWidth: 300 }}>
         Dilukis oleh enjin render sebenar — caption, hook, warna kata kunci &amp; zoom sama seperti klip akhir.
-        {settings.frame === "face" || settings.frame === "split" ? " Kamera ikut muka penutur ditambah semasa jana." : ""} Muzik &amp; SFX ditambah semasa jana.
+        {settings.frame === "face" || settings.frame === "split" ? " Kamera ikut muka penutur ditambah semasa jana." : ""}{" "}Muzik &amp; SFX ditambah semasa jana.
       </p>
     </div>
   );

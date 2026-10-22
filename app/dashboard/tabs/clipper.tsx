@@ -424,7 +424,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
             <h2 className="text-base font-extrabold text-[var(--color-text-primary)]">CLIPPER — video panjang jadi klip viral</h2>
             <p className="text-[11px] text-[var(--color-text-secondary)] leading-snug mt-0.5">
               Tampal pautan YouTube / replay TikTok LIVE / Google Drive. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
-              kemudian jana klip 9:16 — kamera ikut muka penutur, caption animasi, hook &amp; edit penuh AI.
+              kemudian jana klip 9:16 — kamera ikut muka penutur, caption animasi, kata kunci berwarna &amp; hook. Pratonton gaya dahulu, kemudian jana.
             </p>
           </div>
         </div>

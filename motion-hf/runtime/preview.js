@@ -115,7 +115,16 @@ function seekTo(tt) {
 }
 
 function tick() {
-  if (cfg && props) {
+  requestAnimationFrame(tick);
+  try {
+    frameStep();
+  } catch (e) {
+    // one bad frame never stops the preview: the next frame tries again
+  }
+}
+function frameStep() {
+  if (cfg && props && cfg.segs.length) {
+    if (seg >= cfg.segs.length) seg = 0;
     if (playing && !video.seeking && video.readyState >= 2) {
       const s = cfg.segs[seg];
       const ct = video.currentTime - cfg.clipStart;
@@ -135,7 +144,6 @@ function tick() {
     draw(false);
     if (playing) emit();
   }
-  requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
 
@@ -151,10 +159,13 @@ const loadFonts = () => (fontsReady ||= Promise.race([
 
 async function load(next) {
   const my = ++req;
+  if (!next || !next.segs || !next.segs.length) return;
   const prev = cfg;
   const srcChanged = !prev || prev.src !== next.src;
-  // keep the place in the source when only the look changed (the same moment, in the new timeline)
-  const keepSrc = prev && !srcChanged && prev.clipStart === next.clipStart ? prev.clipStart + prev.segs[seg].a + Math.max(0, t - prev.segs[seg].at) : null;
+  // the same clip with another look: keep its place in the source (the same moment, in the new timeline);
+  // another clip (or video): from its start
+  const ps = prev && !srcChanged && prev.clipStart === next.clipStart ? prev.segs[Math.min(seg, prev.segs.length - 1)] : null;
+  const keepSrc = ps ? prev.clipStart + ps.a + Math.max(0, t - ps.at) : null;
   await Promise.all([loadFonts(), preloadLottie(next.props && next.props.lottie)]);
   if (my !== req) return;
   // the adopted media goes back to the park before the composition is replaced (its plan is made on mount)
@@ -178,12 +189,12 @@ async function load(next) {
     sp.className = "pv-wm-text";
     wm.appendChild(sp);
   }
-  if (srcChanged) {
-    video.src = next.src;
+  if (keepSrc == null) {
+    if (srcChanged) video.src = next.src;
     t = 0;
     seg = 0;
-    video.currentTime = next.clipStart + (next.segs[0] ? next.segs[0].a : 0);
-  } else if (keepSrc != null) {
+    video.currentTime = next.clipStart + next.segs[0].a;
+  } else {
     const ct = keepSrc - next.clipStart;
     let i = next.segs.findIndex((s) => ct >= s.a - 0.05 && ct < s.b);
     if (i < 0) i = Math.max(0, next.segs.findIndex((s) => s.a > ct));

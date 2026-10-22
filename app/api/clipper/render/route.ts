@@ -85,11 +85,12 @@ export async function POST(req: Request) {
   const ids: string[] = [];
   const failed: string[] = [];
   let total = 0;
-  // 1) rows + credit, one by one (quick DB calls); credit running out stops here — the clips already prepared still go
+  // 1) rows + credit for every clip at once (the charge is one atomic call per clip, so running out of credit just
+  //    leaves the clips it can't cover; the rest still go)
   type Prepared = { c: (typeof clips)[number]; rowId: string; estimate: number; input: EditInput; planToken: string };
-  const prepared: Prepared[] = [];
   let short: number | null = null;
-  for (const c of clips) {
+  let skipped = 0; // clips the credit didn't cover
+  const ready = await Promise.all(clips.map(async (c: (typeof clips)[number]): Promise<Prepared | null> => {
     const len = c.end - c.start;
     const estimate = round2(costFor(len, rate));
     const planToken = newPlanToken();
@@ -137,16 +138,18 @@ export async function POST(req: Request) {
         clipper: { job_id: job.id, start: c.start, end: c.end, title: c.title, hook: c.hook, mode, frame, source_title: a.title ?? null },
       },
     }).select("id").single();
-    if (error || !row) { failed.push(c.title); continue; }
+    if (error || !row) { failed.push(c.title); return null; }
     if (!(await reserveCredit(user.id, "motion", estimate, row.id))) {
       await admin.from("history").delete().eq("id", row.id);
-      short = estimate;
-      break;
+      short = short === null ? estimate : Math.min(short, estimate);
+      skipped++;
+      return null;
     }
-    prepared.push({ c, rowId: row.id, estimate, input, planToken });
-  }
+    return { c, rowId: row.id, estimate, input, planToken };
+  }));
+  const prepared = ready.filter((x): x is Prepared => !!x);
   if (!prepared.length && short !== null) {
-    return NextResponse.json({ error: `Kredit tidak mencukupi — perlu RM${short.toFixed(2)} untuk klip pertama.`, ids, needed: short }, { status: 402 });
+    return NextResponse.json({ error: `Kredit tidak mencukupi — perlu sekurang-kurangnya RM${(short as number).toFixed(2)} untuk satu klip.`, ids, needed: short }, { status: 402 });
   }
   // 2) every clip starts at once — each is its own Modal job, so they render in parallel
   await Promise.all(prepared.map(async ({ c, rowId, estimate, input, planToken }) => {
@@ -194,7 +197,6 @@ export async function POST(req: Request) {
     total += estimate;
   }));
   if (!ids.length) return NextResponse.json({ error: `Gagal mula render${failed.length ? `: ${failed.join(", ")}` : ""}.` }, { status: 502 });
-  const skipped = clips.length - prepared.length;
   return NextResponse.json({ ok: true, ids, estimate: round2(total), failed,
     ...(skipped > 0 ? { skipped, notice: `Kredit tidak cukup untuk ${skipped} klip lagi — yang lain sedang dijana.` } : {}) });
 }
