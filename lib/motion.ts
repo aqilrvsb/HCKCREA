@@ -13,6 +13,7 @@
 // An estimate is RESERVED at submit; settleMotionRow trues it up to
 // ceil(actual seconds) × rate on success, or refunds it on failure.
 
+import type { PolishRef } from "@/lib/clipper-preview";
 import type { MotionLocks } from "./motion-manual";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -194,6 +195,10 @@ export type EditInput = {
     flash?: { start: number; end: number } | null;
     /** captions mode: keyword colours + emoji, punch-in zooms and a progress bar (one quick AI call) */
     polish?: boolean;
+    /** the clip's seed (lib/clipper-preview clipSeed): "AI pilih" makes the same picks the Studio preview showed */
+    seed?: number;
+    /** the polish the Studio preview made for this clip, reused on the render's own words */
+    polish_ref?: PolishRef;
   };
 };
 

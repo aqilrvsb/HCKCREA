@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pratonton klip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<!-- the faces the Laju compositions use (motion-hf/build/page.mjs declares the same families for the render) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Black&family=Bangers&family=Bebas+Neue&family=Fredoka:wght@700&family=Inter:wght@700;800;900&family=JetBrains+Mono:wght@800&family=Montserrat:wght@800;900&family=Noto+Sans:wght@700&family=Patrick+Hand&family=Permanent+Marker&family=Playfair+Display:wght@800&family=Poppins:wght@800;900&family=Press+Start+2P&display=block" />
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000}
+#hf-root{position:absolute;left:0;top:0;width:1080px;height:1920px;overflow:hidden;background:#000;transform-origin:0 0;cursor:pointer}
+#hf-stage{position:absolute;inset:0}
+#hf-park{position:absolute;inset:0;visibility:hidden;pointer-events:none}
+.hf-parked{position:absolute;inset:0;width:100%;height:100%}
+.hf-f1{font-family:'Permanent Marker',cursive}
+.hf-f2{font-family:'Patrick Hand',cursive}
+.hf-f3{font-family:'Archivo Black',sans-serif}
+.hf-f4{font-family:'Inter',sans-serif;font-weight:700}
+.hf-f5{font-family:'Inter',sans-serif;font-weight:800}
+.hf-f6{font-family:'Inter',sans-serif;font-weight:900}
+.hf-f7{font-family:'Montserrat',sans-serif;font-weight:800}
+.hf-f8{font-family:'Montserrat',sans-serif;font-weight:900}
+.hf-f9{font-family:'Anton',sans-serif}
+.hf-f10{font-family:'Bebas Neue',sans-serif}
+.hf-f11{font-family:'Poppins',sans-serif;font-weight:800}
+.hf-f12{font-family:'Poppins',sans-serif;font-weight:900}
+/* the clip's box (adopted by the composition as its video): the frame mode's layers */
+.pv-media{overflow:hidden;background:#000}
+.pv-media>*{position:absolute;left:0;top:0;width:100%;height:100%;display:none}
+.pv-media>video{display:block;object-fit:cover;object-position:50% 50%}
+.pv-media[data-frame="fit"]>.pv-bg{display:block;filter:blur(28px) brightness(0.9);transform:scale(1.12)}
+.pv-media[data-frame="split"]>video{opacity:0}
+.pv-media[data-frame="split"]>.pv-top{display:block;height:50%}
+.pv-media[data-frame="split"]>.pv-bottom{display:block;top:50%;height:50%}
+.pv-media>.pv-flash{display:block;background:#fff;opacity:0;pointer-events:none}
+/* the watermark, as _clip_watermark burns it in (top right) */
+.pv-wm{position:absolute;inset:0;pointer-events:none;z-index:50}
+.pv-wm-text{position:absolute;right:44px;top:160px;font:700 40px 'Noto Sans',sans-serif;color:rgba(255,255,255,0.85);text-shadow:2px 2px 0 rgba(0,0,0,0.6);white-space:nowrap}
+.pv-wm-logo{position:absolute;right:40px;top:150px;width:200px;height:auto;opacity:0.85}
+</style>
+</head>
+<body>
+<div id="hf-root"><div id="hf-stage"></div><div id="hf-park"></div></div>
+<script src="preview.js"></script>
+</body>
+</html>

@@ -97,3 +97,39 @@ await build({
   },
   logLevel: "info",
 });
+
+// The CLIPPER Studio's live preview (Next.js serves it from public/clipper-preview/): the same MotionEditPro,
+// drawn in the client's browser over the clip's own <video>. Rebuild it whenever the compositions change
+// (node build/bundle.mjs) and commit public/clipper-preview/preview.js with them.
+await build({
+  entryPoints: [path.join(root, "runtime", "preview.js")],
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: ["chrome110", "safari16"],
+  outfile: path.join(root, "..", "public", "clipper-preview", "preview.js"),
+  minify: true,
+  sourcemap: false,
+  jsx: "transform",
+  jsxFactory: "React.createElement",
+  jsxFragment: "React.Fragment",
+  loader: { ".tsx": "tsx", ".ts": "ts", ".json": "json" },
+  nodePaths: [path.join(root, "node_modules")],
+  plugins: [lajuShims],
+  alias: {
+    react: "preact/compat",
+    "react-dom": "preact/compat",
+    "react/jsx-runtime": "preact/jsx-runtime",
+    remotion: shim("remotion.js"),
+    "@remotion/transitions": shim("transitions.js"),
+    "@remotion/transitions/wipe": shim("transitions.js"),
+    "@remotion/transitions/clock-wipe": shim("transitions.js"),
+    "@remotion/transitions/iris": shim("transitions.js"),
+    "@remotion/transitions/slide": shim("transitions.js"),
+    "@remotion/transitions/flip": shim("transitions.js"),
+    "@remotion/noise": shim("noise.js"),
+    "@remotion/rounded-text-box": shim("rounded-text-box.js"),
+    "@remotion/lottie": shim("lottie.js"),
+  },
+  logLevel: "info",
+});

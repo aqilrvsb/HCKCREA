@@ -10,6 +10,7 @@
 //      speaker, captions, HyperFrames). Finished clips download one by one or as a ZIP.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, Download, Flame, HardDrive, Link2, Loader2, Play, Radio, ScissorsLineDashed, Search, Trash2, Upload, X } from "lucide-react";
+import ClipPreview from "./clipper-preview";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
 import { uploadImage } from "@/lib/upload-image";
 import { withRetry } from "./motion-photo-picker";
@@ -639,6 +640,112 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                 <Heatmap a={job.analysis} clips={clips} picked={pickSet} onPick={togglePick} />
               </div>
 
+              {/* ── studio: the look first, previewed live on a clip — then tick the clips and render ── */}
+              {clips.length > 0 && (
+                <div className="rounded-xl p-3 sm:p-4 space-y-4" style={{ border: `1px solid ${THEME.soft}`, background: THEME.faint }}>
+                  <div className="text-xs font-extrabold text-[var(--color-text-primary)]">🎬 Studio — cara klip dijana</div>
+                  <div className="grid lg:grid-cols-[minmax(0,1fr)_280px] gap-5 items-start">
+                    <div className="lg:order-2 lg:sticky lg:top-4">
+                      <ClipPreview jobId={job.id} mediaUrl={job.analysis?.media_url} clips={clips} auto={pickSet.size ? Math.min(...pickSet) : 0} autoPicked={pickSet.size > 0}
+                        settings={{ frame, captions, captionLook, captionPos, hookOn, jumpcut, coldOpen, polish, wmText, wmImage }} theme={THEME} />
+                    </div>
+                    <div className="lg:order-1 space-y-4 min-w-0">
+                      <div className="px-3 py-2.5 rounded-xl" style={on}>
+                        <span className="block text-xs font-extrabold">⚡ Klip + caption</span>
+                        <span className="block text-[10px] leading-snug mt-0.5" style={{ color: "rgba(255,255,255,0.88)" }}>
+                          Kamera ikut muka penutur, caption animasi, kata kunci berwarna, zoom &amp; hook.
+                        </span>
+                      </div>
+    
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className={label}>Bingkai 9:16</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            <Chip active={frame === "face"} onClick={() => setFrame("face")} title="Kamera ikut muka; bila 2–3 orang, AI potong ke orang yang sedang bercakap">🎯 Ikut penutur (AI)</Chip>
+                            <Chip active={frame === "split"} onClick={() => setFrame("split")} title="Bila 2 orang dalam satu shot: kedua-duanya, atas & bawah">👥 2 orang atas-bawah</Chip>
+                            <Chip active={frame === "fit"} onClick={() => setFrame("fit")} title="Seluruh frame atas latar kabur">🖼️ Penuh + latar kabur</Chip>
+                            <Chip active={frame === "center"} onClick={() => setFrame("center")}>⬛ Tengah</Chip>
+                          </div>
+                        </div>
+                        <div>
+                          <label className={label}>Potong jeda panjang</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            <Chip active={jumpcut} onClick={() => setJumpcut(true)} title="Jeda lebih 0.6 saat dipendekkan — rentak lebih laju, suara kekal natural">Ya</Chip>
+                            <Chip active={!jumpcut} onClick={() => setJumpcut(false)}>Tidak</Chip>
+                          </div>
+                        </div>
+                        <div>
+                          <label className={label}>Hook di 3 saat pertama</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            <Chip active={hookOn} onClick={() => setHookOn(true)}>Ada</Chip>
+                            <Chip active={!hookOn} onClick={() => setHookOn(false)}>Tiada</Chip>
+                          </div>
+                        </div>
+                        <div>
+                          <label className={label}>Buka dengan punchline</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            <Chip active={coldOpen} onClick={() => setColdOpen(true)} title="Klip yang AI tanda ⚡ dibuka dengan ayat paling padu (2–3 saat), kemudian main dari awal">Ya</Chip>
+                            <Chip active={!coldOpen} onClick={() => setColdOpen(false)}>Tidak</Chip>
+                          </div>
+                        </div>
+                        <div>
+                          <label className={label}>Highlight kata kunci + zoom</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            <Chip active={polish} onClick={() => setPolish(true)} title="Kata penting berwarna + emoji, zoom masuk pada ayat penting, bar progres">Ya</Chip>
+                            <Chip active={!polish} onClick={() => setPolish(false)}>Tidak</Chip>
+                          </div>
+                        </div>
+                      </div>
+    
+                      <div>
+                        <label className={label}>Caption</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Chip active={captions} onClick={() => setCaptions(true)}>Ada</Chip>
+                          <Chip active={!captions} onClick={() => setCaptions(false)}>Tiada</Chip>
+                          {captions && (
+                            <>
+                              <span className="w-px self-stretch mx-1" style={{ background: "var(--color-border)" }} />
+                              <Chip active={!captionLook} onClick={() => setCaptionLook(undefined)}>✨ AI pilih</Chip>
+                              {LOCK_CAPTION_LOOKS.map((c) => <Chip key={c.id} active={captionLook === c.id} onClick={() => setCaptionLook(c.id)} title={c.desc}>{c.label}</Chip>)}
+                              <span className="w-px self-stretch mx-1" style={{ background: "var(--color-border)" }} />
+                              <Chip active={captionPos === "low"} onClick={() => setCaptionPos("low")}>Bawah</Chip>
+                              <Chip active={captionPos === "mid"} onClick={() => setCaptionPos("mid")}>Tengah</Chip>
+                            </>
+                          )}
+                        </div>
+                      </div>
+    
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div className="flex flex-wrap gap-x-5 gap-y-3">
+                          <div>
+                            <label className={label}>Muzik latar</label>
+                            <div className="flex gap-1.5"><Chip active={music} onClick={() => setMusic(true)}>Ada</Chip><Chip active={!music} onClick={() => setMusic(false)}>Tiada</Chip></div>
+                          </div>
+                          <div>
+                            <label className={label}>Bunyi hook / SFX</label>
+                            <div className="flex gap-1.5"><Chip active={sfx} onClick={() => setSfx(true)}>Ada</Chip><Chip active={!sfx} onClick={() => setSfx(false)}>Tiada</Chip></div>
+                          </div>
+                        </div>
+                        <div>
+                          <label className={label}>Watermark (optional)</label>
+                          <div className="flex items-center gap-2">
+                            <input className={inputCls} style={inputStyle} value={wmText} maxLength={40} onChange={(e) => setWmText(e.target.value)} placeholder="@akaunanda" />
+                            <label className="relative shrink-0 px-2.5 py-2 rounded-lg text-[11px] font-extrabold cursor-pointer inline-flex items-center gap-1.5" style={wmImage ? on : off}>
+                              {wmBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}{wmImage ? "Logo ✓" : "Logo"}
+                              <input type="file" accept="image/png,image/jpeg,image/webp" className="absolute inset-0 opacity-0 cursor-pointer"
+                                onChange={(e) => { void pickLogo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+                            </label>
+                            {wmImage && <button type="button" onClick={() => setWmImage("")} aria-label="Buang logo"><X className="w-4 h-4 text-[var(--color-text-muted)]" /></button>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-[var(--color-text-secondary)]">Puas hati dengan pratonton? Tanda klip di bawah, kemudian tekan <b>Jana</b>.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* the clips */}
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={label} style={{ marginBottom: 0 }}>{clips.length} klip · {pickSet.size} dipilih</span>
@@ -740,108 +847,16 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                   );
                 })}
               </div>
-
-              {/* ── 3. studio ── */}
               {clips.length > 0 && (
-                <div className="rounded-xl p-3 sm:p-4 space-y-4" style={{ border: `1px solid ${THEME.soft}`, background: THEME.faint }}>
-                  <div className="text-xs font-extrabold text-[var(--color-text-primary)]">🎬 Studio — cara klip dijana</div>
-                  <div className="px-3 py-2.5 rounded-xl" style={on}>
-                    <span className="block text-xs font-extrabold">⚡ Klip + caption</span>
-                    <span className="block text-[10px] leading-snug mt-0.5" style={{ color: "rgba(255,255,255,0.88)" }}>
-                      Kamera ikut muka penutur, caption animasi, kata kunci berwarna, zoom &amp; hook.
-                    </span>
-                  </div>
-
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className={label}>Bingkai 9:16</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Chip active={frame === "face"} onClick={() => setFrame("face")} title="Kamera ikut muka; bila 2–3 orang, AI potong ke orang yang sedang bercakap">🎯 Ikut penutur (AI)</Chip>
-                        <Chip active={frame === "split"} onClick={() => setFrame("split")} title="Bila 2 orang dalam satu shot: kedua-duanya, atas & bawah">👥 2 orang atas-bawah</Chip>
-                        <Chip active={frame === "fit"} onClick={() => setFrame("fit")} title="Seluruh frame atas latar kabur">🖼️ Penuh + latar kabur</Chip>
-                        <Chip active={frame === "center"} onClick={() => setFrame("center")}>⬛ Tengah</Chip>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={label}>Potong jeda panjang</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Chip active={jumpcut} onClick={() => setJumpcut(true)} title="Jeda lebih 0.6 saat dipendekkan — rentak lebih laju, suara kekal natural">Ya</Chip>
-                        <Chip active={!jumpcut} onClick={() => setJumpcut(false)}>Tidak</Chip>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={label}>Hook di 3 saat pertama</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Chip active={hookOn} onClick={() => setHookOn(true)}>Ada</Chip>
-                        <Chip active={!hookOn} onClick={() => setHookOn(false)}>Tiada</Chip>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={label}>Buka dengan punchline</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Chip active={coldOpen} onClick={() => setColdOpen(true)} title="Klip yang AI tanda ⚡ dibuka dengan ayat paling padu (2–3 saat), kemudian main dari awal">Ya</Chip>
-                        <Chip active={!coldOpen} onClick={() => setColdOpen(false)}>Tidak</Chip>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={label}>Highlight kata kunci + zoom</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Chip active={polish} onClick={() => setPolish(true)} title="Kata penting berwarna + emoji, zoom masuk pada ayat penting, bar progres">Ya</Chip>
-                        <Chip active={!polish} onClick={() => setPolish(false)}>Tidak</Chip>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className={label}>Caption</label>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Chip active={captions} onClick={() => setCaptions(true)}>Ada</Chip>
-                      <Chip active={!captions} onClick={() => setCaptions(false)}>Tiada</Chip>
-                      {captions && (
-                        <>
-                          <span className="w-px self-stretch mx-1" style={{ background: "var(--color-border)" }} />
-                          <Chip active={!captionLook} onClick={() => setCaptionLook(undefined)}>✨ AI pilih</Chip>
-                          {LOCK_CAPTION_LOOKS.map((c) => <Chip key={c.id} active={captionLook === c.id} onClick={() => setCaptionLook(c.id)} title={c.desc}>{c.label}</Chip>)}
-                          <span className="w-px self-stretch mx-1" style={{ background: "var(--color-border)" }} />
-                          <Chip active={captionPos === "low"} onClick={() => setCaptionPos("low")}>Bawah</Chip>
-                          <Chip active={captionPos === "mid"} onClick={() => setCaptionPos("mid")}>Tengah</Chip>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div className="flex flex-wrap gap-x-5 gap-y-3">
-                      <div>
-                        <label className={label}>Muzik latar</label>
-                        <div className="flex gap-1.5"><Chip active={music} onClick={() => setMusic(true)}>Ada</Chip><Chip active={!music} onClick={() => setMusic(false)}>Tiada</Chip></div>
-                      </div>
-                      <div>
-                        <label className={label}>Bunyi hook / SFX</label>
-                        <div className="flex gap-1.5"><Chip active={sfx} onClick={() => setSfx(true)}>Ada</Chip><Chip active={!sfx} onClick={() => setSfx(false)}>Tiada</Chip></div>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={label}>Watermark (optional)</label>
-                      <div className="flex items-center gap-2">
-                        <input className={inputCls} style={inputStyle} value={wmText} maxLength={40} onChange={(e) => setWmText(e.target.value)} placeholder="@akaunanda" />
-                        <label className="relative shrink-0 px-2.5 py-2 rounded-lg text-[11px] font-extrabold cursor-pointer inline-flex items-center gap-1.5" style={wmImage ? on : off}>
-                          {wmBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}{wmImage ? "Logo ✓" : "Logo"}
-                          <input type="file" accept="image/png,image/jpeg,image/webp" className="absolute inset-0 opacity-0 cursor-pointer"
-                            onChange={(e) => { void pickLogo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-                        </label>
-                        {wmImage && <button type="button" onClick={() => setWmImage("")} aria-label="Buang logo"><X className="w-4 h-4 text-[var(--color-text-muted)]" /></button>}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button type="button" onClick={() => void render()} disabled={rendering || !selClips.length}
-                    className="w-full py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-2" style={{ background: THEME.gradient }}>
-                    {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScissorsLineDashed className="w-4 h-4" />}
-                    Jana {selClips.length} klip{selSec ? ` · ${selSec}s` : ""}{estimate !== null && selSec ? ` · ~RM${estimate.toFixed(2)}` : ""}
-                  </button>
+                <div className="sticky bottom-3 z-10">
+                    <button type="button" onClick={() => void render()} disabled={rendering || !selClips.length}
+                      className="w-full py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-2" style={{ background: THEME.gradient }}>
+                      {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScissorsLineDashed className="w-4 h-4" />}
+                      Jana {selClips.length} klip{selSec ? ` · ${selSec}s` : ""}{estimate !== null && selSec ? ` · ~RM${estimate.toFixed(2)}` : ""}
+                    </button>
                 </div>
               )}
+
             </>
           )}
         </div>

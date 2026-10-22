@@ -2419,6 +2419,10 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
             props["direction"] = plan["direction"]
         key = f"{p.get('history_id') or ''}{p.get('out_suffix') or ''}"
         props["lookSeed"] = int(hashlib.md5(key.encode()).hexdigest()[:8], 16)
+        # CLIPPER: the clip's own seed (lib/clipper-preview clipSeed) — the look the Studio preview showed
+        cseed = (p.get("clip") or {}).get("seed") if p.get("flow") == "clip" else None
+        if isinstance(cseed, int) and 0 <= cseed < 2 ** 32:
+            props["lookSeed"] = cseed
     guard_dbg = None
     if guard:
         _progress("guard", 44)
@@ -3160,6 +3164,9 @@ def _words_to_lines(words: list, max_words: int = 14, max_sec: float = 9.0, gap:
     out = []
     for c in lines:
         line = {"start": round(c[0]["t"], 2), "end": round(c[-1]["e"], 2), "text": " ".join(x["w"] for x in c)}
+        # each word's [start, end] (the transcript file only — the Studio preview times its captions with them)
+        if all(x["w"] and not re.search(r"\s", x["w"]) for x in c):
+            line["wt"] = [[round(x["t"], 2), round(x["e"], 2)] for x in c]
         spk = Counter(x.get("spk") for x in c if x.get("spk")).most_common(1)
         if spk:
             line["spk"] = spk[0][0]
@@ -3767,7 +3774,8 @@ def _clip_analyze(p: dict, d: Path) -> dict:
     plan, err = None, ""
     try:
         r = requests.post(p["plan_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "meta": meta,
-                                               "heatmap": heat, "segments": lines}, timeout=295)
+                                               "heatmap": heat, "segments": [{k: v for k, v in ln.items() if k != "wt"} for ln in lines]},
+                          timeout=295)
         j = r.json()
         if r.ok and j.get("ok"):
             plan = j

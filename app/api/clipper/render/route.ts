@@ -6,6 +6,7 @@ import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
 import { CLIPPER_JOB_TAB, CLIPPER_TAB, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
+import { clipFlash, clipKey, clipSeed, type PolishRef } from "@/lib/clipper-preview";
 
 // POST /api/clipper/render { job_id, clips: [{start, end, title, hook}], settings, project_id? } — CLIPPER step 2:
 // every chosen clip becomes a History row (tab "clipper") rendered by the Motion engine (modal_motion.py flow
@@ -52,6 +53,8 @@ export async function POST(req: Request) {
   const wmText = String(s.watermark?.text ?? "").replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
   const wmImage = /^https:\/\/[^\s]+$/.test(String(s.watermark?.image ?? "")) ? String(s.watermark.image).slice(0, 1000) : "";
   const language = (["ms", "en", "id"].includes(String(a.language)) ? a.language : "ms") as "ms" | "en" | "id";
+  // what the Studio preview made per clip (keyword colours / zooms) — the render reuses it, so it looks the same
+  const previews = ((job as any).metadata?.previews ?? {}) as Record<string, PolishRef & { at?: number }>;
 
   // the analysis' speaker turns [[s, e, "S1"], …] (source seconds) → one clip's, in clip seconds
   const turnsIn = (all: unknown, s: number, e: number) =>
@@ -65,10 +68,8 @@ export async function POST(req: Request) {
   const clips = (Array.isArray(b?.clips) ? b.clips : []).slice(0, MAX_CLIPS).map((c: any) => {
     const start = Math.max(0, Number(c?.start) || 0);
     const end = Math.min(dur || Infinity, Number(c?.end) || 0);
-    // the cold open must sit inside the (possibly nudged) clip, past its opening
-    const fs0 = Number(c?.flash?.start), fe0 = Number(c?.flash?.end);
-    const flash = coldOpen && Number.isFinite(fs0) && Number.isFinite(fe0) && fs0 >= start + 2 && fe0 <= end + 0.5 && fe0 - fs0 >= 0.8
-      ? { start: Math.round(fs0 * 100) / 100, end: Math.round(Math.min(fe0, fs0 + 3.2) * 100) / 100 } : null;
+    // the cold open must sit inside the (possibly nudged) clip, past its opening (the preview applies the same rule)
+    const flash = clipFlash({ start, end, flash: c?.flash }, coldOpen);
     return {
       start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100,
       title: String(c?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90) || "Klip",
@@ -92,6 +93,8 @@ export async function POST(req: Request) {
     const len = c.end - c.start;
     const estimate = round2(costFor(len, rate));
     const planToken = newPlanToken();
+    const seed = clipSeed(job.id, c.start, c.end);
+    const ref = polish ? previews[clipKey(c.start, c.end)] : undefined;
     const input: EditInput = {
       videoUrl: src.type === "youtube" ? src.url : String(a.media_url || src.url),
       durationSec: len,
@@ -114,7 +117,8 @@ export async function POST(req: Request) {
       ...(captionLook ? { locks: { captionLook: captionLook as any } } : {}),
       engine: "laju",
       clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
-        ...(c.flash ? { flash: c.flash } : {}), polish },
+        ...(c.flash ? { flash: c.flash } : {}), polish, seed,
+        ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [] } } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({
       user_id: user.id,
@@ -171,6 +175,7 @@ export async function POST(req: Request) {
       ...(ytAuth ? { yt_auth: ytAuth } : {}),
       clip: {
         source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language, jumpcut,
+        seed: clipSeed(job.id, c.start, c.end),
         ...(c.flash ? { flash: c.flash } : {}),
         // who speaks when inside this clip (clip seconds) — the camera cuts on speaker turns
         turns: turnsIn(a.turns, c.start, c.end),
