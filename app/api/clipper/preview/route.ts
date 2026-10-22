@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { clipPolish } from "@/lib/clipper-polish";
 import { getMotionConfig } from "@/lib/motion";
+import { enrichHeadlines } from "@/lib/motion-headline";
 import { clipKey, previewWords, type PolishRef, type SrcFaces, type TLine } from "@/lib/clipper-preview";
 
 // POST /api/clipper/preview { job_id, start, end, title?, polish?, faces? } — the Studio's live preview of one clip:
@@ -70,12 +71,16 @@ export async function POST(req: Request) {
   const key = clipKey(start, end);
   const meta = (job as any).metadata ?? {};
   let ref = (meta.previews ?? {})[key] as (PolishRef & { at?: number }) | undefined;
+  if (ref && !Array.isArray(ref.headlines)) ref = undefined; // made before the headlines: polish it again
   let fx = (meta.preview_faces ?? {})[key] as (SrcFaces & { at?: number }) | undefined;
   const mediaUrl = String(meta.analysis?.media_url || "");
   const [newRef, newFx] = await Promise.all([
     b?.polish && !ref && words.length >= 8
       ? clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000)
-        .then((p) => (p.keywords.length || p.zooms.length ? { words: words.map((w) => w.w), keywords: p.keywords, zooms: p.zooms, at: Date.now() } : undefined))
+        .then(async (p) => {
+          const headlines = await enrichHeadlines(p.headlines, String(b?.title ?? "")).catch(() => p.headlines);
+          return { words: words.map((w) => w.w), keywords: p.keywords, zooms: p.zooms, headlines, at: Date.now() };
+        })
       : Promise.resolve(undefined),
     b?.faces && !fx && mediaUrl.startsWith("https://") ? sourceFaces(mediaUrl, start, end) : Promise.resolve(undefined),
   ]);
@@ -96,10 +101,11 @@ export async function POST(req: Request) {
     }).eq("id", jobId);
   }
   // the polish was made on these very words; a transcript read differently (rare) drops it rather than misplace it
-  const fits = ref && ref.words.length === words.length;
+  // an older cache (made before the headlines) is made again, so every clip gets them
+  const fits = ref && ref.words.length === words.length && Array.isArray(ref.headlines);
   return NextResponse.json({
     ok: true, words, aligned,
-    keywords: fits ? ref!.keywords : [], zooms: fits ? ref!.zooms : [], polished: !!fits,
+    keywords: fits ? ref!.keywords : [], zooms: fits ? ref!.zooms : [], headlines: fits ? ref!.headlines : [], polished: !!fits,
     faces: fx ? { w: fx.w, h: fx.h, faces: fx.faces } : null, faced: !!fx,
   });
 }

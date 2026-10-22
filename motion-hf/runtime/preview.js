@@ -36,6 +36,34 @@ flash.className = "pv-flash";
 for (const el of [bg, video, top, bottom, flash]) media.appendChild(el);
 park.appendChild(media);
 
+// the headline layouts' B-roll clips: parked muted <video>s the composition adopts (by data-hf-src) while they're up
+const extra = new Map();
+function parkExtras(props) {
+  const want = new Set(((props && props.headlines) || []).filter((h) => h.media && h.media.video && h.media.src).map((h) => h.media.src));
+  for (const [src, el] of extra) if (!want.has(src)) { el.remove(); extra.delete(src); }
+  for (const src of want) {
+    if (extra.has(src)) continue;
+    const v = document.createElement("video");
+    v.className = "hf-parked";
+    v.setAttribute("data-hf-src", src);
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.preload = "auto";
+    v.autoplay = true;
+    v.src = src;
+    extra.set(src, v);
+    park.appendChild(v);
+  }
+}
+// a layout that ended took its clip out of the page with it: back to the park, ready for the next pass
+function reparkExtras() {
+  for (const el of extra.values()) {
+    if (!el.isConnected) park.appendChild(el);
+    if (el.paused && playing) el.play().catch(() => undefined);
+  }
+}
+
 const wm = document.createElement("div"); // the @handle / logo, top right, burned in after the render
 wm.className = "pv-wm";
 rootEl.appendChild(wm);
@@ -167,6 +195,7 @@ function frameStep() {
     const f = cfg.flashAt;
     flash.style.opacity = f == null ? "0" : t >= f - 0.1 && t < f ? String((t - (f - 0.1)) / 0.1) : t >= f && t < f + 0.15 ? String(1 - (t - f) / 0.15) : "0";
     paintLayers();
+    reparkExtras();
     draw(false);
     if (playing) emit();
   }
@@ -176,7 +205,7 @@ requestAnimationFrame(tick);
 // every face the composition may use is loaded before the first draw: the plan measures text with the real fonts
 const FACES = ["800 40px Montserrat", "900 40px Montserrat", "40px 'Archivo Black'", "40px Anton", "40px 'Bebas Neue'", "700 40px Inter", "800 40px Inter",
   "900 40px Inter", "800 40px Poppins", "900 40px Poppins", "40px 'Permanent Marker'", "40px 'Patrick Hand'", "800 40px 'Playfair Display'",
-  "800 40px 'JetBrains Mono'", "40px 'Press Start 2P'", "40px Bangers", "700 40px Fredoka", "700 40px 'Noto Sans'"];
+  "800 40px 'JetBrains Mono'", "500 40px 'JetBrains Mono'", "italic 500 40px 'Playfair Display'", "40px 'Press Start 2P'", "40px Bangers", "700 40px Fredoka", "700 40px 'Noto Sans'"];
 let fontsReady = null;
 const loadFonts = () => (fontsReady ||= Promise.race([
   Promise.all(FACES.map((f) => document.fonts.load(f, "AaBb1!").catch(() => null))),
@@ -197,6 +226,7 @@ async function load(next) {
   // the adopted media goes back to the park before the composition is replaced (its plan is made on mount)
   park.appendChild(media);
   render(null, stage);
+  parkExtras(next.props);
   cfg = next;
   props = next.props;
   fps = props.fps || 30;

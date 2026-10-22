@@ -8,6 +8,7 @@ import { orChat, withDeadline } from "@/lib/openrouter";
 import { HOOK_SOUND_COUNT } from "@/lib/motion-hook-sounds";
 import { clipPolish } from "@/lib/clipper-polish";
 import { clipPicks, reusePolish, userCaptionFixes } from "@/lib/clipper-preview";
+import { enrichHeadlines } from "@/lib/motion-headline";
 
 type PlanWord = { i: number; w: string; t: number; e?: number };
 
@@ -19,15 +20,20 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
   const seed = Number.isInteger(input.clip?.seed) ? (input.clip!.seed as number) : Math.floor(Math.random() * 2 ** 32);
   const picks = clipPicks(seed, input.locks?.captionLook);
   const polish = input.clip?.polish !== false && input.captions !== false;
-  // the polish the preview made, moved onto this render's words; afresh when it doesn't fit (or there was none)
-  const reused = polish && input.clip?.polish_ref ? reusePolish(input.clip.polish_ref, words) : null;
-  const { keywords, zooms } = !polish ? { keywords: [], zooms: [] } : reused ?? await clipPolish(words, duration, input.clip?.title ?? "", deadline);
+  // the polish the preview made (keyword colours, zooms, the required headlines), moved onto this render's words;
+  // afresh when it doesn't fit or there was none — the headlines are made even with the keyword polish off
+  const reused = input.clip?.polish_ref ? reusePolish(input.clip.polish_ref, words) : null;
+  const fresh = !reused || !reused.headlines.length ? await clipPolish(words, duration, input.clip?.title ?? "", deadline) : null;
+  const keywords = !polish ? [] : reused?.keywords.length ? reused.keywords : fresh?.keywords ?? [];
+  const zooms = !polish ? [] : reused?.zooms.length ? reused.zooms : fresh?.zooms ?? [];
+  const headlines = reused?.headlines.length ? reused.headlines
+    : await enrichHeadlines(fresh?.headlines ?? [], input.clip?.title ?? "").catch(() => fresh?.headlines ?? []);
   return {
     hook: input.clip?.hook ? { text: input.clip.hook } : null,
     accent: "#FFD93B",
     mood: "upbeat" as const,
     captions: { on: input.captions !== false, style: input.locks?.captionLook === "tiktok" ? "tiktok" : "pop", pos: input.captionPos ?? "low", maxWords: 3 },
-    overlays: [], zooms, broll: [], facts: [], keywords,
+    overlays: [], zooms, broll: [], facts: [], keywords, headlines,
     music: !!input.music,
     energy: "gempak",
     ...(input.sfx && input.clip?.hook ? { hookSound: seed % HOOK_SOUND_COUNT } : {}),

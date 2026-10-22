@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import {
   captionFixMap, clipFlash, clipKey, clipSeed, faceTrack, fixedText, polishOnTimeline, previewFaces, previewProps, previewTimeline,
-  type PWord, type PolishKeyword, type PolishZoom, type SrcFaces,
+  type PWord, type PolishHeadline, type PolishKeyword, type PolishZoom, type SrcFaces,
 } from "@/lib/clipper-preview";
 
 // CLIPPER Studio — live preview of one clip with the client's settings, drawn by the render's own composition
@@ -20,6 +20,8 @@ export type PreviewSettings = {
 };
 type Data = {
   key: string; words: PWord[]; aligned: boolean; keywords: PolishKeyword[]; zooms: PolishZoom[]; polished: boolean;
+  /** the required headline layouts (with their B-roll found) */
+  headlines: PolishHeadline[];
   faces: SrcFaces | null; faced: boolean;
 };
 type PState = { t: number; dur: number; playing: boolean; muted: boolean; ready: boolean; waiting: boolean };
@@ -63,7 +65,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         if (off) return;
         if (!r.ok || !d?.ok) throw new Error(d?.error || "Pratonton gagal");
         setData({ key, words: d.words, aligned: !!d.aligned, keywords: d.keywords ?? [], zooms: d.zooms ?? [], polished: !!d.polished,
-          faces: d.faces ?? null, faced: !!d.faced });
+          headlines: d.headlines ?? [], faces: d.faces ?? null, faced: !!d.faced });
       } catch (e: any) {
         if (!off) setErr(e?.message || "Pratonton gagal");
       }
@@ -73,7 +75,8 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
   }, [key, mediaUrl]);
   useEffect(() => {
     if (!clip || !data || data.key !== key) return;
-    const wantPolish = settings.polish && settings.captions && !data.polished;
+    // the polish call also writes the required headlines: made for every clip, whatever the keyword setting
+    const wantPolish = !data.polished;
     const wantFaces = !data.faced;
     const tag = `${key}|${wantPolish}|${wantFaces}`;
     if ((!wantPolish && !wantFaces) || busy.current === tag) return;
@@ -89,7 +92,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         if (r.ok && d?.ok) {
           setData((cur) => (cur && cur.key === key ? {
             ...cur,
-            ...(wantPolish ? { keywords: d.keywords ?? [], zooms: d.zooms ?? [], polished: true } : {}),
+            ...(wantPolish ? { keywords: d.keywords ?? [], zooms: d.zooms ?? [], headlines: d.headlines ?? [], polished: true } : {}),
             ...(wantFaces ? { faces: d.faces ?? null, faced: true } : {}),
           } : cur));
         }
@@ -112,11 +115,11 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
     // the client's caption corrections (same words they were made on): each word keeps its timing, "" drops it
     const cf = clip.capFix && clip.capFix.key === clipKey(clip.start, clip.end) && clip.capFix.words.length === data.words.length ? clip.capFix.fix : null;
     if (cf) tl.words = tl.words.map((w) => (w.si in cf ? { ...w, w: cf[w.si] } : w)).filter((w) => w.w.trim());
-    const pol = polishOnTimeline(tl, data.keywords, data.zooms);
+    const pol = polishOnTimeline(tl, data.keywords, data.zooms, data.headlines);
     const props = previewProps({
       video: "clip://preview", tl, seed: clipSeed(jobId, clip.start, clip.end), hook: settings.hookOn ? clip.hook : null,
       captions: settings.captions, captionLook: settings.captionLook, captionPos: settings.captionPos, polish: settings.polish,
-      keywords: pol.keywords, zooms: pol.zooms, faces: previewFaces(data.faces, tl, settings.frame),
+      keywords: pol.keywords, zooms: pol.zooms, faces: previewFaces(data.faces, tl, settings.frame), headlines: pol.headlines,
     });
     const wmText = settings.wmText.replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
     return {
@@ -191,7 +194,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         {err && <div className="absolute inset-x-0 bottom-0 p-2 text-[10px] text-white bg-red-600/80">{err}</div>}
         {polishing && (
           <div className="absolute left-2 top-2 px-2 py-1 rounded-md text-[10px] font-bold text-white bg-black/60 inline-flex items-center gap-1">
-            <Loader2 className="w-3 h-3 animate-spin" /> AI pilih kata kunci…
+            <Loader2 className="w-3 h-3 animate-spin" /> AI susun headline &amp; kata kunci…
           </div>
         )}
       </div>
@@ -218,7 +221,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         </div>
       )}
       <p className="text-[10px] leading-snug text-[var(--color-text-muted)] mx-auto" style={{ maxWidth: 300 }}>
-        Dilukis oleh enjin render sebenar — caption, hook, warna kata kunci &amp; zoom sama seperti klip akhir.
+        Dilukis oleh enjin render sebenar — caption, hook, headline, split-screen, warna kata kunci &amp; zoom sama seperti klip akhir.
         {settings.frame === "split" ? " Susunan 2 orang dibuat tepat ikut muka semasa jana." : ""}{" "}Muzik &amp; SFX ditambah semasa jana.
       </p>
     </div>

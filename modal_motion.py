@@ -1171,6 +1171,74 @@ def _fetch_clip(url: str, d: Path, k: int, ci: int, layout: str):
     return clip, poster
 
 
+def _fetch_head_clip(url: str, d: Path, k: int, ci: int, kind: str) -> Path:
+    """A headline layout's stock clip: ≤ 5.5 s, muted, cut to its panel (a split's half 1080×960, a pip's full frame)."""
+    raw = _download(url, d / f"hdv{k}_{ci}.src", 90 * 1024 * 1024)
+    clip = d / f"head_{k}_{ci}.mp4"
+    vf = ("scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" if kind == "pip"
+          else "scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960")
+    _run(["ffmpeg", "-v", "error", "-y", "-ss", "0.3", "-t", "5.5", "-i", str(raw), "-an", "-vf", f"{vf},fps=30",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", str(clip)], "headline clip", 240)
+    raw.unlink(missing_ok=True)
+    return clip
+
+
+def _fetch_headlines(items: list, d: Path, srv: _Serve) -> list:
+    """The REQUIRED headline layouts (lib/motion-headline.ts): a split / pip gets its B-roll (the first candidate that
+    downloads — a clip cut to its panel, or a photo); one without is drawn on the look's own surface."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(arg):
+        k, h = arg
+        if not isinstance(h, dict) or not str(h.get("big") or "").strip():
+            return None
+        base = {x: h[x] for x in ("kind", "at", "to", "lead", "big", "box") if h.get(x) is not None}
+        if h.get("kind") not in ("split", "pip"):
+            return base
+        for ci, url in enumerate((h.get("candidates") or [])[:4]):
+            url = str(url)
+            if not url.startswith("https://"):
+                continue
+            try:
+                if h.get("media") == "photo":
+                    got = _fetch_image(url, d / f"head_{k}_{ci}.jpg")
+                    if got:
+                        return {**base, "media": {"src": srv.url(got)}}
+                else:
+                    return {**base, "media": {"src": srv.url(_fetch_head_clip(url, d, k, ci, str(h.get("kind")))), "video": True}}
+            except Exception as e:  # noqa: BLE001
+                print("headline media failed:", str(e)[:160], flush=True)
+        return base
+
+    with ThreadPoolExecutor(4) as ex:
+        res = list(ex.map(one, list(enumerate(items[:5]))))
+    return [r for r in res if r]
+
+
+def _headlines_default(words: list, dur: float, text: str) -> list:
+    """The plan came back without headlines (the director failed): the required layouts from the hook / first words."""
+    if not words or dur < 4:
+        return []
+    src = re.sub(r"[^\w\s%-]", " ", text or " ".join(w["w"] for w in words[:16])).split()
+    if not src:
+        return []
+    bi = max(range(len(src)), key=lambda i: len(src[i]))
+    big = src[bi][:16].upper()
+    lead = (" ".join(src[max(0, bi - 4):bi]) or "Ini dia")[:34]
+    box = (" ".join(src[bi + 1:bi + 5]) or "tonton sampai habis")[:34]
+
+    def at(frac):
+        t = max(3.0, min(dur - 4.5, dur * frac))
+        return f"w{min(range(len(words)), key=lambda j: abs(float(words[j]['t']) - t))}"
+
+    out = [{"kind": "over", "at": at(0.22), "lead": lead[:1].upper() + lead[1:], "big": big, "box": box}]
+    if dur >= 7:
+        out.append({"kind": "split", "at": at(0.55), "lead": "Sebab itu", "big": big, "box": "jangan skip"})
+    if dur >= 20:
+        out.append({"kind": "pip", "at": at(0.8), "lead": "Ingat ni", "big": big, "box": "tonton sampai habis"})
+    return out
+
+
 def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
     """First decodable, big-enough candidate per moment (moments fetched in
     parallel); none → moment dropped. With the TikTok guard: two candidates
@@ -2412,6 +2480,14 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
         "cta": plan.get("cta"), "lottie": lottie, "progress": style == "gempak",
         "cuts": cut_marks, **({"hookSfx": hook_sfx} if hook_sfx is not None else {}),
     }
+    # the REQUIRED headline layouts (over the speaker / a split panel / the speaker docked), with their B-roll
+    try:
+        heads = _fetch_headlines(plan.get("headlines") or [], d, srv)
+    except Exception as e:  # noqa: BLE001
+        print("headlines failed:", str(e)[:200], flush=True)
+        heads = []
+    props["headlines"] = heads or _headlines_default(words, dur, str((plan.get("hook") or {}).get("text") or ""))
+    print(f"headlines: {[(h.get('kind'), h.get('big'), bool(h.get('media'))) for h in props['headlines']]}", flush=True)
     hf = str(p.get("renderer") or "") == "hyperframes"
     if hf:
         import hashlib

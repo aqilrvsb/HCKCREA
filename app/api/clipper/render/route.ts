@@ -104,7 +104,8 @@ export async function POST(req: Request) {
     const estimate = round2(costFor(len, rate));
     const planToken = newPlanToken();
     const seed = clipSeed(job.id, c.start, c.end);
-    const ref = polish ? previews[clipKey(c.start, c.end)] : undefined;
+    // (the headlines in it are required, so the cache is handed over even when the keyword polish is off)
+    const ref = previews[clipKey(c.start, c.end)];
     const input: EditInput = {
       videoUrl: src.type === "youtube" ? src.url : String(a.media_url || src.url),
       durationSec: len,
@@ -129,7 +130,7 @@ export async function POST(req: Request) {
       clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
         ...(c.flash ? { flash: c.flash } : {}), polish, seed,
         ...(c.captionFix ? { caption_fix: c.captionFix } : {}),
-        ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [] } } : {}) },
+        ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [], ...(Array.isArray(ref.headlines) ? { headlines: ref.headlines } : {}) } } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({
       user_id: user.id,

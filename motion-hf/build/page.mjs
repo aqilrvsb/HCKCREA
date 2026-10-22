@@ -26,6 +26,9 @@ const FONT_FACES = [
   "@font-face{font-family:'Permanent Marker';font-style:normal;font-weight:400;font-display:block;src:url(fonts/PermanentMarker-latin.woff2) format('woff2')}",
   "@font-face{font-family:'Patrick Hand';font-style:normal;font-weight:400;font-display:block;src:url(fonts/PatrickHand-latin.woff2) format('woff2')}",
   // the faces of the 40 styles (motion-hf/fonts/OFL-StyleFonts.txt)
+  // the split headline's script line and boxed line (OFL)
+  "@font-face{font-family:'Playfair Display';font-style:italic;font-weight:500;font-display:block;src:url(fonts/PlayfairDisplayItalic-latin.woff2) format('woff2')}",
+  "@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:500;font-display:block;src:url(fonts/JetBrainsMono500-latin.woff2) format('woff2')}",
   ...STYLE_FONTS.map(([family, weight, file]) => `@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};font-display:block;src:url(fonts/${file}) format('woff2')}`),
 ].join("\n");
 const FONT_RULES = [
@@ -124,7 +127,7 @@ ${items.join("\n")}
 `;
   fs.mkdirSync(path.join(outDir, "fonts"), { recursive: true });
   const fontsSrc = new URL("../fonts/", import.meta.url);
-  for (const f of ["PermanentMarker-latin.woff2", "PatrickHand-latin.woff2", ...STYLE_FONTS.map((x) => x[2])]) {
+  for (const f of ["PermanentMarker-latin.woff2", "PatrickHand-latin.woff2", "PlayfairDisplayItalic-latin.woff2", "JetBrainsMono500-latin.woff2", ...STYLE_FONTS.map((x) => x[2])]) {
     fs.copyFileSync(new URL(f, fontsSrc), path.join(outDir, "fonts", f));
   }
   fs.copyFileSync(new URL("../node_modules/gsap/dist/gsap.min.js", import.meta.url), path.join(outDir, "gsap.min.js"));

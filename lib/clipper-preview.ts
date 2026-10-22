@@ -9,8 +9,13 @@ export type PWord = { w: string; t: number; e: number };
 export type TLine = { start: number; end: number; text: string; spk?: string; wt?: [number, number][] };
 export type PolishKeyword = { i: number; color: string; emoji?: string };
 export type PolishZoom = { at: string; to?: string; scale: number };
+/** a required headline layout (lib/motion-headline.ts HeadlinePlan, kept to what the browser needs) */
+export type PolishHeadline = {
+  kind: "over" | "split" | "pip"; at: string | number; to?: string | number; lead: string; big: string; box?: string;
+  query?: string; media?: "video" | "photo"; candidates?: string[];
+};
 /** the polish made for a preview, kept on the analysis row and reused by the render */
-export type PolishRef = { words: string[]; keywords: PolishKeyword[]; zooms: PolishZoom[] };
+export type PolishRef = { words: string[]; keywords: PolishKeyword[]; zooms: PolishZoom[]; headlines?: PolishHeadline[] };
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -190,7 +195,7 @@ export function previewTimeline(words: PWord[], clipDur: number, o: { flash?: { 
 }
 
 /** The polish (made on the clip's words) on the timeline's words: the clip body only, not the teaser copy. */
-export function polishOnTimeline(tl: Timeline, keywords: PolishKeyword[], zooms: PolishZoom[]) {
+export function polishOnTimeline(tl: Timeline, keywords: PolishKeyword[], zooms: PolishZoom[], headlines: PolishHeadline[] = []) {
   const at = new Map<number, number>();
   tl.words.forEach((w, k) => { if (!w.teaser && !at.has(w.si)) at.set(w.si, k); });
   const near = (si: number) => {
@@ -207,7 +212,14 @@ export function polishOnTimeline(tl: Timeline, keywords: PolishKeyword[], zooms:
     const b = z.to ? near(Number(/^w(\d+)/.exec(z.to)?.[1] ?? -1)) : -1;
     return { at: `w${a}`, ...(b > a ? { to: `w${b}$` } : {}), scale: z.scale };
   }).filter(Boolean) as PolishZoom[];
-  return { keywords: kw, zooms: zm };
+  const hd = headlines.map((h) => {
+    if (typeof h.at === "number") return h;
+    const a = near(Number(/^w(\d+)/.exec(String(h.at))?.[1] ?? -1));
+    if (a < 0) return null;
+    const b = typeof h.to === "string" ? near(Number(/^w(\d+)/.exec(h.to)?.[1] ?? -1)) : -1;
+    return { ...h, at: `w${a}`, ...(b > a ? { to: `w${b}$` } : { to: undefined }) };
+  }).filter(Boolean) as PolishHeadline[];
+  return { keywords: kw, zooms: zm, headlines: hd };
 }
 
 /** Word-by-word alignment (longest common subsequence on letters / digits): index in a → index in b, or -1. */
@@ -256,7 +268,14 @@ export function reusePolish(ref: PolishRef, words: { w: string; t: number }[]) {
     const b = z.to ? near(Number(/^w(\d+)/.exec(z.to)?.[1] ?? -1)) : -1;
     return { at: `w${a}`, ...(b > a ? { to: `w${b}$` } : {}), scale: z.scale };
   }).filter(Boolean) as PolishZoom[];
-  return { keywords, zooms };
+  const headlines = (ref.headlines || []).map((h) => {
+    if (typeof h.at === "number") return h;
+    const a = near(Number(/^w(\d+)/.exec(String(h.at))?.[1] ?? -1));
+    if (a < 0) return null;
+    const b = typeof h.to === "string" ? near(Number(/^w(\d+)/.exec(h.to)?.[1] ?? -1)) : -1;
+    return { ...h, at: `w${a}`, ...(b > a ? { to: `w${b}$` } : { to: undefined }) };
+  }).filter(Boolean) as PolishHeadline[];
+  return { keywords, zooms, headlines };
 }
 
 // ── the client's own caption corrections ──
@@ -394,6 +413,8 @@ export function previewProps(o: {
   video: string; tl: Timeline; seed: number; hook?: string | null; captions: boolean; captionLook?: string | null;
   captionPos: "low" | "mid"; polish: boolean; keywords: PolishKeyword[]; zooms: PolishZoom[];
   faces?: { t: number; x: number; y: number; w: number; h: number }[];
+  /** the required headline layouts; the B-roll is their first found picture / clip (the render downloads the same) */
+  headlines?: PolishHeadline[];
 }) {
   const picks = clipPicks(o.seed, o.captionLook);
   const words = o.tl.words.map((w) => ({ w: w.w, t: w.t, e: w.e }));
@@ -405,5 +426,9 @@ export function previewProps(o: {
     lottie: o.polish ? emojiLottie(o.keywords) : {}, progress: true, cuts: o.tl.cuts,
     direction: { ...picks, end_card: "none", progress: o.polish && o.tl.dur > 35 ? "bar" : "none", fx: "light", captions: "big", camera: "calm" },
     lookSeed: o.seed,
+    headlines: (o.headlines ?? []).map((h) => ({
+      kind: h.kind, at: h.at, ...(h.to !== undefined ? { to: h.to } : {}), lead: h.lead, big: h.big, ...(h.box ? { box: h.box } : {}),
+      ...(h.candidates?.[0] ? { media: { src: h.candidates[0], video: h.media !== "photo" } } : {}),
+    })),
   };
 }

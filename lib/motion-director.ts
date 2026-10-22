@@ -25,6 +25,7 @@ import { HOOK_SOUNDS } from "@/lib/motion-hook-sounds";
 import { vgcStyle, type VaultStyle } from "@/lib/vgc-styles";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
+import { HEADLINE_SPEC, cleanHeadlines, enrichHeadlines, type HeadlinePlan } from "@/lib/motion-headline";
 
 type Cue = string | number;
 export type DirectorWord = { i: number; w: string; t: number; e?: number };
@@ -49,6 +50,8 @@ export type EditPlanV2 = {
   keywords: { i: number; color: "benefit" | "price" | "pain" | "brand" | "accent"; emoji?: string }[];
   rehook?: { at: Cue; text: string };
   cta?: { at: Cue; text: string; sub?: string };
+  /** REQUIRED headline layouts (over the speaker, a split panel, the speaker docked) — lib/motion-headline.ts */
+  headlines?: HeadlinePlan[];
   /** TikTok guard: word indices the rules always mute (Modal adds the LLM's). */
   censor?: number[];
   guard?: { fixed: number; dropped: number };
@@ -847,6 +850,7 @@ Return ONLY one JSON object:
   "overlays": [ITEM],
   "zooms": [{"at": CUE, "to": CUE, "scale": 1.08–1.25}],
   "broll": [{"at": CUE, "to": CUE, "layout": "full" | "pip", "kind": "photo" | "video", "query": string, "label"?: string (≤4 words)}],
+  ${HEADLINE_SPEC},
   "facts": [{"at": CUE, "to": CUE, "query": string, "topic": string}],
   "keywords": [{"i": word index, "color": "benefit" | "price" | "pain" | "brand", "emoji"?: one emoji}],
   "rehook"?: {"at": CUE, "text": string (≤4 words)},
@@ -960,6 +964,12 @@ export async function directEdit(opts: {
       plan.direction = direction;
     }
   }
+  // the required headline layouts (made up when the director wrote none; guard mode keeps none that breaks the rules)
+  const headSource = [plan.hook?.text, input.product].filter(Boolean).join(" ");
+  plan.headlines = cleanHeadlines(raw?.headlines, words, duration, headSource);
+  if (input.guard) {
+    plan.headlines = cleanHeadlines(plan.headlines.filter((h) => !guardHits([h.lead, h.big, h.box].join(" ")).length), words, duration, headSource);
+  }
   // only numbers the speaker says (or the client wrote) reach the screen; nothing that sits on the speaker hides inside a scene
   groundPlan(plan, words, duration, [input.product, input.instructions, input.locks?.hook, input.locks?.cta].filter(Boolean).join(" "), input.locks?.scenes);
   const guard = !!input.guard;
@@ -969,15 +979,16 @@ export async function directEdit(opts: {
   const factMoments = rawFacts(raw, words.length, duration)
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
-  const [broll, facts] = await Promise.all([
+  const [broll, facts, , headlines] = await Promise.all([
     input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, uploads), [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
+    byDeadline(enrichHeadlines(plan.headlines ?? [], plan.brand || input.product || ""), plan.headlines ?? []),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
-  return { ...plan, director, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
+  return { ...plan, director, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts, headlines };
 }
 
 // ── grounding: numbers on screen are spoken; on-speaker pieces live between scenes; scenes ≤ ~70 % ─────────────
