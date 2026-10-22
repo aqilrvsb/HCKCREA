@@ -3050,6 +3050,9 @@ def yt_mirror(url: str, key: str) -> dict:
 def yt_mirror_try(url: str, key: str, fresh: bool, via: str) -> dict:
     import shutil
     global _YT_AUTH
+    # already copied (a retried call): nothing to do
+    if _remote_ok(_b2_public_url(key), 50_000_000):
+        return {"ok": True, "url": _b2_public_url(key), "cached": True}
     d = Path(tempfile.mkdtemp(prefix="ytm_"))
     t0 = time.time()
     _YT_AUTH = {}
