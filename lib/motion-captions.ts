@@ -45,6 +45,15 @@ export function tidyToken(w: string): string {
   return w.replace(/^[-–—]+(?=[\p{L}\p{N}])/u, "");
 }
 
+/** The model's word with the speaker's own punctuation around it: a fix changes the word, never the full stop /
+ *  comma the caption lines break on ("sabun." → "sabun" is no fix). */
+function keepPunct(orig: string, fixed: string): string {
+  const edge = (s: string) => /^([^\p{L}\p{N}]*)([\s\S]*?)([^\p{L}\p{N}]*)$/u.exec(s) ?? ["", "", s, ""];
+  const [, pre, , post] = edge(orig);
+  const core = edge(fixed)[2];
+  return core ? `${pre}${core}${post}` : fixed;
+}
+
 export async function fixTranscript(words: { i: number; w: string }[], product?: string, language: Lang = "ms"): Promise<[number, string][]> {
   if (!words.length) return [];
   const byIndex = new Map(words.map((w) => [w.i, w.w]));
@@ -74,9 +83,10 @@ export async function fixTranscript(words: { i: number; w: string }[], product?:
     try { j = JSON.parse(t.slice(a, b + 1)); } catch { /* keep the tidy fixes */ }
     for (const f of Array.isArray(j?.fix) ? j.fix : []) {
       const i = Number(f?.[0]);
-      const w = tidyToken(String(f?.[1] ?? "").replace(/\s+/g, " ").trim());
       const orig = byIndex.get(i);
-      if (orig === undefined || !w || w.length > 40 || w === orig) continue;
+      if (orig === undefined) continue;
+      const w = tidyToken(keepPunct(orig, String(f?.[1] ?? "").replace(/\s+/g, " ").trim()));
+      if (!w || w.length > 40 || w === orig) continue;
       if (isVulgar(w) && !isVulgar(orig)) continue; // never put a crude word in the speaker's mouth
       const parts = w.split(" ");
       if (parts.length > 3) continue; // a fix, not a rewrite
