@@ -285,7 +285,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
  *  reads further down the results; `skip`: pictures already shown are left out (asking again gives the next one);
  *  `keep`: a stock clip is copied to our storage too (a client's pick must render the same days later). */
 async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
-  o: { page?: number; skip?: Set<string>; keep?: boolean } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
+  o: { page?: number; skip?: Set<string>; keep?: boolean; asked?: boolean } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
   const land = (c: { width: number; height: number }) => Number(c.width >= c.height);
   const order = <T extends { width: number; height: number }>(xs: T[]) => xs.sort((a, b) => (kind === "split" ? land(b) - land(a) : land(a) - land(b)));
   const seen = (u: string) => !!o.skip?.size && (o.skip.has(u) || o.skip.has(sha1(u)));
@@ -299,7 +299,7 @@ async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
   const firstFit = async (xs: { url: string; thumb?: string }[]) => {
     const top = page(xs.filter((x) => ok(x.url)), 5);
     if (!top.length) return null;
-    const k = await pickClean(q, big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic);
+    const k = await pickClean(q, big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic, o.asked);
     return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
   };
   const clips = await firstFit(order(await searchClips(q)));
@@ -309,7 +309,7 @@ async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
   const noSites = excludeOperators((await getSitePrefs()).exclude);
   const hits = page((await searchImages(`${q} ${noSites}`.trim())).hits
     .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))), 4);
-  const pick = hits.length ? await pickClean(q, big, hits, topic) : -1;
+  const pick = hits.length ? await pickClean(q, big, hits, topic, o.asked) : -1;
   return pick >= 0 ? { media: "photo", candidates: [await keepPhoto(hits[pick].url), ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) } : null;
 }
 
@@ -350,7 +350,7 @@ export async function pickHeadlineBroll(o: { kind: "split" | "pip"; want?: strin
     const m = KEPT.exec(u);
     if (m) skip.add(m[1]); // our copy of a stock / web picture: its source is the one to leave out
   }
-  const found = await findBroll(o.kind, query, (o.text || "").split(" ")[0] || query, topic, { skip, keep: true });
+  const found = await findBroll(o.kind, query, (o.text || "").split(" ")[0] || query, topic, { skip, keep: true, asked: !!o.want?.trim() });
   if (!found?.candidates[0]) return { none: true, query };
   // the render takes a pick only from our storage: copy again once if the first copy failed, else say so
   let url = found.candidates[0];
@@ -361,11 +361,15 @@ export async function pickHeadlineBroll(o: { kind: "split" | "pip"; want?: strin
 
 /** Web pictures for a headline panel get the same eye as the B-roll: the cleanest literal match — no watermark, no
  *  screenshot / meme / text-heavy poster, no other brand's ad — or none (-1: the panel uses the look's surface). */
-async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[], topic = ""): Promise<number> {
+async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[], topic = "", asked = false): Promise<number> {
   const r = await orChatVision({
     modelKey: "model_motion",
     systemPrompt: "You pick a background picture (a photo, or a still of a stock video) for a TikTok split-screen headline panel. Choose the image that most literally shows the query's main thing as a clean, real shot (a scene, an object, a place, people doing it) — an image of something else (a flower for 'cooking oil') does NOT fit. REJECT any image with a visible watermark or stock-site stamp, a screenshot of an app / social post / website, a meme, a poster or graphic full of text, a collage, a price tag or another brand's ad. REJECT any image whose subject is a branded product — a box, pack, bottle, jar or label with a readable brand name or logo (it would advertise someone else's product in the seller's video); plain unbranded things (a glass of drink, a coffee cup, a patch on skin, a person) are fine. Answer ONLY JSON: {\"pick\": n} (0-based) or {\"pick\": -1} when none is clean.",
-    textPrompt: `${topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}Query: "${query}" (headline word: "${big}"). Images #0..#${hits.length - 1} attached in order.`,
+    // the seller typed what to show: that IS the subject (a diet-drink seller asking for "sabun mandi" gets soap) —
+    // the clean-picture rules still hold
+    textPrompt: `${asked
+      ? `THE SELLER ASKED FOR THIS PICTURE (their own words) — it fits their video by definition; pick the cleanest image that literally shows the query.\n${topic ? `(The video, for context only: ${topic.slice(0, 300)})\n` : ""}`
+      : topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}Query: "${query}" (headline word: "${big}"). Images #0..#${hits.length - 1} attached in order.`,
     images: hits.map((h) => h.thumb || h.url),
     temperature: 0.1,
     maxTokens: 60,
