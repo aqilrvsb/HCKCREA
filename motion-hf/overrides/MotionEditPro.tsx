@@ -155,22 +155,30 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     {
       const hStart = Math.max(fr(1.2), hookEnd ? hookEnd + 6 : 0);
       const hLimit = ctaStart >= 0 ? ctaStart - 4 : last - 2;
+      const gap = fr(1.2);
       const raws = (p.headlines ?? []).slice(0, 5)
         .map((h) => ({ h, at: cue(h.at, -1) }))
         .filter((x) => x.at >= 0 && txt(x.h.big, 18))
-        .sort((a, b) => a.at - b.at);
-      for (const { h } of raws) {
-        const kind: HeadKind = h.kind === 'split' || h.kind === 'pip' ? h.kind : 'over';
-        const want = fr(kind === 'over' ? 3.0 : 3.6);
+        .sort((a, b) => a.at - b.at)
+        .map(({ h }) => {
+          const kind: HeadKind = h.kind === 'split' || h.kind === 'pip' ? h.kind : 'over';
+          const want = fr(kind === 'over' ? 3.0 : 3.6);
+          const s0 = Math.max(onBeat(fr(cue(h.at, 0))), hStart);
+          const to = h.to !== undefined ? fr(cue(h.to, s0 / fps + want / fps)) : s0 + want;
+          return { h, kind, s0, len: Math.min(Math.max(to - s0, fr(2.4)), fr(5)) };
+        });
+      // the latest each one may start so every later one still fits before the CTA: a headline the AI put on the
+      // clip's last words (where the closing CTA goes) moves earlier instead of being dropped
+      const latest: number[] = [];
+      for (let i = raws.length - 1, end = hLimit; i >= 0; i--) {
+        latest[i] = end - raws[i].len;
+        end = latest[i] - gap;
+      }
+      for (let ri = 0; ri < raws.length; ri++) {
+        const { h, kind, s0, len } = raws[ri];
         const prev = heads[heads.length - 1];
-        let s = Math.max(onBeat(fr(cue(h.at, 0))), hStart, prev ? prev.e + fr(1.2) : 0);
-        let e = h.to !== undefined ? fr(cue(h.to, s / fps + want / fps)) : s + want;
-        e = Math.min(Math.max(e, s + fr(2.4)), s + fr(5));
-        if (e > hLimit) {
-          const len = Math.min(e - s, want);
-          e = hLimit;
-          s = Math.max(hStart, prev ? prev.e + fr(0.8) : 0, e - len);
-        }
+        const s = Math.max(hStart, prev ? prev.e + gap : 0, Math.min(s0, latest[ri]));
+        const e = Math.min(s + len, hLimit);
         if (e - s < fr(1.8)) continue;
         const i = heads.length;
         const v = variantFor(kind, hseed, i);

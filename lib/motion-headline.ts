@@ -90,15 +90,26 @@ function wordAt(words: { t: number }[], sec: number) {
 const STOP = new Set(["yang", "dan", "ini", "itu", "dia", "kita", "saya", "aku", "kau", "korang", "awak", "dengan", "untuk", "dalam", "pada", "tapi", "kalau", "sebab", "macam", "dah", "nak", "tak", "ada", "lah", "kan", "pun", "jadi", "the", "and", "that", "this", "with", "for", "you", "kat", "dekat", "sangat", "boleh", "memang", "betul", "okay", "okey"]);
 /** Words for a headline when the AI wrote none, from what the speaker says right there: the strongest word is the
  *  punch, the words before it the lead-in, the words after it the payoff (else the hook / title). */
+// spoken fillers that make no headline lead-in ("Sini Okay / KEGUNAAN")
+const FILLER = new Set(["okay", "okey", "ok", "so", "haa", "ha", "hah", "eh", "erm", "um", "ya", "yes", "haah", "lah", "tau", "kan"]);
 function spokenText(words: { w: string; t: number }[], t: number, source: string, n: number) {
-  const near = words.filter((w) => w.t >= t - 1.5 && w.t <= t + 4).map((w) => w.w.replace(/[^\p{L}\p{N}%-]/gu, "")).filter(Boolean);
+  const near = words.filter((w) => w.t >= t - 1.5 && w.t <= t + 4)
+    .map((w) => ({ w: w.w.replace(/[^\p{L}\p{N}%-]/gu, ""), end: /[.?!]["')\]]*$/.test(w.w) })).filter((x) => x.w);
   if (near.length < 4) return fallbackText(source, n);
   let bi = -1;
-  near.forEach((w, i) => { if (!STOP.has(w.toLowerCase()) && w.length >= 4 && (bi < 0 || w.length > near[bi].length)) bi = i; });
+  near.forEach((x, i) => { if (!STOP.has(x.w.toLowerCase()) && !FILLER.has(x.w.toLowerCase()) && x.w.length >= 4 && (bi < 0 || x.w.length > near[bi].w.length)) bi = i; });
   if (bi < 0) return fallbackText(source, n);
-  const lead = near.slice(Math.max(0, bi - 3), bi).join(" ") || (n === 0 ? "Ini dia" : "Sebab itu");
-  const box = near.slice(bi + 1, bi + 5).join(" ") || "tonton sampai habis";
-  return { lead: (lead[0].toUpperCase() + lead.slice(1)).slice(0, 34), big: near[bi].toUpperCase().slice(0, 16), box: box.slice(0, 34) };
+  // the lead-in: the punch word's own sentence before it (≤ 3 words, no fillers); the payoff: what follows it
+  let a = bi;
+  while (a > 0 && !near[a - 1].end && bi - a < 3) a--;
+  const lead = near.slice(a, bi).map((x) => x.w).filter((w) => !FILLER.has(w.toLowerCase())).join(" ") || (n === 0 ? "Ini dia" : "Sebab itu");
+  const after: string[] = [];
+  for (let k = bi + 1; k < near.length && after.length < 4; k++) {
+    if (near[k - 1].end && after.length >= 2) break; // the payoff stays in its sentence once it says something
+    if (!FILLER.has(near[k].w.toLowerCase())) after.push(near[k].w);
+  }
+  const box = after.join(" ") || "tonton sampai habis";
+  return { lead: (lead[0].toUpperCase() + lead.slice(1)).slice(0, 34), big: near[bi].w.toUpperCase().slice(0, 16), box: box.slice(0, 34) };
 }
 
 /** Words for a headline when nothing was said near it: the hook / title cut into lead-in, punch and payoff. */
