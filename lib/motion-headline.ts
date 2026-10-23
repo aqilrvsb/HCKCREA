@@ -15,7 +15,7 @@ import { orChatVision } from "@/lib/openrouter";
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 5;
+export const HEADLINE_VERSION = 6;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -43,7 +43,8 @@ export const HEADLINE_SPEC = `"headlines": [HEADLINE] — REQUIRED in every vide
   {"kind": "over", "at": CUE, "to"?: CUE, "lead": 2–5 words (sentence case, the set-up), "big": 1–3 words (≤16 characters, the punch), "box": 2–5 words (the payoff)} — the speaker stays full-frame and a three-line headline animates over them: an elegant italic lead-in, one huge word, a short line in a colour box (e.g. lead "Rahsia kulit", big "GLOWING", box "dalam 7 hari"); ~3 s,
   {"kind": "split", "at": CUE, "to"?: CUE, "lead", "big", "box" (as above), "query": 2–4 plain English stock-footage keywords naming the ONE main thing the B-roll shows — a visual of what is being said ("cooking oil", "woman applying serum", "traffic jam", "blood sugar test"; no colours, no adjectives, no brand), "media": "video" | "photo"} — a B-roll panel slides into one half of the frame, the speaker moves into the other half and the headline rides the seam; ~3.5 s,
   {"kind": "pip", "at": CUE, "to"?: CUE, "lead", "big", "box", "query", "media"} — the B-roll fills the whole frame with the headline over it while the speaker shrinks into a small box bottom-right (they keep talking); ~3.5 s, for a moment that SHOWS something (a place, a result, a product in use);
-  the words are the video's own message in the speaker's language (only facts and numbers the speaker says); every headline different; never the hook's words.
+  the words are the video's own message in the speaker's language — only facts and numbers the speaker says in THESE words (a number from anywhere else, even from the video's summary, is a claim the speaker doesn't make here: it is removed); every headline different, and every split / pip its own B-roll query (never the same query twice); never the hook's words.
+  Spell every headline word correctly: the WORDS come from speech recognition and hold misheard tokens — never copy a token that isn't a real word ("empat kuruh" → write what the speaker meant, or use other words).
   CONTEXT FIRST: before writing any headline, understand the whole video — who is speaking, what they sell / teach / tell and why (the purpose). Every headline and every B-roll query serves THAT purpose and shows THAT subject; never build one from a single word taken alone. A word that doesn't fit the topic was probably misheard by the transcriber (in a cake seller's video "kulit" = skin is really "kulat" = mould): use the meaning that fits the topic ("Kek berkulat", query "mouldy cake"), or pick another line. The query always names the video's own subject ("mouldy cake", "chocolate cake slice", "diabetic patch on arm") — a picture of another subject ("skin acne" in a cake video) is wrong.`;
 
 const W_CUE = /^w(\d{1,4})(\$)?([+-]\d{0,2}(?:\.\d+)?)?$/i;
@@ -90,15 +91,60 @@ function fallbackText(source: string, n: number): { lead: string; big: string; b
   return { lead: lead[0].toUpperCase() + lead.slice(1), big: big.toUpperCase(), box };
 }
 
+// ── numbers on a headline are numbers the speaker says ("11 KILO" when this clip never says it is a claim) ──
+const NUM = /\d+(?:[.,]\d+)*/g;
+/** "1,250" / "1.250" → "1250"; "0,35" → "0.35"; "08" → "8". */
+const normNum = (raw: string) => {
+  const t = raw.replace(/[.,]$/, "");
+  if (/^\d{1,3}([.,]\d{3})+$/.test(t)) return String(Number(t.replace(/[.,]/g, "")));
+  return String(Number(t.replace(",", ".")));
+};
+// spoken number words (Malay, English) → the digits a headline may show for them
+const UNIT: Record<string, number> = {
+  satu: 1, dua: 2, tiga: 3, empat: 4, lima: 5, enam: 6, tujuh: 7, lapan: 8, sembilan: 9, sepuluh: 10, sebelas: 11,
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
+  fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40,
+  fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+const SCALE: Record<string, number> = { seratus: 100, seribu: 1000, sejuta: 1e6 };
+/** Every number said in these words — as digits, or as words ("dua puluh lima" → 25, "seratus lima puluh" → 150). */
+function spokenNumbers(words: { w: string }[], extra = ""): Set<string> {
+  const out = new Set<string>();
+  for (const m of extra.match(NUM) ?? []) out.add(normNum(m));
+  let total = 0, hund = 0, small = 0, run = false;
+  const flush = () => { if (run) out.add(String(total + hund + small)); total = hund = small = 0; run = false; };
+  for (const w of words) {
+    const raw = String(w.w).toLowerCase();
+    for (const m of raw.match(NUM) ?? []) out.add(normNum(m));
+    const t = raw.replace(/[^\p{L}]/gu, "");
+    if (UNIT[t] !== undefined) { small += UNIT[t]; out.add(String(UNIT[t])); run = true; }
+    else if (t === "belas" && run) small += 10;
+    else if (t === "puluh" && run) small *= 10;
+    else if (SCALE[t] !== undefined) { if (SCALE[t] === 100) hund += 100; else { total += (hund + small || 1) * SCALE[t]; hund = small = 0; } run = true; }
+    else if ((t === "ratus" || t === "hundred") && run) { hund += (small || 1) * 100; small = 0; }
+    else if ((t === "ribu" || t === "thousand" || t === "juta" || t === "million") && run) {
+      total += (hund + small || 1) * (t === "ribu" || t === "thousand" ? 1000 : 1e6); hund = small = 0;
+    } else flush();
+  }
+  flush();
+  return out;
+}
+/** A headline's numbers are all said (a leading step number "1." is numbering, not a claim). */
+const numbersSaid = (text: string, ok: Set<string>) => (text.replace(/^\s*\d{1,2}[.)]\s+/, "").match(NUM) ?? []).every((m) => ok.has(normNum(m)));
+
 /** The AI's headlines, checked; the missing ones made up so every video has one "over" and one (two from 60 s)
- *  "split" — placed after the hook, the over around the first third, the splits around the middle / last third. */
-export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], duration: number, fallback: string): HeadlinePlan[] {
+ *  "split" — placed after the hook, the over around the first third, the splits around the middle / last third.
+ *  A headline showing a number the speaker doesn't say (nor the client wrote: `extra`) is dropped and made again
+ *  from the speaker's own words there. */
+export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], duration: number, fallback: string, extra = ""): HeadlinePlan[] {
   const n = words.length;
+  const said = spokenNumbers(words, extra);
   const got: HeadlinePlan[] = [];
   for (const h of Array.isArray(raw) ? raw.slice(0, 6) : []) {
     const kind: HeadKind | null = h?.kind === "split" || h?.kind === "pip" || h?.kind === "over" ? h.kind : null;
     const big = clean(h?.big, 18).toUpperCase();
     if (!kind || !big) continue;
+    if (!numbersSaid([clean(h?.lead, 34), big, clean(h?.box, 34)].join(" "), said)) continue;
     const at = cueOk(h?.at, n, duration);
     if (at === undefined) continue;
     const to = cueOk(h?.to, n, duration);
@@ -133,9 +179,17 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
   // a headline the AI didn't write borrows another one's search (stock libraries read English keywords, not the title)
   const shared = heads.find((x) => x.kind !== "over" && x.query)?.query || "";
   const topic = context.replace(/\s+/g, " ").trim().slice(0, 400);
-  return Promise.all(heads.map(async (h) => {
+  // the search each layout runs; one that repeats an earlier layout's search looks further down the results, so two
+  // panels never show the same picture (each still goes through the vision pick)
+  const qs = heads.map((h) => (h.kind === "over" ? "" : (h.query || shared || `${context} ${h.big}`).replace(/\s+/g, " ").trim().slice(0, 80)));
+  const nth = qs.map((q, i) => (q ? qs.slice(0, i).filter((x) => x.toLowerCase() === q.toLowerCase()).length : 0));
+  const page = <T,>(xs: T[], hi: number, size: number) => {
+    const p = xs.slice(nth[hi] * size, nth[hi] * size + size);
+    return p.length ? p : xs.slice(0, size);
+  };
+  return Promise.all(heads.map(async (h, hi) => {
     if (h.kind === "over") return h;
-    const q = (h.query || shared || `${context} ${h.big}`).replace(/\s+/g, " ").trim().slice(0, 80);
+    const q = qs[hi];
     if (!q) return h;
     // stock video first (moves, free licence), then free stock photos, then web images that aren't watermarked stock;
     // a split panel is 1080 × 900 (landscape-ish first), a pip fills the 9:16 frame (portrait first)
@@ -145,7 +199,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
     try {
       // stock libraries rank loosely: the vision pick keeps only a clip / photo that really shows the query
       const firstFit = async (xs: { url: string; thumb?: string }[]) => {
-        const top = xs.filter((x) => ok(x.url)).slice(0, 5);
+        const top = page(xs.filter((x) => ok(x.url)), hi, 5);
         if (!top.length) return null;
         const k = await pickClean(q, h.big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic);
         return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
@@ -155,9 +209,8 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
       const photos = await firstFit(order(await searchPhotos(q)));
       if (photos) return { ...h, query: q, media: "photo" as const, candidates: photos };
       const noSites = excludeOperators((await getSitePrefs()).exclude);
-      const hits = (await searchImages(`${q} ${noSites}`.trim())).hits
-        .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? "")))
-        .slice(0, 4);
+      const hits = page((await searchImages(`${q} ${noSites}`.trim())).hits
+        .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))), hi, 4);
       const pick = hits.length ? await pickClean(q, h.big, hits, topic) : -1;
       return pick >= 0 ? { ...h, query: q, media: "photo" as const, candidates: [hits[pick].url, ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) }
         : { ...h, query: q, candidates: [] };

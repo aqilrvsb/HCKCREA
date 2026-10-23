@@ -980,9 +980,11 @@ export async function directEdit(opts: {
   }
   // the required headline layouts (made up when the director wrote none; guard mode keeps none that breaks the rules)
   const headSource = [plan.hook?.text, input.product].filter(Boolean).join(" ");
-  plan.headlines = cleanHeadlines(raw?.headlines, words, duration, headSource);
+  // numbers on a headline: said by the speaker, or written by the client (product name, brief, own hook / CTA)
+  const headNums = [input.product, input.instructions, input.locks?.hook, input.locks?.cta].filter(Boolean).join(" ");
+  plan.headlines = cleanHeadlines(raw?.headlines, words, duration, headSource, headNums);
   if (input.guard) {
-    plan.headlines = cleanHeadlines(plan.headlines.filter((h) => !guardHits([h.lead, h.big, h.box].join(" ")).length), words, duration, headSource);
+    plan.headlines = cleanHeadlines(plan.headlines.filter((h) => !guardHits([h.lead, h.big, h.box].join(" ")).length), words, duration, headSource, headNums);
   }
   // only numbers the speaker says (or the client wrote) reach the screen; nothing that sits on the speaker hides inside a scene
   groundPlan(plan, words, duration, [input.product, input.instructions, input.locks?.hook, input.locks?.cta].filter(Boolean).join(" "), input.locks?.scenes);
