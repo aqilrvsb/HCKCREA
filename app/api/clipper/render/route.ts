@@ -19,7 +19,7 @@ export const maxDuration = 120;
 
 const MAX_CLIPS = 20;
 // the client's own B-roll is accepted only from our own storage (uploaded through /api/motion/upload-url)
-const OWN_MEDIA = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/(clipper-uploads|motion-images|motion-uploads)\/[^\s?#]+$/;
+const OWN_MEDIA = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/(clipper-uploads|motion-images|motion-uploads|motion-broll)\/[^\s?#]+$/; // motion-broll: an AI re-pick ("🔄 Cari gambar lain")
 
 export async function POST(req: Request) {
   const sb = await createClient();

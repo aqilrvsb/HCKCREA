@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   };
   const reviewed = applyDraftEdits({ words: draft.words, plan: (draft.plan ?? {}) as DraftPlan }, edits);
   // the client's own headline overlays (words and / or their B-roll from our storage), slot by slot
-  const OWN_MEDIA = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/(clipper-uploads|motion-images|motion-uploads)\/[^\s?#]+$/;
+  const OWN_MEDIA = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/(clipper-uploads|motion-images|motion-uploads|motion-broll)\/[^\s?#]+$/; // motion-broll: an AI re-pick ("🔄 Cari gambar lain")
   const tx = (v: unknown, n: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").replace(/[<>{}]/g, "").trim().slice(0, n) : "");
   const headlineFix = (Array.isArray(e.headlines) ? e.headlines : []).slice(0, 6)
     .map((x: any) => ({

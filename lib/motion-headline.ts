@@ -11,30 +11,35 @@
 import { searchClips, searchPhotos } from "@/lib/motion-media";
 import { excludeOperators, getSitePrefs, searchImages } from "@/lib/motion-search";
 import { extractJson } from "@/lib/motion";
-import { orChatVision } from "@/lib/openrouter";
+import { orChat, orChatVision } from "@/lib/openrouter";
 import { uploadBufferToContent } from "@/lib/b2";
+import { createHash } from "crypto";
 
-/** A picked picture copied to our storage: stock / web picture links expire (Pixabay's in 24 h), rate-limit or block
- *  hotlinking, while a preview is kept for days — the panel loads the same in the preview and in the render.
- *  Fail-soft: the original link. */
-async function keepPhoto(url: string): Promise<string> {
+/** Where a picked picture / clip is kept on our storage (one file per source link). */
+const sha1 = (s: string) => createHash("sha1").update(s).digest("hex");
+const KEPT = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/motion-broll\/([0-9a-f]{40})\./;
+
+/** A picked picture (or stock clip) copied to our storage: stock / web links expire (Pixabay's pictures in 24 h),
+ *  rate-limit or block hotlinking, while a preview is kept for days — the panel loads the same in the preview and in
+ *  the render. Fail-soft: the original link. */
+async function keepMedia(url: string, video = false): Promise<string> {
   if (/^https:\/\/peninglab-content\.s3\./.test(url)) return url;
   try {
     const r = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36" },
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(video ? 30_000 : 12_000),
     });
     const ct = (r.headers.get("content-type") || "").split(";")[0].trim();
-    if (!r.ok || !/^image\/(jpeg|png|webp)$/.test(ct)) return url;
+    const ext = video ? (ct === "video/mp4" ? "mp4" : ct === "video/webm" ? "webm" : "") : ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : ct === "image/jpeg" ? "jpg" : "";
+    if (!r.ok || !ext) return url;
     const body = Buffer.from(await r.arrayBuffer());
-    if (body.length < 4000 || body.length > 15_000_000) return url;
-    const { createHash } = await import("crypto");
-    const key = `motion-broll/${createHash("sha1").update(url).digest("hex")}.${ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : "jpg"}`;
-    return (await uploadBufferToContent({ body, key, contentType: ct })).publicUrl;
+    if (body.length < 4000 || body.length > (video ? 45_000_000 : 15_000_000)) return url;
+    return (await uploadBufferToContent({ body, key: `motion-broll/${sha1(url)}.${ext}`, contentType: ct })).publicUrl;
   } catch {
     return url;
   }
 }
+const keepPhoto = (url: string) => keepMedia(url, false);
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
@@ -264,33 +269,94 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
     if (h.kind === "over") return h;
     const q = qs[hi];
     if (!q) return h;
-    // stock video first (moves, free licence), then free stock photos, then web images that aren't watermarked stock;
-    // a split panel is 1080 × 900 (landscape-ish first), a pip fills the 9:16 frame (portrait first)
-    const land = (c: { width: number; height: number }) => Number(c.width >= c.height);
-    const order = <T extends { width: number; height: number }>(xs: T[]) => xs.sort((a, b) => (h.kind === "split" ? land(b) - land(a) : land(a) - land(b)));
-    const ok = (u: string) => /^https:\/\//.test(u) && !WATERMARKED.test(u);
     try {
-      // stock libraries rank loosely: the vision pick keeps only a clip / photo that really shows the query
-      const firstFit = async (xs: { url: string; thumb?: string }[]) => {
-        const top = page(xs.filter((x) => ok(x.url)), hi, 5);
-        if (!top.length) return null;
-        const k = await pickClean(q, h.big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic);
-        return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
-      };
-      const clips = await firstFit(order(await searchClips(q)));
-      if (clips) return { ...h, query: q, media: "video" as const, candidates: clips };
-      const photos = await firstFit(order(await searchPhotos(q)));
-      if (photos) return { ...h, query: q, media: "photo" as const, candidates: [await keepPhoto(photos[0]), ...photos.slice(1)] };
-      const noSites = excludeOperators((await getSitePrefs()).exclude);
-      const hits = page((await searchImages(`${q} ${noSites}`.trim())).hits
-        .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))), hi, 4);
-      const pick = hits.length ? await pickClean(q, h.big, hits, topic) : -1;
-      return pick >= 0 ? { ...h, query: q, media: "photo" as const, candidates: [await keepPhoto(hits[pick].url), ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) }
-        : { ...h, query: q, candidates: [] };
+      const found = await findBroll(h.kind, q, h.big, topic, { page: nth[hi] });
+      return found ? { ...h, query: q, ...found } : { ...h, query: q, candidates: [] };
     } catch {
       return h;
     }
   }));
+}
+
+/** The B-roll search of one split / pip panel: stock video first (moves, free licence), then free stock photos, then
+ *  web pictures that aren't watermarked stock — each set judged by the vision pick (the one that really shows the
+ *  query for this video, nothing branded), or null (the panel uses the look's surface). A split panel is 1080 × 900
+ *  (landscape-ish first), a pip fills the 9:16 frame (portrait first). `page`: a second panel with the same search
+ *  reads further down the results; `skip`: pictures already shown are left out (asking again gives the next one);
+ *  `keep`: a stock clip is copied to our storage too (a client's pick must render the same days later). */
+async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
+  o: { page?: number; skip?: Set<string>; keep?: boolean } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
+  const land = (c: { width: number; height: number }) => Number(c.width >= c.height);
+  const order = <T extends { width: number; height: number }>(xs: T[]) => xs.sort((a, b) => (kind === "split" ? land(b) - land(a) : land(a) - land(b)));
+  const seen = (u: string) => !!o.skip?.size && (o.skip.has(u) || o.skip.has(sha1(u)));
+  const ok = (u: string) => /^https:\/\//.test(u) && !WATERMARKED.test(u) && !seen(u);
+  const page = <T,>(xs: T[], size: number) => {
+    const n = o.page ?? 0;
+    const p = xs.slice(n * size, n * size + size);
+    return p.length ? p : xs.slice(0, size);
+  };
+  // stock libraries rank loosely: the vision pick keeps only a clip / photo that really shows the query
+  const firstFit = async (xs: { url: string; thumb?: string }[]) => {
+    const top = page(xs.filter((x) => ok(x.url)), 5);
+    if (!top.length) return null;
+    const k = await pickClean(q, big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic);
+    return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
+  };
+  const clips = await firstFit(order(await searchClips(q)));
+  if (clips) return { media: "video", candidates: o.keep ? [await keepMedia(clips[0], true), ...clips.slice(1)] : clips };
+  const photos = await firstFit(order(await searchPhotos(q)));
+  if (photos) return { media: "photo", candidates: [await keepPhoto(photos[0]), ...photos.slice(1)] };
+  const noSites = excludeOperators((await getSitePrefs()).exclude);
+  const hits = page((await searchImages(`${q} ${noSites}`.trim())).hits
+    .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))), 4);
+  const pick = hits.length ? await pickClean(q, big, hits, topic) : -1;
+  return pick >= 0 ? { media: "photo", candidates: [await keepPhoto(hits[pick].url), ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) } : null;
+}
+
+/** What the client typed for a panel ("sabun mandi", "orang minum air"), as the 2–4 plain English stock keywords the
+ *  libraries read. Fail-soft: their own words. */
+async function toStockQuery(text: string, topic: string): Promise<string> {
+  const t = text.replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!t) return "";
+  const r = await orChat({
+    modelKey: "model_motion_guard",
+    systemPrompt: `Turn what a Malaysian seller wants shown in a video panel into 2–4 plain English stock-footage keywords naming the ONE main thing to show ("sabun mandi" → "bar soap", "orang minum air kopi" → "person drinking coffee", "tampal di perut" → "patch on belly"). No brand, no colours, no adjectives. Answer ONLY JSON: {"query": "..."}`,
+    userPrompt: `${topic ? `THE VIDEO: ${topic.slice(0, 300)}\n` : ""}SHOW: ${t}\nJSON only.`,
+    temperature: 0,
+    maxTokens: 60,
+    timeoutMs: 20_000,
+  }).catch(() => null);
+  try {
+    const q = String(extractJson(String(r?.content ?? ""))?.query ?? "").replace(/[^\p{L}\p{N}\s-]/gu, " ").replace(/\s+/g, " ").trim();
+    return (q || t).slice(0, 80);
+  } catch {
+    return t.slice(0, 80);
+  }
+}
+
+/** "🔄 Cari gambar lain (AI)" — another B-roll for one split / pip panel, without an upload: the client's own words
+ *  for what to show (else the panel's current search, else its headline), every picture already shown left out, the
+ *  same vision pick as the automatic one; the pick is kept on our storage so the render loads it. */
+export async function pickHeadlineBroll(o: { kind: "split" | "pip"; want?: string; query?: string; text?: string; topic: string; exclude?: string[] }):
+  Promise<{ url: string; video: boolean; query: string } | { none: true; query: string }> {
+  const topic = o.topic.replace(/\s+/g, " ").trim().slice(0, 400);
+  const query = o.want?.trim() ? await toStockQuery(o.want, topic)
+    : o.query?.trim() ? o.query.trim().slice(0, 80)
+    : await toStockQuery(o.text || topic, topic);
+  if (!query) return { none: true, query: "" };
+  const skip = new Set<string>();
+  for (const u of (o.exclude ?? []).slice(0, 60)) {
+    skip.add(u);
+    const m = KEPT.exec(u);
+    if (m) skip.add(m[1]); // our copy of a stock / web picture: its source is the one to leave out
+  }
+  const found = await findBroll(o.kind, query, (o.text || "").split(" ")[0] || query, topic, { skip, keep: true });
+  if (!found?.candidates[0]) return { none: true, query };
+  // the render takes a pick only from our storage: copy again once if the first copy failed, else say so
+  let url = found.candidates[0];
+  if (!/^https:\/\/peninglab-content\.s3\./.test(url)) url = await keepMedia(url, found.media === "video");
+  if (!/^https:\/\/peninglab-content\.s3\./.test(url)) throw new Error("Gambar tak dapat disimpan — cuba tekan lagi.");
+  return { url, video: found.media === "video", query };
 }
 
 /** Web pictures for a headline panel get the same eye as the B-roll: the cleanest literal match — no watermark, no

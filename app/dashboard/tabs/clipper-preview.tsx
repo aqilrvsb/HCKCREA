@@ -16,7 +16,8 @@ import { uploadOwn } from "@/lib/upload-own";
 export type CapFix = { key: string; words: string[]; fix: Record<number, string> };
 /** the client's own overlay per headline layout (index in the clip's headlines): corrected words and / or their own
  *  B-roll, made for this clip (key = start-end) */
-export type OverlayItem = { url?: string; video?: boolean; lead?: string; big?: string; box?: string };
+/** `ai`: the url is an AI re-pick ("🔄 Cari gambar lain") for this search, not the client's upload */
+export type OverlayItem = { url?: string; video?: boolean; lead?: string; big?: string; box?: string; ai?: string };
 export type BrollFix = { key: string; items: Record<number, OverlayItem> };
 type PClip = { start: number; end: number; title: string; hook: string; flash?: { start: number; end: number } | null; capFix?: CapFix | null; brollFix?: BrollFix | null };
 export type PreviewSettings = {
@@ -420,11 +421,45 @@ export function ClipBrollEditor({ jobId, clip, onChange, onClose, theme }: {
     setErr(null);
     setPct((p) => ({ ...p, [i]: 0 }));
     try {
-      patch(i, await uploadOwn(f, (n) => setPct((p) => ({ ...p, [i]: n }))));
+      patch(i, { ...(await uploadOwn(f, (n) => setPct((p) => ({ ...p, [i]: n })))), ai: undefined });
     } catch (e: any) {
       setErr(e?.message || "Upload gagal");
     } finally {
       setPct((p) => { const q = { ...p }; delete q[i]; return q; });
+    }
+  }
+  // 🔄 another picture from the AI, no upload: what the client typed to show, else the row's new words (when they
+  // changed them), else the next one for the same search — every picture already shown here is left out
+  const [want, setWant] = useState<Record<number, string>>({});
+  const [finding, setFinding] = useState<Record<number, boolean>>({});
+  const [note, setNote] = useState<Record<number, string>>({});
+  const shown = useRef<Record<string, string[]>>({});
+  async function repick(i: number, h: PolishHeadline) {
+    if (finding[i]) return;
+    const own = fix[i];
+    const seenKey = `${key}|${i}`;
+    const seen = Array.from(new Set([...(shown.current[seenKey] ?? []), ...(h.candidates?.[0] ? [h.candidates[0]] : []), ...(own?.url ? [own.url] : [])]));
+    const textChanged = !!own && (own.lead !== undefined || !!own.big || own.box !== undefined);
+    const text = [own?.lead ?? h.lead, own?.big ?? h.big, own?.box ?? h.box].filter(Boolean).join(" ");
+    setFinding((f) => ({ ...f, [i]: true }));
+    setNote((n) => ({ ...n, [i]: "" }));
+    try {
+      const r = await fetch("/api/motion/broll-pick", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: h.kind, want: (want[i] ?? "").trim(), text, ...(textChanged ? {} : { query: h.query ?? "" }),
+          exclude: seen, job_id: jobId, start: clip.start, end: clip.end,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Carian gambar gagal");
+      if (d.none) { setNote((n) => ({ ...n, [i]: "AI tak jumpa gambar lain yang sesuai — taip apa nak tunjuk, atau upload sendiri." })); return; }
+      shown.current[seenKey] = [...seen, d.url];
+      patch(i, { url: d.url, video: !!d.video, ai: d.query || "AI" });
+    } catch (e: any) {
+      setNote((n) => ({ ...n, [i]: e?.message || "Carian gambar gagal" }));
+    } finally {
+      setFinding((f) => ({ ...f, [i]: false }));
     }
   }
   const rows = (heads ?? []).map((h, i) => ({ h, i }));
@@ -455,13 +490,27 @@ export function ClipBrollEditor({ jobId, clip, onChange, onClose, theme }: {
             <div className="flex-1 min-w-0 space-y-1">
               <div className="text-[11px] font-extrabold text-[var(--color-text-primary)]">
                 {h.kind === "split" ? "Split-screen" : h.kind === "pip" ? "Sudut — orang kecil bawah kanan" : "Headline atas orang"}
-                {media && <span className="font-normal text-[10px] text-[var(--color-text-muted)]"> · {own?.url ? "✓ B-roll anda" : ai ? `pilihan AI${h.query ? ` "${h.query}"` : ""}` : "tiada gambar sesuai — latar warna"}</span>}
+                {media && <span className="font-normal text-[10px] text-[var(--color-text-muted)]"> · {own?.url ? (own.ai ? `pilihan AI baru "${own.ai}"` : "✓ B-roll anda") : ai ? `pilihan AI${h.query ? ` "${h.query}"` : ""}` : "tiada gambar sesuai — latar warna"}</span>}
               </div>
               <div className="grid gap-1">
                 {field("lead", "Ayat pembuka (italic)", 34)}
                 {field("big", "PERKATAAN BESAR", 18)}
                 {field("box", "Ayat dalam kotak", 34)}
               </div>
+              {media && <div className="flex flex-wrap items-center gap-1.5">
+                <input value={want[i] ?? ""} maxLength={60} placeholder="Cari: apa nak tunjuk (pilihan)" aria-label="Apa gambar nak tunjuk"
+                  onChange={(e) => setWant((w) => ({ ...w, [i]: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") void repick(i, h); }}
+                  className="flex-1 min-w-[150px] rounded-md px-2 py-1 text-[11px] outline-none"
+                  style={{ background: "var(--color-surface, var(--color-bg))", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
+                <button type="button" onClick={() => void repick(i, h)} disabled={!!finding[i] || up !== undefined}
+                  title="AI cari gambar / video lain untuk panel ini — ikut apa yang anda taip, atau ikut ayat baru jika anda ubah tulisan"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold inline-flex items-center gap-1 disabled:opacity-60"
+                  style={{ border: `1px solid ${theme.primary}`, color: theme.primary }}>
+                  {finding[i] ? <><Loader2 className="w-3 h-3 animate-spin" /> AI mencari…</> : "🔄 Cari gambar lain (AI)"}
+                </button>
+              </div>}
+              {media && note[i] && <p className="text-[10px] text-[var(--color-text-muted)]">{note[i]}</p>}
               {media && <div className="flex flex-wrap gap-1.5">
                 <label className="relative px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white cursor-pointer inline-flex items-center gap-1" style={{ background: theme.gradient }}>
                   {up !== undefined ? <><Loader2 className="w-3 h-3 animate-spin" /> {up}%</> : <><Upload className="w-3 h-3" /> {own?.url ? "Tukar B-roll" : "Upload B-roll sendiri"}</>}
@@ -469,8 +518,8 @@ export function ClipBrollEditor({ jobId, clip, onChange, onClose, theme }: {
                     disabled={up !== undefined} onChange={(e) => { void pick(i, e.target.files?.[0] ?? null); e.target.value = ""; }} />
                 </label>
                 {own?.url && (
-                  <button type="button" onClick={() => patch(i, { url: undefined, video: undefined })} className="px-2.5 py-1 rounded-lg text-[11px] font-bold" style={{ border: "1px solid var(--color-border)" }}>
-                    Guna pilihan AI
+                  <button type="button" onClick={() => patch(i, { url: undefined, video: undefined, ai: undefined })} className="px-2.5 py-1 rounded-lg text-[11px] font-bold" style={{ border: "1px solid var(--color-border)" }}>
+                    {own.ai ? "Guna pilihan AI asal" : "Guna pilihan AI"}
                   </button>
                 )}
               </div>}
@@ -484,7 +533,7 @@ export function ClipBrollEditor({ jobId, clip, onChange, onClose, theme }: {
         );
       })}
       <p className="text-[10px] leading-snug text-[var(--color-text-muted)]">
-        Betulkan perkataan yang AI salah faham, atau upload gambar / video pendek anda (video: ~5 saat pertama dipakai). Pratonton terus tunjuk perubahan, dan klip akhir guna yang sama.
+        Betulkan perkataan yang AI salah faham. Nak gambar lain tanpa upload: tekan 🔄 (taip apa nak tunjuk, atau ubah tulisan dulu — AI cari ikut ayat baru). Atau upload gambar / video pendek anda (video: ~5 saat pertama dipakai). Pratonton terus tunjuk perubahan, dan klip akhir guna yang sama.
       </p>
       <button type="button" onClick={onClose} className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white" style={{ background: theme.gradient }}>Siap</button>
     </div>

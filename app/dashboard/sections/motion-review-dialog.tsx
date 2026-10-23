@@ -9,7 +9,7 @@
 // script and save it (/api/motion/script). The video isn't changed; Resubmit
 // renders a new one from this script.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Clapperboard, Loader2, Save, ShieldAlert, Upload, X } from "lucide-react";
 import { uploadOwn } from "@/lib/upload-own";
 import Portal from "./portal";
@@ -60,16 +60,45 @@ export default function MotionReviewDialog({ id, draft, mode = "review", onClose
   // the required headline overlays this video gets (by its length): empty = the AI writes / picks it
   const dur = (draft.words ?? []).reduce((m, w) => Math.max(m, Number((w as { e?: number; t?: number }).e ?? (w as { t?: number }).t ?? 0)), 0);
   const slots: ("over" | "split" | "pip")[] = dur < 7 ? ["over"] : dur < 20 ? ["over", "split"] : dur < 45 ? ["over", "split", "pip"] : ["over", "split", "pip", "split"];
-  const [heads, setHeads] = useState<Record<number, { lead?: string; big?: string; box?: string; url?: string; video?: boolean }>>({});
+  // `ai`: the url is an AI pick from "🔄 Cari gambar (AI)" (its search), not the client's upload
+  const [heads, setHeads] = useState<Record<number, { lead?: string; big?: string; box?: string; url?: string; video?: boolean; ai?: string }>>({});
   const [upPct, setUpPct] = useState<Record<number, number>>({});
   const [upErr, setUpErr] = useState<string | null>(null);
+  // 🔄 a B-roll from the AI without an upload: what the client typed to show, else the slot's own words, else the
+  // product — every picture already shown in this slot is left out, so each press gives another one
+  const [want, setWant] = useState<Record<number, string>>({});
+  const [finding, setFinding] = useState<Record<number, boolean>>({});
+  const [note, setNote] = useState<Record<number, string>>({});
+  const shown = useRef<Record<number, string[]>>({});
+  async function aiPick(i: number, kind: "split" | "pip") {
+    if (finding[i]) return;
+    const h = heads[i] ?? {};
+    const seen = Array.from(new Set([...(shown.current[i] ?? []), ...(h.url ? [h.url] : [])]));
+    setFinding((f) => ({ ...f, [i]: true }));
+    setNote((n) => ({ ...n, [i]: "" }));
+    try {
+      const r = await fetch("/api/motion/broll-pick", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, want: (want[i] ?? "").trim(), text: [h.lead, h.big, h.box].filter(Boolean).join(" "), exclude: seen, id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Carian gambar gagal");
+      if (d.none) { setNote((n) => ({ ...n, [i]: "AI tak jumpa gambar yang sesuai — taip apa nak tunjuk, atau upload sendiri." })); return; }
+      shown.current[i] = [...seen, d.url];
+      setHeads((m) => ({ ...m, [i]: { ...m[i], url: d.url, video: !!d.video, ai: d.query || "AI" } }));
+    } catch (e: any) {
+      setNote((n) => ({ ...n, [i]: e?.message || "Carian gambar gagal" }));
+    } finally {
+      setFinding((f) => ({ ...f, [i]: false }));
+    }
+  }
   async function pickBroll(i: number, f: File | null) {
     if (!f) return;
     setUpErr(null);
     setUpPct((p) => ({ ...p, [i]: 0 }));
     try {
       const got = await uploadOwn(f, (n) => setUpPct((p) => ({ ...p, [i]: n })), "motion");
-      setHeads((h) => ({ ...h, [i]: { ...h[i], url: got.url, video: got.video } }));
+      setHeads((h) => ({ ...h, [i]: { ...h[i], url: got.url, video: got.video, ai: undefined } }));
     } catch (e: any) {
       setUpErr(e?.message || "Upload gagal");
     } finally {
@@ -230,7 +259,7 @@ export default function MotionReviewDialog({ id, draft, mode = "review", onClose
               <div>
                 <span className={label}>🎬 Overlay — headline &amp; split-screen ({slots.length})</span>
                 <p className="text-[10px] text-[var(--color-text-muted)] mb-1.5 leading-snug">
-                  Kosongkan = <b>Auto</b> (AI tulis ikut isi video). Isi sendiri untuk teks yang tepat; AI letak pada ayat yang sesuai. Untuk split / sudut, boleh upload gambar / video B-roll sendiri.
+                  Kosongkan = <b>Auto</b> (AI tulis ikut isi video). Isi sendiri untuk teks yang tepat; AI letak pada ayat yang sesuai. Untuk split / sudut: tekan 🔄 untuk AI cari gambar sekarang (taip apa nak tunjuk, atau ikut ayat slot), atau upload gambar / video B-roll sendiri.
                 </p>
                 {upErr && <p className="text-[11px] text-red-500 mb-1">{upErr}</p>}
                 <div className="space-y-2">
@@ -247,14 +276,35 @@ export default function MotionReviewDialog({ id, draft, mode = "review", onClose
                         <input className={`${inputCls} font-extrabold uppercase`} style={h.big ? changedStyle : inputStyle} value={h.big ?? ""} maxLength={18} placeholder="PERKATAAN BESAR — AUTO" onChange={(e) => set("big", e.target.value)} />
                         <input className={inputCls} style={h.box ? changedStyle : inputStyle} value={h.box ?? ""} maxLength={34} placeholder="Ayat dalam kotak — Auto" onChange={(e) => set("box", e.target.value)} />
                         {kind !== "over" && (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <label className="relative px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white cursor-pointer inline-flex items-center gap-1" style={{ background: "linear-gradient(135deg, #22c55e, #4ade80)" }}>
-                              {up !== undefined ? <><Loader2 className="w-3 h-3 animate-spin" /> {up}%</> : <><Upload className="w-3 h-3" /> {h.url ? "Tukar B-roll" : "Upload B-roll sendiri"}</>}
-                              <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" className="absolute inset-0 opacity-0 cursor-pointer"
-                                disabled={up !== undefined} onChange={(e) => { void pickBroll(i, e.target.files?.[0] ?? null); e.target.value = ""; }} />
-                            </label>
-                            <span className="text-[10px] text-[var(--color-text-muted)]">{h.url ? `✓ ${h.video ? "Video" : "Gambar"} anda` : "Auto — AI cari B-roll ikut isi video"}</span>
-                            {h.url && <button type="button" className="text-[10px] underline text-[var(--color-text-muted)]" onClick={() => setHeads((m) => ({ ...m, [i]: { ...m[i], url: undefined, video: undefined } }))}>Guna Auto</button>}
+                          <div className="flex items-start gap-2">
+                            {h.url && (h.video
+                              ? <video className="w-14 h-14 rounded-md object-cover bg-black shrink-0" src={`${h.url}#t=1`} muted playsInline preload="metadata" />
+                              // eslint-disable-next-line @next/next/no-img-element
+                              : <img className="w-14 h-14 rounded-md object-cover bg-black shrink-0" src={h.url} alt="" />)}
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <input value={want[i] ?? ""} maxLength={60} placeholder="Cari: apa nak tunjuk (pilihan)" aria-label="Apa gambar nak tunjuk"
+                                  onChange={(e) => setWant((w) => ({ ...w, [i]: e.target.value }))}
+                                  onKeyDown={(e) => { if (e.key === "Enter") void aiPick(i, kind); }}
+                                  className="flex-1 min-w-[140px] rounded-md px-2 py-1 text-[11px] outline-none" style={inputStyle} />
+                                <button type="button" onClick={() => void aiPick(i, kind)} disabled={!!finding[i] || up !== undefined}
+                                  title="AI cari gambar / video untuk panel ini — ikut apa yang anda taip, atau ikut ayat slot ini, atau ikut produk"
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold inline-flex items-center gap-1 disabled:opacity-60"
+                                  style={{ border: "1px solid #facc15", color: "#eab308" }}>
+                                  {finding[i] ? <><Loader2 className="w-3 h-3 animate-spin" /> AI mencari…</> : h.url && h.ai ? "🔄 Cari gambar lain (AI)" : "🔄 Cari gambar (AI)"}
+                                </button>
+                              </div>
+                              {note[i] && <p className="text-[10px] text-[var(--color-text-muted)]">{note[i]}</p>}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <label className="relative px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white cursor-pointer inline-flex items-center gap-1" style={{ background: "linear-gradient(135deg, #22c55e, #4ade80)" }}>
+                                  {up !== undefined ? <><Loader2 className="w-3 h-3 animate-spin" /> {up}%</> : <><Upload className="w-3 h-3" /> {h.url && !h.ai ? "Tukar B-roll" : "Upload B-roll sendiri"}</>}
+                                  <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" className="absolute inset-0 opacity-0 cursor-pointer"
+                                    disabled={up !== undefined} onChange={(e) => { void pickBroll(i, e.target.files?.[0] ?? null); e.target.value = ""; }} />
+                                </label>
+                                <span className="text-[10px] text-[var(--color-text-muted)]">{h.url ? (h.ai ? `✓ Pilihan AI "${h.ai}"` : `✓ ${h.video ? "Video" : "Gambar"} anda`) : "Auto — AI cari B-roll ikut isi video"}</span>
+                                {h.url && <button type="button" className="text-[10px] underline text-[var(--color-text-muted)]" onClick={() => setHeads((m) => ({ ...m, [i]: { ...m[i], url: undefined, video: undefined, ai: undefined } }))}>Guna Auto</button>}
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
