@@ -14,8 +14,9 @@ export type PolishHeadline = {
   kind: "over" | "split" | "pip"; at: string | number; to?: string | number; lead: string; big: string; box?: string;
   query?: string; media?: "video" | "photo"; candidates?: string[];
 };
-/** the polish made for a preview, kept on the analysis row and reused by the render */
-export type PolishRef = { words: string[]; keywords: PolishKeyword[]; zooms: PolishZoom[]; headlines?: PolishHeadline[] };
+/** the polish made for a preview, kept on the analysis row and reused by the render; `fixes` = the AI's caption
+ *  corrections of these words (index → word), shown in the preview and applied by the render the same way */
+export type PolishRef = { words: string[]; keywords: PolishKeyword[]; zooms: PolishZoom[]; headlines?: PolishHeadline[]; fixes?: [number, string][] };
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 

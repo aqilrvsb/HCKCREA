@@ -15,7 +15,7 @@ import { orChatVision } from "@/lib/openrouter";
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 6;
+export const HEADLINE_VERSION = 7;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -240,6 +240,24 @@ async function pickClean(query: string, big: string, hits: { url: string; thumb?
   } catch {
     return -1;
   }
+}
+
+/** Headline words written from a raw transcript, with the caption corrections in ("empat kuruh" → "empat kurus"):
+ *  each corrected word, wherever it stands whole in a lead / big / box, in the same case. */
+export function fixHeadlineWords<T extends { lead: string; big: string; box?: string }>(heads: T[], words: string[], fixes: [number, string][]): T[] {
+  const core = (s: string) => s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  const pairs = new Map<string, string>();
+  for (const [i, w] of fixes) {
+    const from = core(String(words[i] ?? "")), to = core(String(w));
+    if (from.length >= 3 && to && from.toLowerCase() !== to.toLowerCase() && !/\s/.test(from)) pairs.set(from.toLowerCase(), to);
+  }
+  if (!pairs.size) return heads;
+  const fix = (s: string | undefined) => s && s.replace(/[\p{L}\p{N}]+/gu, (m) => {
+    const to = pairs.get(m.toLowerCase());
+    if (!to) return m;
+    return m === m.toUpperCase() && m !== m.toLowerCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to;
+  });
+  return heads.map((h) => ({ ...h, lead: fix(h.lead) ?? h.lead, big: fix(h.big) ?? h.big, ...(h.box ? { box: fix(h.box) } : {}) }));
 }
 
 /** Headlines made on one word list, moved onto another (the CLIPPER render re-transcribes the clip). */

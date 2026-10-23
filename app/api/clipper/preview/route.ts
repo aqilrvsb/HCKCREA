@@ -4,7 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { clipPolish } from "@/lib/clipper-polish";
 import { getMotionConfig } from "@/lib/motion";
-import { HEADLINE_VERSION, enrichHeadlines } from "@/lib/motion-headline";
+import { HEADLINE_VERSION, enrichHeadlines, fixHeadlineWords } from "@/lib/motion-headline";
+import { fixTranscript } from "@/lib/motion-captions";
 import { clipKey, previewWords, type PolishRef, type SrcFaces, type TLine } from "@/lib/clipper-preview";
 import { clipContext } from "@/lib/clipper";
 
@@ -76,13 +77,20 @@ export async function POST(req: Request) {
   let fx = (meta.preview_faces ?? {})[key] as (SrcFaces & { at?: number }) | undefined;
   const mediaUrl = String(meta.analysis?.media_url || "");
   const context = clipContext(meta.analysis, start, end);
+  const language = meta.analysis?.language === "en" ? "en" as const : "ms" as const;
   const [newRef, newFx] = await Promise.all([
     b?.polish && !ref && words.length >= 8
-      ? clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000, context)
-        .then(async (p) => {
-          const headlines = await enrichHeadlines(p.headlines, context || String(b?.title ?? "")).catch(() => p.headlines);
-          return { words: words.map((w) => w.w), keywords: p.keywords, zooms: p.zooms, headlines, hv: HEADLINE_VERSION, at: Date.now() };
-        })
+      // the polish and the caption corrections side by side: the preview shows the corrected captions (the render
+      // applies these same corrections) and no headline carries a misheard word
+      ? Promise.all([
+        clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000, context),
+        fixTranscript(words.map((w, i) => ({ i, w: w.w })), context || undefined, language).catch(() => [] as [number, string][]),
+      ]).then(async ([p, fixes]) => {
+        const raw = words.map((w) => w.w);
+        const fixedHeads = fixHeadlineWords(p.headlines, raw, fixes);
+        const headlines = await enrichHeadlines(fixedHeads, context || String(b?.title ?? "")).catch(() => fixedHeads);
+        return { words: raw, keywords: p.keywords, zooms: p.zooms, headlines, fixes, hv: HEADLINE_VERSION, at: Date.now() };
+      })
       : Promise.resolve(undefined),
     b?.faces && !fx && mediaUrl.startsWith("https://") ? sourceFaces(mediaUrl, start, end) : Promise.resolve(undefined),
   ]);
@@ -105,8 +113,11 @@ export async function POST(req: Request) {
   // the polish was made on these very words; a transcript read differently (rare) drops it rather than misplace it
   // an older cache (made before the headlines) is made again, so every clip gets them
   const fits = ref && ref.words.length === words.length && Array.isArray(ref.headlines);
+  // the AI's caption corrections in the words (each keeps its timing; the client's own edits go on top)
+  const fixes = new Map(fits && Array.isArray(ref!.fixes) ? ref!.fixes : []);
+  const shown = fixes.size ? words.map((w, i) => (fixes.has(i) ? { ...w, w: String(fixes.get(i)) } : w)) : words;
   return NextResponse.json({
-    ok: true, words, aligned,
+    ok: true, words: shown, aligned, autofixed: fixes.size,
     keywords: fits ? ref!.keywords : [], zooms: fits ? ref!.zooms : [], headlines: fits ? ref!.headlines : [], polished: !!fits,
     faces: fx ? { w: fx.w, h: fx.h, faces: fx.faces } : null, faced: !!fx,
   });

@@ -147,7 +147,11 @@ export async function POST(req: Request) {
         ...(c.captionFix ? { caption_fix: c.captionFix } : {}),
         ...(c.brollFix.length ? { broll_fix: c.brollFix } : {}),
         ...(clipContext(a, c.start, c.end) ? { topic: clipContext(a, c.start, c.end) } : {}),
-        ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [], ...(Array.isArray(ref.headlines) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { headlines: ref.headlines } : {}) } } : {}) },
+        ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [],
+          ...(Array.isArray(ref.headlines) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { headlines: ref.headlines } : {}),
+          // the caption corrections the preview showed: the render applies the same ones
+          // (an empty list too: the preview's corrector found nothing to change, so the render changes nothing there)
+          ...(Array.isArray(ref.fixes) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { fixes: ref.fixes.slice(0, 400) } : {}) } } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({
       user_id: user.id,

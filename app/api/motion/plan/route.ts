@@ -7,7 +7,7 @@ import { fixTranscript } from "@/lib/motion-captions";
 import { orChat, withDeadline } from "@/lib/openrouter";
 import { HOOK_SOUND_COUNT } from "@/lib/motion-hook-sounds";
 import { clipPolish } from "@/lib/clipper-polish";
-import { clipPicks, reusePolish, userCaptionFixes } from "@/lib/clipper-preview";
+import { alignWords, clipPicks, reusePolish, userCaptionFixes } from "@/lib/clipper-preview";
 import { enrichHeadlines } from "@/lib/motion-headline";
 
 type PlanWord = { i: number; w: string; t: number; e?: number };
@@ -104,7 +104,18 @@ export async function POST(req: Request) {
     // CLIPPER: the client's own caption corrections (Studio editor) come first; the AI's fill in the rest
     const mine = input?.clip?.caption_fix ? userCaptionFixes(input.clip.caption_fix, words) : [];
     const taken = new Set(mine.map((f) => f[0]));
-    const fixes = [...mine, ...ai.filter((f) => !taken.has(f[0]))];
+    // CLIPPER: the corrections the Studio preview showed come next — and the render's own AI only guesses words the
+    // preview didn't have, so the clip reads exactly as previewed
+    const ref = input?.clip?.polish_ref;
+    let auto: [number, string][] = [];
+    let aiLeft = ai;
+    if (ref?.words?.length && Array.isArray(ref.fixes)) {
+      auto = (ref.fixes.length ? userCaptionFixes({ words: ref.words, fix: ref.fixes }, words) : []).filter((f) => !taken.has(f[0]));
+      for (const f of auto) taken.add(f[0]);
+      const seen = new Set(alignWords(ref.words, words.map((w: { w: string }) => w.w)).filter((j) => j >= 0));
+      aiLeft = ai.filter((f) => !seen.has(f[0]));
+    }
+    const fixes = [...mine, ...auto, ...aiLeft.filter((f) => !taken.has(f[0]))];
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
     await admin.from("history").update({ metadata: { ...(cur?.metadata || {}), caption_fixes: fixes.slice(0, 40) } }).eq("id", id);
     return NextResponse.json({ ok: true, fixes });

@@ -99,7 +99,9 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         if (r.ok && d?.ok) {
           setData((cur) => (cur && cur.key === key ? {
             ...cur,
-            ...(wantPolish ? { keywords: d.keywords ?? [], zooms: d.zooms ?? [], headlines: d.headlines ?? [], polished: true } : {}),
+            // the polish comes with the AI's caption corrections: the words as the render will show them (same count)
+            ...(wantPolish ? { keywords: d.keywords ?? [], zooms: d.zooms ?? [], headlines: d.headlines ?? [], polished: true,
+              ...(Array.isArray(d.words) && d.words.length === cur.words.length ? { words: d.words } : {}) } : {}),
             ...(wantFaces ? { faces: d.faces ?? null, faced: true } : {}),
           } : cur));
         }
