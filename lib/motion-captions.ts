@@ -23,6 +23,7 @@ ${ANCHOR[lang]}
 - fix misspellings and wrongly merged / split syllables INSIDE one token ("begguna" → "beg guna"; "percipat" → "pelipat"; "labet" → "label"; "gamdini" → "gam dia ni")
 - drop stray symbols glued to a word ("-satu" → "satu", "-cepat" → "cepat")
 - the product / brand name exactly as in SELLER CONTEXT
+- a real word that makes no sense for what the video is about (SELLER CONTEXT) was misheard: replace it with the word that sounds alike and fits ("kulit" (skin) in a cake seller's video → "kulat" (mould); "sabun" vs "sebab" by the sentence)
 - keep the speaker's colloquial words and slang as they are (tak, nak, je, korang, kan, dia, lah, aja, dekat) — don't formalise, don't translate whole phrases, don't censor, don't add or remove words
 - NEVER turn a token into a vulgar, sexual, explicit or insulting word (Malay or English). Sellers of intimate / feminine-care products speak in polite euphemisms ("bunga", "kewanitaan", "area sensitif", "bahagian bawah") — an unclear token there is one of those polite words (use the one the speaker says elsewhere), never a crude anatomical word. If you're not sure, leave the token unchanged.
 - one-for-one: a correction replaces exactly one token (it may contain a space); keep punctuation attached as it was; never repeat the word right before or after it

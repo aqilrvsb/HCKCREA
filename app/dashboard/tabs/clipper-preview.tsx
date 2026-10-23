@@ -283,6 +283,31 @@ export function ClipCaptionEditor({ jobId, clip, onChange, onClose, theme }: {
   }, [jobId, key]);
   const fix = useMemo(() => (words ? captionFixMap(words, text) : {}), [words, text]);
   const n = Object.keys(fix).length;
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoN, setAutoN] = useState<number | null>(null);
+  // ✨ the AI corrects misheard / misspelt words for this video's topic; the client's own corrections stay
+  async function autoFix() {
+    if (!words || autoBusy) return;
+    setAutoBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/motion/caption-fix", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ words, job_id: jobId, start: clip.start, end: clip.end }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Auto betulkan gagal");
+      const merged: Record<number, string> = {};
+      let k = 0;
+      for (const [i, w] of d.fixes as [number, string][]) if (!(i in fix) && w !== words[i]) { merged[i] = w; k++; }
+      setText(fixedText(words, { ...merged, ...fix }));
+      setAutoN(k);
+    } catch (e: any) {
+      setErr(e?.message || "Auto betulkan gagal");
+    } finally {
+      setAutoBusy(false);
+    }
+  }
   // every change reaches the preview (and the render) a moment after typing stops
   useEffect(() => {
     if (!words) return;
@@ -315,7 +340,14 @@ export function ClipCaptionEditor({ jobId, clip, onChange, onClose, theme }: {
         Betulkan ejaan / perkataan yang salah dengar, buang perkataan, atau tambah. Masa setiap perkataan kekal — pratonton terus
         tunjuk caption baru, dan klip akhir guna caption ini.
       </p>
-      <div className="flex gap-1.5">
+      <div className="flex gap-1.5 flex-wrap items-center">
+        {words && (
+          <button type="button" onClick={() => void autoFix()} disabled={autoBusy} className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold inline-flex items-center gap-1 disabled:opacity-60"
+            style={{ border: `1px solid ${theme.primary}`, color: theme.primary }} title="AI betulkan perkataan yang salah dengar / salah eja ikut isi video">
+            {autoBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : "✨"} Auto betulkan (AI)
+          </button>
+        )}
+        {autoN !== null && !autoBusy && <span className="text-[10px] text-[var(--color-text-muted)]">{autoN ? `AI betulkan ${autoN} perkataan` : "AI tiada pembetulan"}</span>}
         {words && n > 0 && (
           <button type="button" onClick={() => setText(fixedText(words, null))} className="px-2.5 py-1 rounded-lg text-[11px] font-bold"
             style={{ border: "1px solid var(--color-border)" }}>Kembali ke asal</button>

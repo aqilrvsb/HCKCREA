@@ -78,6 +78,31 @@ export default function MotionReviewDialog({ id, draft, mode = "review", onClose
   }
   const [busy, setBusy] = useState(false);
   const changed = Object.keys(lineEdits).filter((k) => lineEdits[k] !== lines[Number(k)]?.text).length;
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoN, setAutoN] = useState<number | null>(null);
+  // ✨ the AI corrects misheard / misspelt words for this video's product + brief; lines the client edited stay theirs
+  async function autoFix() {
+    if (autoBusy || !draft.words?.length) return;
+    setAutoBusy(true);
+    try {
+      const ws = draft.words.map((w) => String(w.w));
+      const r = await fetch("/api/motion/caption-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, words: ws }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) { alert(d?.error || "Auto betulkan gagal"); return; }
+      const fx = new Map<number, string>((d.fixes as [number, string][]).map(([i, w]) => [Number(i), String(w)]));
+      let k = 0;
+      const next: Record<string, string> = { ...lineEdits };
+      lines.forEach((ln, li) => {
+        if (lineEdits[String(li)] !== undefined && lineEdits[String(li)] !== ln.text) return; // the client's own edit stays
+        const t = ws.slice(ln.from, ln.to).map((w, j) => { const f = fx.get(ln.from + j); if (f && f !== w) { k++; return f; } return w; }).join(" ");
+        if (t !== ln.text) next[String(li)] = t;
+      });
+      setLineEdits(next);
+      setAutoN(k);
+    } finally {
+      setAutoBusy(false);
+    }
+  }
 
   async function save() {
     if (busy) return;
@@ -156,7 +181,16 @@ export default function MotionReviewDialog({ id, draft, mode = "review", onClose
             )}
 
             <div>
-              <span className={label}>{capsOn ? "Caption" : "Skrip"} — ayat yang anda tuturkan ({lines.length} baris{changed ? `, ${changed} diubah` : ""})</span>
+              <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                <span className={label} style={{ marginBottom: 0 }}>{capsOn ? "Caption" : "Skrip"} — ayat yang anda tuturkan ({lines.length} baris{changed ? `, ${changed} diubah` : ""})</span>
+                {!scriptMode && (
+                  <button type="button" onClick={() => void autoFix()} disabled={autoBusy} className="ml-auto px-2.5 py-1 rounded-lg text-[11px] font-extrabold inline-flex items-center gap-1 disabled:opacity-60"
+                    style={{ border: "1px solid #facc15", color: "#eab308" }} title="AI betulkan perkataan yang salah dengar / salah eja ikut produk & isi video">
+                    {autoBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : "✨"} Auto betulkan (AI)
+                  </button>
+                )}
+                {autoN !== null && !autoBusy && <span className="text-[10px] text-[var(--color-text-muted)]">{autoN ? `AI betulkan ${autoN} perkataan` : "AI tiada pembetulan"}</span>}
+              </div>
               <div className="space-y-1.5">
                 {lines.map((ln, k) => {
                   const v = lineEdits[String(k)] ?? ln.text;
