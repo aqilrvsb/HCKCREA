@@ -54,6 +54,7 @@ export async function POST(req: Request) {
   const coldOpen = s.coldOpen !== false; // the clip's punchline teased first, when the director marked one
   const polish = s.polish !== false; // captions mode: keyword colours, emoji, punch-ins, progress bar
   const ctaKind = s.cta === "bag" || s.cta === "live" ? (s.cta as "bag" | "live") : undefined; // the closing CTA (none by default)
+  const autoEditor = s.auto_editor === true; // "Auto pindah ke Editor" (off by default)
   const wmText = String(s.watermark?.text ?? "").replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
   const wmImage = /^https:\/\/[^\s]+$/.test(String(s.watermark?.image ?? "")) ? String(s.watermark.image).slice(0, 1000) : "";
   const language = (["ms", "en", "id"].includes(String(a.language)) ? a.language : "ms") as "ms" | "en" | "id";
@@ -142,6 +143,7 @@ export async function POST(req: Request) {
       ...(captionLook ? { locks: { captionLook: captionLook as any } } : {}),
       engine: "laju",
       ...(ctaKind ? { ctaKind } : {}),
+      ...(autoEditor ? { autoEditor: true } : {}),
       clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
         ...(c.flash ? { flash: c.flash } : {}), polish, seed,
         ...(c.captionFix ? { caption_fix: c.captionFix } : {}),

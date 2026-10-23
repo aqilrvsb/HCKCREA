@@ -128,6 +128,8 @@ export const asEngine = (v: unknown): MotionEngine => (v === "padat" ? "padat" :
 export type AdInput = {
   product: string;
   description: string;
+  /** "Auto pindah ke Editor": the finished video is moved to the Editor tab (metadata.in_editor) */
+  autoEditor?: boolean;
   price?: string;
   oldPrice?: string;
   cta?: string;
@@ -187,6 +189,8 @@ export type EditInput = {
   /** the closing call to action the client chose: "bag" = Tekan beg kuning, "live" = Jom masuk LIVE, "none", or
    *  "auto" / unset = the AI decides (CLIPPER: none) */
   ctaKind?: "auto" | "bag" | "live" | "none";
+  /** "Auto pindah ke Editor": the finished video is moved to the Editor tab (metadata.in_editor) */
+  autoEditor?: boolean;
   /** the client's own headline overlays (review step): slot i of the headline set (over, split, pip, split) —
    *  their words and / or their B-roll; an empty field stays the AI's */
   headlineFix?: { i: number; lead?: string; big?: string; box?: string; url?: string; video?: boolean }[];
@@ -1036,6 +1040,8 @@ async function settleVgcRow(hist: HistoryRow, r: MotionCheck, startedMs: number)
         reserved: 0,
         poster_url: res.poster_url || meta.poster_url || null,
         vgc: { ...vgc, session_id: res.session_id || vgc.session_id || null, current: null, steps: [...steps, step], spent, last_error: null },
+        // "Auto pindah ke Editor": the finished video goes straight to the Editor tab
+        ...(madeVideo && meta.input?.autoEditor ? { in_editor: true } : {}),
         settled_at: new Date().toISOString(),
       },
     })
@@ -1145,6 +1151,8 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
           },
         } : {}),
         ...(res.guard || meta.guard ? { guard: { ...(meta.guard || {}), ...(res.guard || {}) } } : {}),
+        // "Auto pindah ke Editor": the finished video goes straight to the Editor tab
+        ...(meta.input?.autoEditor ? { in_editor: true } : {}),
         settled_at: new Date().toISOString(),
       },
     })

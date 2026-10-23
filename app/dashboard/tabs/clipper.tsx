@@ -162,6 +162,10 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const [coldOpen, setColdOpen] = useState(true);
   const [polish, setPolish] = useState(true);
   const [cta, setCta] = useState<"none" | "bag" | "live">("none");
+  // "Auto pindah ke Editor" (off by default; the client's choice is remembered on this browser)
+  const [autoEditor, setAutoEditorState] = useState(false);
+  useEffect(() => { try { setAutoEditorState(localStorage.getItem("pl:auto-editor") === "1"); } catch { /* storage blocked */ } }, []);
+  const setAutoEditor = (v: boolean) => { setAutoEditorState(v); try { localStorage.setItem("pl:auto-editor", v ? "1" : "0"); } catch { /* storage blocked */ } };
   const [wmText, setWmText] = useState("");
   const [wmImage, setWmImage] = useState("");
   const [wmBusy, setWmBusy] = useState(false);
@@ -376,7 +380,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
             ...(c.brollFix && c.brollFix.key === clipKey(c.start, c.end)
               ? { broll_fix: Object.entries(c.brollFix.items).map(([k, v]) => ({ i: Number(k), ...v })) } : {}),
           })),
-          settings: { mode, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, cta, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
+          settings: { mode, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, cta, auto_editor: autoEditor, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
         }),
       });
       const d = await r.json();
@@ -712,6 +716,11 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                         <Chip active={cta === "none"} onClick={() => setCta("none")}>Tiada</Chip>
                         <Chip active={cta === "bag"} onClick={() => setCta("bag")} title="3 saat terakhir: butang TEKAN BEG KUNING + anak panah ke bakul">🛒 Beg kuning</Chip>
                         <Chip active={cta === "live"} onClick={() => setCta("live")} title="3 saat terakhir: butang JOM MASUK LIVE">🔴 Masuk LIVE</Chip>
+                      </div>
+                      <label className={label}>Auto pindah ke Editor bila siap</label>
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        <Chip active={!autoEditor} onClick={() => setAutoEditor(false)}>Tidak</Chip>
+                        <Chip active={autoEditor} onClick={() => setAutoEditor(true)} title="Klip yang siap terus masuk tab Editor (caption, cover, frame, post TikTok) — tidak lagi di History Clipper">✂️ Ya</Chip>
                       </div>
                       <label className={label}>Highlight kata kunci + zoom</label>
                           <div className="flex flex-wrap gap-1.5">

@@ -162,6 +162,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const resolution = "1080";
   const [sfx, setSfx] = useState(true);
   const [ctaKind, setCtaKind] = useState<"auto" | "bag" | "live" | "none">("auto");
+  // "Auto pindah ke Editor" (off by default; the client's choice is remembered on this browser)
+  const [autoEditor, setAutoEditorState] = useState(false);
+  useEffect(() => { try { setAutoEditorState(localStorage.getItem("pl:auto-editor") === "1"); } catch { /* storage blocked */ } }, []);
+  const setAutoEditor = (v: boolean) => { setAutoEditorState(v); try { localStorage.setItem("pl:auto-editor", v ? "1" : "0"); } catch { /* storage blocked */ } };
   const [accent, setAccent] = useState("");
   // "Check Guideline TikTok" is always on (no box in the form): it only reports
   // what may break the guideline on the History card — the video isn't changed.
@@ -360,7 +364,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         body: JSON.stringify({
           product, description, price, old_price: oldPrice, cta, handle, prompt: adPrompt, seconds, voice, language,
           captions, caption_style: captionStyle, music, sfx, accent: accent || undefined, images, project_id: projectId,
-          style, resolution, variations, guard, engine,
+          style, resolution, variations, guard, engine, auto_editor: autoEditor,
         }),
       });
       const d = await r.json();
@@ -395,7 +399,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
       product: productName, product_images: editImages, auto: true,
       ...(custom ? { locks: styleLocks } : editAuto ? {} : { locks: { ...locks, styleId: undefined, styleName: undefined } }),
       captions, caption_style: captionStyle, sfx,
-      accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard, engine, cta_kind: ctaKind,
+      accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard, engine, cta_kind: ctaKind, auto_editor: autoEditor,
     };
     const keys = new Set(batch.map((v) => v.key));
     // pct null = waiting for an upload slot
@@ -457,7 +461,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           product: productName, description: text, seconds: storySec, voice, language: "ms",
           captions, caption_style: captionStyle, music: true, sfx, accent: accent || undefined,
           images: editImages.map((url) => ({ url, role: "product" })), project_id: projectId,
-          style, resolution, variations: 1, guard, engine,
+          style, resolution, variations: 1, guard, engine, auto_editor: autoEditor,
         }),
       });
       const d = await r.json();
@@ -608,6 +612,14 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 <Chip active={ctaKind === "live"} onClick={() => setCtaKind("live")}>🔴 Jom masuk LIVE</Chip>
                 <Chip active={ctaKind === "none"} onClick={() => setCtaKind("none")}>Tiada</Chip>
               </div>
+            </div>
+            <div>
+              <label className={label}>Auto pindah ke Editor bila siap</label>
+              <div className="flex flex-wrap gap-2">
+                <Chip active={!autoEditor} onClick={() => setAutoEditor(false)}>Tidak</Chip>
+                <Chip active={autoEditor} onClick={() => setAutoEditor(true)}>✂️ Ya</Chip>
+              </div>
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Ya = video yang siap terus masuk tab Editor (caption, cover, frame, post TikTok) dan tidak lagi di History Motion.</p>
             </div>
             <div>
               <label className={label}>{custom ? "Gambar *" : "Gambar produk *"} (1–{MAX_PRODUCT_PHOTOS})</label>

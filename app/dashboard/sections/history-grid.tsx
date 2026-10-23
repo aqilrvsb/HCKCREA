@@ -4820,8 +4820,10 @@ function HistoryCardInner({
           {!editorMode && !donePostMode && item.status === "done" && isVideo && (
             <>
               {/* Transfer to Editor — every video tab (Dialog UGC, Auto
-                  Content, Auto UGC, Viral, Grok, Sora 2, Cinema, Clone…). */}
-              {allowTransfer && !isMotionRow && (
+                  Content, Auto UGC, Viral, Grok, Sora 2, Cinema, Clone,
+                  Motion, Clipper…). Motion / Clipper can also move there by
+                  themselves when done ("Auto pindah ke Editor"). */}
+              {allowTransfer && (
                 <ActionBtn
                   title={inEditor ? "Buang dari Editor" : "Pindah ke Editor"}
                   onClick={() => void toggleEditor()}

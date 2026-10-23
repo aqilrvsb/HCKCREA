@@ -92,6 +92,7 @@ export async function POST(req: Request) {
     guard: b?.guard === true,
     engine: await allowedEngine(b?.engine, user.id),
     ...(customStory ? { story: true } : {}),
+    ...(b?.auto_editor === true ? { autoEditor: true } : {}),
     ...(vgc ? { vgcStyle: { id: vgc.id, name: vgc.name, brief: vgc.brief.slice(0, 3000), ...(vgc.colors?.length ? { colors: vgc.colors.slice(0, 3) } : {}) } } : {}),
   };
   const padat = input.engine === "padat";
