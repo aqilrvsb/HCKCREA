@@ -265,6 +265,32 @@ async function pickClean(query: string, big: string, hits: { url: string; thumb?
   }
 }
 
+/** The client's own headline words win slot by slot, and are theirs alone: an AI slot that copied them (the director
+ *  is told them, and once wrote slot #4's words into slot #2 too) gets the speaker's own words there instead. */
+export function applyOwnHeadlines<T extends HeadlinePlan>(heads: T[], own: { i: number; lead?: string; big?: string; box?: string; url?: string; video?: boolean }[],
+  words: { w: string; t: number }[], fallback: string): T[] {
+  const norm = (s?: string) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const bigs = new Set(own.map((f) => norm(f.big)).filter(Boolean));
+  const leads = new Set(own.map((f) => norm(f.lead)).filter(Boolean));
+  const boxes = new Set(own.map((f) => norm(f.box)).filter(Boolean));
+  return heads.map((h, i) => {
+    const f = own.find((x) => x.i === i);
+    if (!f) {
+      if (!bigs.has(norm(h.big)) && !leads.has(norm(h.lead)) && !boxes.has(norm(h.box))) return h;
+      const m = typeof h.at === "string" ? W_CUE.exec(h.at) : null;
+      const t = typeof h.at === "number" ? h.at : m ? words[Math.min(words.length - 1, Number(m[1]))]?.t ?? 0 : 0;
+      return { ...h, ...spokenText(words, t, fallback, i) };
+    }
+    const out: T & { credit?: unknown } = {
+      ...h,
+      ...(f.lead ? { lead: f.lead } : {}), ...(f.big ? { big: f.big.toUpperCase() } : {}), ...(f.box ? { box: f.box } : {}),
+      ...(f.url && h.kind !== "over" ? { media: f.video ? "video" as const : "photo" as const, candidates: [f.url] } : {}),
+    };
+    if (f.url && h.kind !== "over") delete out.credit; // the client's own picture carries no stock credit
+    return out;
+  });
+}
+
 /** Headline words written from a raw transcript, with the caption corrections in ("empat kuruh" → "empat kurus"):
  *  each corrected word, wherever it stands whole in a lead / big / box, in the same case. */
 export function fixHeadlineWords<T extends { lead: string; big: string; box?: string }>(heads: T[], words: string[], fixes: [number, string][]): T[] {

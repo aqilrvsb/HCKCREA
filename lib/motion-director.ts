@@ -25,7 +25,7 @@ import { HOOK_SOUNDS } from "@/lib/motion-hook-sounds";
 import { vgcStyle, type VaultStyle } from "@/lib/vgc-styles";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
-import { HEADLINE_SPEC, cleanHeadlines, enrichHeadlines, type HeadlinePlan } from "@/lib/motion-headline";
+import { HEADLINE_SPEC, applyOwnHeadlines, cleanHeadlines, enrichHeadlines, type HeadlinePlan } from "@/lib/motion-headline";
 
 type Cue = string | number;
 const clean30 = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 30);
@@ -921,7 +921,7 @@ export async function directEdit(opts: {
       ? `CLIP CONTEXT: this is a clip cut from a longer video ("${clean(input.product ?? "", 120)}") for TikTok / Reels / Shorts — NOT an ad. Edit it so the speaker's point lands: the hook on the first line, keep the viewer to the payoff, words and scenes from what is said. No selling devices (no "beg kuning", no price / buy CTA, no product B-roll) unless the speaker sells something in this very clip; "cta" only when the speaker asks for an action, and no end card otherwise.\n`
       : "") +
     (input.headlineFix?.some((f) => f.lead || f.big || f.box)
-      ? `CLIENT'S OWN HEADLINES (the "headlines" set in order: over, split, pip, split) — use these words exactly for those slots and place each on the line it fits (empty = your words): ${input.headlineFix.filter((f) => f.lead || f.big || f.box).map((f) => `#${f.i + 1} lead "${clean(f.lead ?? "", 34)}" big "${clean(f.big ?? "", 18)}" box "${clean(f.box ?? "", 34)}"`).join("; ")}\n`
+      ? `CLIENT'S OWN HEADLINES (the "headlines" set in order: over, split, pip, split) — use these words exactly for THOSE slots only and place each on the line it fits; every other slot gets different words of your own (never repeat the client's):${input.headlineFix.filter((f) => f.lead || f.big || f.box).map((f) => `#${f.i + 1} lead "${clean(f.lead ?? "", 34)}" big "${clean(f.big ?? "", 18)}" box "${clean(f.box ?? "", 34)}"`).join("; ")}\n`
       : "") +
     (input.accent ? `PREFERRED ACCENT: ${input.accent}\n` : "") +
     (input.broll === false ? "B-ROLL: disabled — return \"broll\": [].\n" : "") +
@@ -1004,17 +1004,8 @@ export async function directEdit(opts: {
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
-  // the client's own headline words / B-roll (review step) win over the AI's, slot by slot
-  const own = input.headlineFix ?? [];
-  const finalHeads = (headlines ?? []).map((h, i) => {
-    const f = own.find((x) => x.i === i);
-    if (!f) return h;
-    return {
-      ...h,
-      ...(f.lead ? { lead: f.lead } : {}), ...(f.big ? { big: f.big.toUpperCase() } : {}), ...(f.box ? { box: f.box } : {}),
-      ...(f.url && h.kind !== "over" ? { media: f.video ? "video" as const : "photo" as const, candidates: [f.url], credit: undefined } : {}),
-    };
-  });
+  // the client's own headline words / B-roll (review step) win over the AI's, slot by slot — and appear only there
+  const finalHeads = applyOwnHeadlines(headlines ?? [], input.headlineFix ?? [], words, headSource);
   return { ...plan, director, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts, headlines: finalHeads };
 }
 
