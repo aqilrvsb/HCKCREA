@@ -90,6 +90,9 @@ export async function fixTranscript(words: { i: number; w: string }[], product?:
       if (isVulgar(w) && !isVulgar(orig)) continue; // never put a crude word in the speaker's mouth
       const parts = w.split(" ");
       if (parts.length > 3) continue; // a fix, not a rewrite
+      // a token split into words keeps its own start ("begguna" → "beg guna", "kenaya" → "kena air"); one that
+      // grows a new word in front ("ipah" → "Kak Ipah" after "kakak") adds a word the speaker didn't say
+      if (parts.length > 1 && bare(parts[0])[0] !== bare(orig)[0]) continue;
       // "pakaian di" → "pacak di" + the "di" that follows = "di di": a split that
       // repeats a neighbouring word is a bad guess.
       if (parts.length > 1 && (bare(parts[0]) === bare(byIndex.get(i - 1)) || bare(parts[parts.length - 1]) === bare(byIndex.get(i + 1)))) continue;
