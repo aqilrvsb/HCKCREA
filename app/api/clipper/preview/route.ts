@@ -20,6 +20,9 @@ export const maxDuration = 120;
 
 // one warm instance serves many previews of the same analysis: its transcript is read once
 const TRANSCRIPTS = new Map<string, { at: number; lines: TLine[] }>();
+type Polished = PolishRef & { hv: number; at: number };
+// the polish being made per clip on this instance (job|clip): a second request waits for the same one
+const POLISHING = new Map<string, Promise<Polished>>();
 
 async function transcript(url: string): Promise<TLine[] | null> {
   const hit = TRANSCRIPTS.get(url);
@@ -78,28 +81,45 @@ export async function POST(req: Request) {
   const mediaUrl = String(meta.analysis?.media_url || "");
   const context = clipContext(meta.analysis, start, end);
   const language = meta.analysis?.language === "en" ? "en" as const : "ms" as const;
-  const [newRef, newFx] = await Promise.all([
-    b?.polish && !ref && words.length >= 8
-      // the polish and the caption corrections side by side: the preview shows the corrected captions (the render
-      // applies these same corrections) and no headline carries a misheard word
-      ? Promise.all([
-        clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000, context),
-        fixTranscript(words.map((w, i) => ({ i, w: w.w })), context || undefined, language).catch(() => [] as [number, string][]),
-      ]).then(async ([p, fixes]) => {
-        const raw = words.map((w) => w.w);
-        const fixedHeads = fixHeadlineWords(p.headlines, raw, fixes);
-        const headlines = await enrichHeadlines(fixedHeads, context || String(b?.title ?? "")).catch(() => fixedHeads);
-        return { words: raw, keywords: p.keywords, zooms: p.zooms, headlines, fixes, hv: HEADLINE_VERSION, at: Date.now() };
-      })
-      : Promise.resolve(undefined),
+  // the polish and the caption corrections side by side: the preview shows the corrected captions (the render
+  // applies these same corrections) and no headline carries a misheard word
+  const makePolish = (): Promise<Polished> => Promise.all([
+    clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000, context),
+    fixTranscript(words.map((w, i) => ({ i, w: w.w })), context || undefined, language).catch(() => [] as [number, string][]),
+  ]).then(async ([p, fixes]) => {
+    const raw = words.map((w) => w.w);
+    const fixedHeads = fixHeadlineWords(p.headlines, raw, fixes);
+    const headlines = await enrichHeadlines(fixedHeads, context || String(b?.title ?? "")).catch(() => fixedHeads);
+    return { words: raw, keywords: p.keywords, zooms: p.zooms, headlines, fixes, hv: HEADLINE_VERSION, at: Date.now() };
+  });
+  // one polish per clip: the Studio preview and the Overlay editor ask at the same time — they share it
+  const pkey = `${jobId}|${key}`;
+  let polishing: Promise<Polished> | undefined;
+  if (b?.polish && !ref && words.length >= 8) {
+    polishing = POLISHING.get(pkey);
+    if (!polishing) {
+      polishing = makePolish().finally(() => POLISHING.delete(pkey));
+      POLISHING.set(pkey, polishing);
+    }
+  }
+  const [polished, newFx] = await Promise.all([
+    polishing ?? Promise.resolve(undefined),
     b?.faces && !fx && mediaUrl.startsWith("https://") ? sourceFaces(mediaUrl, start, end) : Promise.resolve(undefined),
   ]);
+  let newRef = polished;
   if (newRef || newFx) {
-    ref = newRef ?? ref;
-    fx = newFx ?? fx;
     // kept on the analysis row (the newest 40 clips) — read fresh so a parallel preview isn't lost
     const { data: cur } = await admin.from("history").select("metadata").eq("id", jobId).maybeSingle();
     const m = (cur?.metadata as any) ?? {};
+    // a polish another request (another server) stored meanwhile stands: what the preview shows is what renders
+    const prior = (m.previews ?? {})[key] as Polished | undefined;
+    if (newRef && prior && prior.hv === HEADLINE_VERSION && Array.isArray(prior.headlines) && prior.at !== newRef.at) {
+      ref = prior;
+      newRef = undefined;
+    } else {
+      ref = newRef ?? ref;
+    }
+    fx = newFx ?? fx;
     const newest = <T extends { at?: number }>(all: Record<string, T>) =>
       Object.fromEntries(Object.entries(all).sort((x, y) => (y[1].at ?? 0) - (x[1].at ?? 0)).slice(0, 40));
     await admin.from("history").update({
