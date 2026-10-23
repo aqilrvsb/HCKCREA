@@ -68,6 +68,8 @@ export type DraftEdits = {
   cta?: { text?: string; sub?: string };
   /** overlay index → corrected text / sub */
   overlays?: Record<string, { text?: string; sub?: string }>;
+  /** the client's own headline overlays: slot i (over, split, pip, split) — words and / or their B-roll */
+  headlines?: { i: number; lead?: string; big?: string; box?: string; url?: string; video?: boolean }[];
 };
 
 const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);

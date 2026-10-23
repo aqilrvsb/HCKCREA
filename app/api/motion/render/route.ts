@@ -75,6 +75,15 @@ export async function POST(req: Request) {
     overlays,
   };
   const reviewed = applyDraftEdits({ words: draft.words, plan: (draft.plan ?? {}) as DraftPlan }, edits);
+  // the client's own headline overlays (words and / or their B-roll from our storage), slot by slot
+  const OWN_MEDIA = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/(clipper-uploads|motion-images|motion-uploads)\/[^\s?#]+$/;
+  const tx = (v: unknown, n: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").replace(/[<>{}]/g, "").trim().slice(0, n) : "");
+  const headlineFix = (Array.isArray(e.headlines) ? e.headlines : []).slice(0, 6)
+    .map((x: any) => ({
+      i: Number(x?.i), ...(tx(x?.lead, 34) ? { lead: tx(x.lead, 34) } : {}), ...(tx(x?.big, 18) ? { big: tx(x.big, 18) } : {}),
+      ...(tx(x?.box, 34) ? { box: tx(x.box, 34) } : {}), ...(OWN_MEDIA.test(String(x?.url || "")) ? { url: String(x.url), video: !!x.video } : {}),
+    }))
+    .filter((x: { i: number; lead?: string; big?: string; box?: string; url?: string }) => Number.isInteger(x.i) && x.i >= 0 && x.i < 6 && (x.lead || x.big || x.box || x.url));
   // the reviewed words become the card's latest script (📝 Skrip box, Resubmit)
   const latest = { ...draft, words: reviewed.words, ...(draft.plan ? { plan: reviewed.plan } : {}) };
 
@@ -87,6 +96,7 @@ export async function POST(req: Request) {
       task_id: null,
       metadata: {
         ...meta, stage: "queued", draft: latest,
+        ...(headlineFix.length ? { input: { ...(meta.input ?? {}), headlineFix } } : {}),
         render_started_at: new Date().toISOString(), reviewed: { edits, at: new Date().toISOString() },
       },
     })

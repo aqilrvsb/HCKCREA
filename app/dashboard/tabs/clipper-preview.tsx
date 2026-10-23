@@ -6,6 +6,7 @@ import {
   captionFixMap, clipFlash, clipKey, clipSeed, faceTrack, fixedText, polishOnTimeline, previewFaces, previewProps, previewTimeline,
   type PWord, type PolishHeadline, type PolishKeyword, type PolishZoom, type SrcFaces,
 } from "@/lib/clipper-preview";
+import { uploadOwn } from "@/lib/upload-own";
 
 // CLIPPER Studio — live preview of one clip with the client's settings, drawn by the render's own composition
 // (public/clipper-preview: MotionEditPro over the clip's video). Every change of look shows at once; the render
@@ -326,37 +327,6 @@ export function ClipCaptionEditor({ jobId, clip, onChange, onClose, theme }: {
 }
 
 // ── the clip's B-roll: the AI's pick per split / corner layout, or the client's own upload ──
-/** A photo / video of the client's → our storage (Modal upload → B2), progress 0–100. */
-async function uploadOwn(f: File, onPct: (n: number) => void): Promise<{ url: string; video: boolean }> {
-  const video = /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm)$/i.test(f.name);
-  const image = /^image\/(jpeg|png|webp)$/.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
-  if (!video && !image) throw new Error("Pilih gambar (JPG / PNG / WEBP) atau video (MP4 / MOV / WEBM).");
-  if (image && f.size > 12 * 1024 * 1024) throw new Error("Gambar terlalu besar (maks 12MB).");
-  if (video && f.size > 200 * 1024 * 1024) throw new Error("Video B-roll terlalu besar (maks 200MB) — beberapa saat sudah cukup.");
-  const r = await fetch("/api/motion/upload-url", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: f.name, size: f.size, kind: video ? "clip" : "image", from: "clipper" }),
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
-  const url = await new Promise<string>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", d.upload_url);
-    xhr.setRequestHeader("Content-Type", f.type || (video ? "video/mp4" : "image/jpeg"));
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onPct(Math.round((e.loaded / e.total) * 100)); };
-    xhr.onload = () => {
-      try {
-        const j = JSON.parse(xhr.responseText || "{}");
-        if (xhr.status >= 200 && xhr.status < 300 && j?.url) resolve(String(j.url));
-        else reject(new Error(j?.error || `Upload gagal (${xhr.status})`));
-      } catch { reject(new Error(`Upload gagal (${xhr.status})`)); }
-    };
-    xhr.onerror = () => reject(new Error("Upload gagal — semak sambungan internet."));
-    xhr.send(f);
-  });
-  return { url, video };
-}
-
 function Thumb({ url, video }: { url?: string; video?: boolean }) {
   const box = "w-[72px] h-[72px] rounded-lg overflow-hidden bg-black shrink-0";
   if (!url) return <div className={`${box} flex items-center justify-center text-[9px] text-white/70 text-center px-1`} style={{ background: "linear-gradient(135deg,#2a1840,#0d0d14)" }}>latar warna</div>;

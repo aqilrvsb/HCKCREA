@@ -187,6 +187,9 @@ export type EditInput = {
   /** the closing call to action the client chose: "bag" = Tekan beg kuning, "live" = Jom masuk LIVE, "none", or
    *  "auto" / unset = the AI decides (CLIPPER: none) */
   ctaKind?: "auto" | "bag" | "live" | "none";
+  /** the client's own headline overlays (review step): slot i of the headline set (over, split, pip, split) —
+   *  their words and / or their B-roll; an empty field stays the AI's */
+  headlineFix?: { i: number; lead?: string; big?: string; box?: string; url?: string; video?: boolean }[];
   /** engine "custom": the client's Custom Style prompt + materials, built after the script is approved */
   custom?: { prompt: string; title: string; stepId: string; materials: { url: string; name: string }[] };
   engine?: MotionEngine;

@@ -10,7 +10,8 @@
 // renders a new one from this script.
 
 import { useMemo, useState } from "react";
-import { Clapperboard, Loader2, Save, ShieldAlert, X } from "lucide-react";
+import { Clapperboard, Loader2, Save, ShieldAlert, Upload, X } from "lucide-react";
+import { uploadOwn } from "@/lib/upload-own";
 import Portal from "./portal";
 import { captionLines, EDITABLE_OVERLAY, type DraftEdits, type DraftWord } from "@/lib/motion-review";
 
@@ -56,6 +57,25 @@ export default function MotionReviewDialog({ id, draft, mode = "review", onClose
   const [rehook, setRehook] = useState(plan.rehook?.text ?? "");
   const [cta, setCta] = useState({ text: plan.cta?.text ?? "", sub: plan.cta?.sub ?? "" });
   const [ovEdits, setOvEdits] = useState<Record<string, { text?: string; sub?: string }>>({});
+  // the required headline overlays this video gets (by its length): empty = the AI writes / picks it
+  const dur = (draft.words ?? []).reduce((m, w) => Math.max(m, Number((w as { e?: number; t?: number }).e ?? (w as { t?: number }).t ?? 0)), 0);
+  const slots: ("over" | "split" | "pip")[] = dur < 7 ? ["over"] : dur < 20 ? ["over", "split"] : dur < 45 ? ["over", "split", "pip"] : ["over", "split", "pip", "split"];
+  const [heads, setHeads] = useState<Record<number, { lead?: string; big?: string; box?: string; url?: string; video?: boolean }>>({});
+  const [upPct, setUpPct] = useState<Record<number, number>>({});
+  const [upErr, setUpErr] = useState<string | null>(null);
+  async function pickBroll(i: number, f: File | null) {
+    if (!f) return;
+    setUpErr(null);
+    setUpPct((p) => ({ ...p, [i]: 0 }));
+    try {
+      const got = await uploadOwn(f, (n) => setUpPct((p) => ({ ...p, [i]: n })), "motion");
+      setHeads((h) => ({ ...h, [i]: { ...h[i], url: got.url, video: got.video } }));
+    } catch (e: any) {
+      setUpErr(e?.message || "Upload gagal");
+    } finally {
+      setUpPct((p) => { const q = { ...p }; delete q[i]; return q; });
+    }
+  }
   const [busy, setBusy] = useState(false);
   const changed = Object.keys(lineEdits).filter((k) => lineEdits[k] !== lines[Number(k)]?.text).length;
 
@@ -83,6 +103,7 @@ export default function MotionReviewDialog({ id, draft, mode = "review", onClose
         ...(plan.hook ? { hook } : {}),
         ...(plan.rehook ? { rehook } : {}),
         ...(plan.cta ? { cta } : {}),
+        headlines: Object.entries(heads).map(([k, v]) => ({ i: Number(k), ...v })).filter((h) => h.lead || h.big || h.box || h.url),
       };
       const r = await fetch("/api/motion/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, edits }) });
       const d = await r.json().catch(() => ({}));
@@ -168,6 +189,44 @@ export default function MotionReviewDialog({ id, draft, mode = "review", onClose
                   })}
                 </div>
                 <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Kosongkan teks untuk buang sticker itu.</p>
+              </div>
+            )}
+
+            {!scriptMode && (
+              <div>
+                <span className={label}>🎬 Overlay — headline &amp; split-screen ({slots.length})</span>
+                <p className="text-[10px] text-[var(--color-text-muted)] mb-1.5 leading-snug">
+                  Kosongkan = <b>Auto</b> (AI tulis ikut isi video). Isi sendiri untuk teks yang tepat; AI letak pada ayat yang sesuai. Untuk split / sudut, boleh upload gambar / video B-roll sendiri.
+                </p>
+                {upErr && <p className="text-[11px] text-red-500 mb-1">{upErr}</p>}
+                <div className="space-y-2">
+                  {slots.map((kind, i) => {
+                    const h = heads[i] ?? {};
+                    const set = (k: "lead" | "big" | "box", v: string) => setHeads((m) => ({ ...m, [i]: { ...m[i], [k]: v } }));
+                    const up = upPct[i];
+                    return (
+                      <div key={i} className="rounded-lg p-2 space-y-1" style={{ border: "1px solid var(--color-border)" }}>
+                        <div className="text-[11px] font-extrabold text-[var(--color-text-primary)]">
+                          {i + 1}. {kind === "over" ? "Headline atas orang" : kind === "split" ? "Split-screen (B-roll + orang)" : "Sudut — orang kecil bawah kanan"}
+                        </div>
+                        <input className={inputCls} style={h.lead ? changedStyle : inputStyle} value={h.lead ?? ""} maxLength={34} placeholder="Ayat pembuka (italic) — Auto" onChange={(e) => set("lead", e.target.value)} />
+                        <input className={`${inputCls} font-extrabold uppercase`} style={h.big ? changedStyle : inputStyle} value={h.big ?? ""} maxLength={18} placeholder="PERKATAAN BESAR — AUTO" onChange={(e) => set("big", e.target.value)} />
+                        <input className={inputCls} style={h.box ? changedStyle : inputStyle} value={h.box ?? ""} maxLength={34} placeholder="Ayat dalam kotak — Auto" onChange={(e) => set("box", e.target.value)} />
+                        {kind !== "over" && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <label className="relative px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white cursor-pointer inline-flex items-center gap-1" style={{ background: "linear-gradient(135deg, #22c55e, #4ade80)" }}>
+                              {up !== undefined ? <><Loader2 className="w-3 h-3 animate-spin" /> {up}%</> : <><Upload className="w-3 h-3" /> {h.url ? "Tukar B-roll" : "Upload B-roll sendiri"}</>}
+                              <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" className="absolute inset-0 opacity-0 cursor-pointer"
+                                disabled={up !== undefined} onChange={(e) => { void pickBroll(i, e.target.files?.[0] ?? null); e.target.value = ""; }} />
+                            </label>
+                            <span className="text-[10px] text-[var(--color-text-muted)]">{h.url ? `✓ ${h.video ? "Video" : "Gambar"} anda` : "Auto — AI cari B-roll ikut isi video"}</span>
+                            {h.url && <button type="button" className="text-[10px] underline text-[var(--color-text-muted)]" onClick={() => setHeads((m) => ({ ...m, [i]: { ...m[i], url: undefined, video: undefined } }))}>Guna Auto</button>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
