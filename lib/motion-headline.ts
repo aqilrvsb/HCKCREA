@@ -38,7 +38,7 @@ async function keepPhoto(url: string): Promise<string> {
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 9;
+export const HEADLINE_VERSION = 10;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -163,8 +163,33 @@ function spokenNumbers(words: { w: string }[], extra = ""): Set<string> {
   flush();
   return out;
 }
-/** A headline's numbers are all said (a leading step number "1." is numbering, not a claim). */
-const numbersSaid = (text: string, ok: Set<string>) => (text.replace(/^\s*\d{1,2}[.)]\s+/, "").match(NUM) ?? []).every((m) => ok.has(normNum(m)));
+// a number's unit is part of the claim: "4 KILO" needs "kilo" said, not just "empat"
+const UNIT_OF: [RegExp, string][] = [
+  [/^(kilo|kg|kilogram|kilos)$/, "kg"], [/^(gram|g)$/, "g"], [/^(hari|day|days)$/, "day"], [/^(minggu|week|weeks)$/, "week"],
+  [/^(bulan|month|months)$/, "month"], [/^(tahun|year|years)$/, "year"], [/^(jam|hour|hours)$/, "hour"], [/^(minit|minute|minutes)$/, "min"],
+  [/^(peratus|percent|%)$/, "pct"], [/^(cm|inci|inch|inches)$/, "len"],
+];
+const unitOf = (w: string) => UNIT_OF.find(([re]) => re.test(w.toLowerCase()))?.[1];
+function unitsSaid(words: { w: string }[], extra: string): Set<string> {
+  const out = new Set<string>();
+  for (const t of [...words.map((w) => String(w.w)), ...extra.split(/\s+/)]) {
+    if (/\d\s*%|%/.test(t)) out.add("pct");
+    const u = unitOf(t.replace(/[^\p{L}%]/gu, "")) ?? unitOf((t.match(/\d+([a-z]+)$/i) ?? [])[1] ?? "");
+    if (u) out.add(u);
+  }
+  return out;
+}
+/** A headline's numbers are all said, and so is the unit each one comes with (a leading step number "1." is numbering,
+ *  not a claim). */
+function numbersSaid(text: string, ok: Set<string>, units: Set<string>): boolean {
+  const t = text.replace(/^\s*\d{1,2}[.)]\s+/, "");
+  if (!(t.match(NUM) ?? []).every((m) => ok.has(normNum(m)))) return false;
+  for (const m of t.matchAll(/\d+(?:[.,]\d+)*\s*(%|[\p{L}]+)/gu)) {
+    const u = unitOf(m[1]);
+    if (u && !units.has(u)) return false;
+  }
+  return true;
+}
 
 /** The AI's headlines, checked; the missing ones made up so every video has one "over" and one (two from 60 s)
  *  "split" — placed after the hook, the over around the first third, the splits around the middle / last third.
@@ -173,12 +198,13 @@ const numbersSaid = (text: string, ok: Set<string>) => (text.replace(/^\s*\d{1,2
 export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], duration: number, fallback: string, extra = ""): HeadlinePlan[] {
   const n = words.length;
   const said = spokenNumbers(words, extra);
+  const units = unitsSaid(words, extra);
   const got: HeadlinePlan[] = [];
   for (const h of Array.isArray(raw) ? raw.slice(0, 6) : []) {
     const kind: HeadKind | null = h?.kind === "split" || h?.kind === "pip" || h?.kind === "over" ? h.kind : null;
     const big = clean(h?.big, 18).toUpperCase();
     if (!kind || !big) continue;
-    if (!numbersSaid([clean(h?.lead, 34), big, clean(h?.box, 34)].join(" "), said)) continue;
+    if (!numbersSaid([clean(h?.lead, 34), big, clean(h?.box, 34)].join(" "), said, units)) continue;
     const at = cueOk(h?.at, n, duration);
     if (at === undefined) continue;
     const to = cueOk(h?.to, n, duration);
