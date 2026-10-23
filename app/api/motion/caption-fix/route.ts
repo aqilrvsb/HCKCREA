@@ -21,6 +21,8 @@ export async function POST(req: Request) {
   const admin = createAdminClient();
   let context = "";
   let language: "ms" | "en" | "auto" = "ms";
+  // a Motion draft's words were already corrected once (before the review): those words aren't guessed again
+  let settled = new Set<number>();
   if (typeof b?.job_id === "string" && /^[0-9a-f-]{36}$/i.test(b.job_id)) {
     // a CLIPPER clip: the video's title + summary + why the clip was picked
     const { data: job } = await admin.from("history").select("user_id, metadata").eq("id", b.job_id).maybeSingle();
@@ -35,9 +37,12 @@ export async function POST(req: Request) {
     const input = (row as any).metadata?.input ?? {};
     context = [input.product, input.instructions].filter(Boolean).join(" — ").slice(0, 600);
     language = input.language === "en" ? "en" : input.language === "auto" ? "auto" : "ms";
+    const done = (row as any).metadata?.caption_fixes;
+    if (Array.isArray(done)) settled = new Set(done.map((f: unknown) => Number((f as unknown[])?.[0])).filter(Number.isInteger));
   } else {
     return NextResponse.json({ error: "Klip / video tidak sah." }, { status: 400 });
   }
-  const fixes = await fixTranscript(words.map((w: string, i: number) => ({ i, w })), context || undefined, language).catch(() => [] as [number, string][]);
+  const fixes = (await fixTranscript(words.map((w: string, i: number) => ({ i, w })), context || undefined, language).catch(() => [] as [number, string][]))
+    .filter(([i]) => !settled.has(i));
   return NextResponse.json({ ok: true, fixes });
 }
