@@ -38,7 +38,7 @@ async function keepPhoto(url: string): Promise<string> {
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 10;
+export const HEADLINE_VERSION = 11;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -91,7 +91,10 @@ const STOP = new Set(["yang", "dan", "ini", "itu", "dia", "kita", "saya", "aku",
 /** Words for a headline when the AI wrote none, from what the speaker says right there: the strongest word is the
  *  punch, the words before it the lead-in, the words after it the payoff (else the hook / title). */
 // spoken fillers that make no headline lead-in ("Sini Okay / KEGUNAAN")
-const FILLER = new Set(["okay", "okey", "ok", "so", "haa", "ha", "hah", "eh", "erm", "um", "ya", "yes", "haah", "lah", "tau", "kan"]);
+const FILLER = new Set(["okay", "okey", "ok", "so", "haa", "ha", "hah", "eh", "erm", "um", "ya", "yes", "haah", "lah", "tau", "kan",
+  // greetings / praise said to a live audience: no headline punch
+  "assalamualaikum", "waalaikumsalam", "walaikumsalam", "alhamdulillah", "masyaallah", "mashaallah", "tabarakallah", "insyaallah",
+  "inshaallah", "subhanallah", "terima", "kasih", "thank", "thanks", "welcome", "hello", "hai", "madam", "sis", "kak", "akak"]);
 function spokenText(words: { w: string; t: number }[], t: number, source: string, n: number) {
   const near = words.filter((w) => w.t >= t - 1.5 && w.t <= t + 4)
     .map((w) => ({ w: w.w.replace(/[^\p{L}\p{N}%-]/gu, ""), end: /[.?!]["')\]]*$/.test(w.w) })).filter((x) => x.w);
@@ -204,14 +207,24 @@ export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], 
     const kind: HeadKind | null = h?.kind === "split" || h?.kind === "pip" || h?.kind === "over" ? h.kind : null;
     const big = clean(h?.big, 18).toUpperCase();
     if (!kind || !big) continue;
-    if (!numbersSaid([clean(h?.lead, 34), big, clean(h?.box, 34)].join(" "), said, units)) continue;
     const at = cueOk(h?.at, n, duration);
     if (at === undefined) continue;
     const to = cueOk(h?.to, n, duration);
     const query = clean(h?.query, 80);
+    // a lead-in / box line with a number (or unit) the speaker doesn't say goes, the rest stays; when the punch itself
+    // carries it, the whole headline was built on that claim: its words become the speaker's own there (its B-roll stays)
+    let lead = clean(h?.lead, 34), box = clean(h?.box, 34), punch = big;
+    if (!numbersSaid(punch, said, units)) {
+      const m = typeof at === "string" ? W_CUE.exec(at) : null;
+      const sp = spokenText(words, typeof at === "number" ? at : m ? words[Number(m[1])]?.t ?? 0 : 0, fallback, got.length);
+      if (!numbersSaid([sp.lead, sp.big, sp.box].join(" "), said, units)) continue;
+      ({ lead, big: punch, box } = sp);
+    }
+    if (!numbersSaid(lead, said, units)) lead = "";
+    if (!numbersSaid(box, said, units)) box = "";
     got.push({
-      kind, at, ...(to !== undefined ? { to } : {}), big,
-      lead: clean(h?.lead, 34), ...(clean(h?.box, 34) ? { box: clean(h?.box, 34) } : {}),
+      kind, at, ...(to !== undefined ? { to } : {}), big: punch,
+      lead, ...(box ? { box } : {}),
       ...(kind !== "over" ? { query, media: h?.media === "photo" ? "photo" as const : "video" as const } : {}),
     });
   }
