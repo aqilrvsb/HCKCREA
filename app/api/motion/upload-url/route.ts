@@ -13,8 +13,9 @@ export async function POST(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
-  // kind "clip" = a CLIPPER source video (long: ≤ 1 GB), from the CLIPPER tab
-  if (!(await isTabAllowedForUser(user.id, b?.kind === "clip" ? "clipper" : "motion"))) {
+  // kind "clip" = a CLIPPER source video (long: ≤ 1 GB), from the CLIPPER tab; from "clipper" = the client's own
+  // B-roll for a clip (a photo or a video), uploaded from the CLIPPER tab too
+  if (!(await isTabAllowedForUser(user.id, b?.kind === "clip" || b?.from === "clipper" ? "clipper" : "motion"))) {
     return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
   }
   const size = Number(b?.size) || 0;

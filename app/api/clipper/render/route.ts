@@ -18,6 +18,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const MAX_CLIPS = 20;
+// the client's own B-roll is accepted only from our own storage (uploaded through /api/motion/upload-url)
+const OWN_MEDIA = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/(clipper-uploads|motion-images|motion-uploads)\/[^\s?#]+$/;
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -77,6 +79,10 @@ export async function POST(req: Request) {
       hook: String(c?.hook ?? "").replace(/\s+/g, " ").trim().slice(0, 60),
       flash,
       // the client's caption corrections: [word index, text] on the clip's preview words ("" drops the word)
+      // the client's own B-roll per headline layout (uploaded to our storage only)
+      brollFix: (Array.isArray(c?.broll_fix) ? c.broll_fix : []).slice(0, 6)
+        .filter((f: any) => Number.isInteger(f?.i) && f.i >= 0 && f.i < 8 && OWN_MEDIA.test(String(f?.url || "")))
+        .map((f: any) => ({ i: f.i as number, url: String(f.url).slice(0, 600), video: !!f.video })),
       captionFix: Array.isArray(c?.caption_fix?.words) && Array.isArray(c?.caption_fix?.fix) && c.caption_fix.fix.length
         ? {
           words: c.caption_fix.words.slice(0, 1200).map((w: unknown) => String(w ?? "").slice(0, 40)),
@@ -131,6 +137,7 @@ export async function POST(req: Request) {
       clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
         ...(c.flash ? { flash: c.flash } : {}), polish, seed,
         ...(c.captionFix ? { caption_fix: c.captionFix } : {}),
+        ...(c.brollFix.length ? { broll_fix: c.brollFix } : {}),
         ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [], ...(Array.isArray(ref.headlines) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { headlines: ref.headlines } : {}) } } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({

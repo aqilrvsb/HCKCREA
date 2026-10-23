@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Pause, Play, RotateCcw, Upload, Volume2, VolumeX } from "lucide-react";
 import {
   captionFixMap, clipFlash, clipKey, clipSeed, faceTrack, fixedText, polishOnTimeline, previewFaces, previewProps, previewTimeline,
   type PWord, type PolishHeadline, type PolishKeyword, type PolishZoom, type SrcFaces,
@@ -13,7 +13,9 @@ import {
 
 /** the client's caption corrections of one clip, made on its preview words (key = the clip's start-end) */
 export type CapFix = { key: string; words: string[]; fix: Record<number, string> };
-type PClip = { start: number; end: number; title: string; hook: string; flash?: { start: number; end: number } | null; capFix?: CapFix | null };
+/** the client's own B-roll per headline layout (index in the clip's headlines), made for this clip (key = start-end) */
+export type BrollFix = { key: string; items: Record<number, { url: string; video: boolean }> };
+type PClip = { start: number; end: number; title: string; hook: string; flash?: { start: number; end: number } | null; capFix?: CapFix | null; brollFix?: BrollFix | null };
 export type PreviewSettings = {
   frame: "face" | "fit" | "center" | "split"; captions: boolean; captionLook?: string; captionPos: "low" | "mid";
   hookOn: boolean; jumpcut: boolean; coldOpen: boolean; polish: boolean; wmText: string; wmImage: string;
@@ -105,7 +107,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
   }, [data, key, settings.polish, settings.captions]);
 
   // what the preview page draws — rebuilt only when a value it uses changes (the parent re-creates the objects)
-  const sig = clip ? JSON.stringify([clip.start, clip.end, clip.hook, clip.flash?.start ?? null, clip.flash?.end ?? null, clip.capFix ?? null, settings]) : "";
+  const sig = clip ? JSON.stringify([clip.start, clip.end, clip.hook, clip.flash?.start ?? null, clip.flash?.end ?? null, clip.capFix ?? null, clip.brollFix ?? null, settings]) : "";
   const cfg = useMemo(() => {
     if (!clip || !mediaUrl || !data || data.key !== key) return null;
     const fl = clipFlash(clip, settings.coldOpen);
@@ -115,7 +117,10 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
     // the client's caption corrections (same words they were made on): each word keeps its timing, "" drops it
     const cf = clip.capFix && clip.capFix.key === clipKey(clip.start, clip.end) && clip.capFix.words.length === data.words.length ? clip.capFix.fix : null;
     if (cf) tl.words = tl.words.map((w) => (w.si in cf ? { ...w, w: cf[w.si] } : w)).filter((w) => w.w.trim());
-    const pol = polishOnTimeline(tl, data.keywords, data.zooms, data.headlines);
+    // the client's own B-roll in place of the AI's pick on a layout
+    const bf = clip.brollFix && clip.brollFix.key === clipKey(clip.start, clip.end) ? clip.brollFix.items : null;
+    const heads = bf ? data.headlines.map((h, i) => (bf[i] && h.kind !== "over" ? { ...h, media: bf[i].video ? "video" as const : "photo" as const, candidates: [bf[i].url], credit: undefined } : h)) : data.headlines;
+    const pol = polishOnTimeline(tl, data.keywords, data.zooms, heads);
     const props = previewProps({
       video: "clip://preview", tl, seed: clipSeed(jobId, clip.start, clip.end), hook: settings.hookOn ? clip.hook : null,
       captions: settings.captions, captionLook: settings.captionLook, captionPos: settings.captionPos, polish: settings.polish,
@@ -303,6 +308,147 @@ export function ClipCaptionEditor({ jobId, clip, onChange, onClose, theme }: {
         )}
         <button type="button" onClick={onClose} className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white" style={{ background: theme.gradient }}>Siap</button>
       </div>
+    </div>
+  );
+}
+
+// ── the clip's B-roll: the AI's pick per split / corner layout, or the client's own upload ──
+/** A photo / video of the client's → our storage (Modal upload → B2), progress 0–100. */
+async function uploadOwn(f: File, onPct: (n: number) => void): Promise<{ url: string; video: boolean }> {
+  const video = /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm)$/i.test(f.name);
+  const image = /^image\/(jpeg|png|webp)$/.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
+  if (!video && !image) throw new Error("Pilih gambar (JPG / PNG / WEBP) atau video (MP4 / MOV / WEBM).");
+  if (image && f.size > 12 * 1024 * 1024) throw new Error("Gambar terlalu besar (maks 12MB).");
+  if (video && f.size > 200 * 1024 * 1024) throw new Error("Video B-roll terlalu besar (maks 200MB) — beberapa saat sudah cukup.");
+  const r = await fetch("/api/motion/upload-url", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: f.name, size: f.size, kind: video ? "clip" : "image", from: "clipper" }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
+  const url = await new Promise<string>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", d.upload_url);
+    xhr.setRequestHeader("Content-Type", f.type || (video ? "video/mp4" : "image/jpeg"));
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onPct(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => {
+      try {
+        const j = JSON.parse(xhr.responseText || "{}");
+        if (xhr.status >= 200 && xhr.status < 300 && j?.url) resolve(String(j.url));
+        else reject(new Error(j?.error || `Upload gagal (${xhr.status})`));
+      } catch { reject(new Error(`Upload gagal (${xhr.status})`)); }
+    };
+    xhr.onerror = () => reject(new Error("Upload gagal — semak sambungan internet."));
+    xhr.send(f);
+  });
+  return { url, video };
+}
+
+function Thumb({ url, video }: { url?: string; video?: boolean }) {
+  const box = "w-[72px] h-[72px] rounded-lg overflow-hidden bg-black shrink-0";
+  if (!url) return <div className={`${box} flex items-center justify-center text-[9px] text-white/70 text-center px-1`} style={{ background: "linear-gradient(135deg,#2a1840,#0d0d14)" }}>latar warna</div>;
+  return video
+    ? <video className={`${box} object-cover`} src={`${url}#t=1`} muted playsInline preload="metadata" />
+    // eslint-disable-next-line @next/next/no-img-element
+    : <img className={`${box} object-cover`} src={url} alt="" />;
+}
+
+export function ClipBrollEditor({ jobId, clip, onChange, onClose, theme }: {
+  jobId: string; clip: PClip; onChange: (bf: BrollFix | null) => void; onClose: () => void;
+  theme: { primary: string; gradient: string; faint: string; soft: string };
+}) {
+  const key = clipKey(clip.start, clip.end);
+  const [heads, setHeads] = useState<PolishHeadline[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [pct, setPct] = useState<Record<number, number>>({});
+  useEffect(() => {
+    let off = false;
+    setHeads(null);
+    setErr(null);
+    (async () => {
+      // the clip's layouts (the AI picks them once per clip — up to ~40 s the first time)
+      for (let n = 0; n < 30 && !off; n++) {
+        try {
+          const r = await fetch("/api/clipper/preview", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: jobId, start: clip.start, end: clip.end, title: clip.title, polish: true, faces: false }),
+          });
+          const d = await r.json();
+          if (off) return;
+          if (!r.ok || !d?.ok) throw new Error(d?.error || "B-roll tak dapat dibaca");
+          if (d.polished) { setHeads(d.headlines ?? []); return; }
+        } catch (e: any) {
+          if (!off) setErr(e?.message || "B-roll tak dapat dibaca");
+          return;
+        }
+        await new Promise((res) => setTimeout(res, 3000));
+      }
+    })();
+    return () => { off = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, key]);
+  const fix = clip.brollFix && clip.brollFix.key === key ? clip.brollFix.items : {};
+  const setItem = (i: number, v: { url: string; video: boolean } | null) => {
+    const items = { ...fix };
+    if (v) items[i] = v; else delete items[i];
+    onChange(Object.keys(items).length ? { key, items } : null);
+  };
+  async function pick(i: number, f: File | null) {
+    if (!f) return;
+    setErr(null);
+    setPct((p) => ({ ...p, [i]: 0 }));
+    try {
+      setItem(i, await uploadOwn(f, (n) => setPct((p) => ({ ...p, [i]: n }))));
+    } catch (e: any) {
+      setErr(e?.message || "Upload gagal");
+    } finally {
+      setPct((p) => { const q = { ...p }; delete q[i]; return q; });
+    }
+  }
+  const rows = (heads ?? []).map((h, i) => ({ h, i })).filter((x) => x.h.kind !== "over");
+  return (
+    <div className="rounded-lg p-3 space-y-2" style={{ border: `1px solid ${theme.soft}`, background: theme.faint }}>
+      <div className="text-[11px] font-extrabold text-[var(--color-text-primary)]">🎞️ B-roll klip — guna gambar / video anda sendiri</div>
+      {err && <p className="text-[11px] text-red-500">{err}</p>}
+      {!heads && !err && (
+        <div className="flex items-center gap-2 text-[11px] text-[var(--color-text-muted)]"><Loader2 className="w-3.5 h-3.5 animate-spin" /> AI sedang susun headline &amp; pilih B-roll…</div>
+      )}
+      {heads && !rows.length && <p className="text-[11px] text-[var(--color-text-muted)]">Klip ini terlalu pendek untuk panel B-roll (hanya headline atas orang).</p>}
+      {rows.map(({ h, i }) => {
+        const own = fix[i];
+        const ai = h.candidates?.[0];
+        const up = pct[i];
+        return (
+          <div key={i} className="flex items-center gap-3 rounded-lg p-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+            <Thumb url={own?.url ?? ai} video={own ? own.video : h.media !== "photo"} />
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="text-[11px] font-extrabold text-[var(--color-text-primary)]">
+                {h.kind === "split" ? "Split-screen" : "Sudut — orang kecil bawah kanan"}
+                <span className="font-normal text-[var(--color-text-muted)]"> · {[h.lead, h.big, h.box].filter(Boolean).join(" ")}</span>
+              </div>
+              <div className="text-[10px] text-[var(--color-text-muted)]">
+                {own ? "✓ B-roll anda" : ai ? `Pilihan AI${h.query ? ` · "${h.query}"` : ""}` : "Tiada gambar sesuai — latar warna"}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <label className="relative px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white cursor-pointer inline-flex items-center gap-1" style={{ background: theme.gradient }}>
+                  {up !== undefined ? <><Loader2 className="w-3 h-3 animate-spin" /> {up}%</> : <><Upload className="w-3 h-3" /> {own ? "Tukar" : "Upload sendiri"}</>}
+                  <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" className="absolute inset-0 opacity-0 cursor-pointer"
+                    disabled={up !== undefined} onChange={(e) => { void pick(i, e.target.files?.[0] ?? null); e.target.value = ""; }} />
+                </label>
+                {own && (
+                  <button type="button" onClick={() => setItem(i, null)} className="px-2.5 py-1 rounded-lg text-[11px] font-bold" style={{ border: "1px solid var(--color-border)" }}>
+                    Guna pilihan AI
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <p className="text-[10px] leading-snug text-[var(--color-text-muted)]">
+        Gambar atau video pendek (video: ~5 saat pertama dipakai). Pratonton terus tunjuk B-roll baru, dan klip akhir guna yang sama.
+      </p>
+      <button type="button" onClick={onClose} className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white" style={{ background: theme.gradient }}>Siap</button>
     </div>
   );
 }

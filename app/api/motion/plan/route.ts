@@ -26,8 +26,14 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
   const fresh = !reused || !reused.headlines.length ? await clipPolish(words, duration, input.clip?.title ?? "", deadline) : null;
   const keywords = !polish ? [] : reused?.keywords.length ? reused.keywords : fresh?.keywords ?? [];
   const zooms = !polish ? [] : reused?.zooms.length ? reused.zooms : fresh?.zooms ?? [];
-  const headlines = reused?.headlines.length ? reused.headlines
+  const picked = reused?.headlines.length ? reused.headlines
     : await enrichHeadlines(fresh?.headlines ?? [], input.clip?.title ?? "").catch(() => fresh?.headlines ?? []);
+  // the client's own B-roll (Studio "🎞️ B-roll") in place of the AI's pick on that layout
+  const own = input.clip?.broll_fix ?? [];
+  const headlines = picked.map((h, i) => {
+    const f = own.find((x) => x.i === i);
+    return f && h.kind !== "over" ? { ...h, media: f.video ? "video" as const : "photo" as const, candidates: [f.url], credit: undefined } : h;
+  });
   return {
     hook: input.clip?.hook ? { text: input.clip.hook } : null,
     accent: "#FFD93B",

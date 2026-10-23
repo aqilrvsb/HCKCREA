@@ -201,6 +201,8 @@ export type EditInput = {
     polish_ref?: PolishRef;
     /** the client's caption corrections (Studio editor), moved onto the render's words by /api/motion/plan "fixes" */
     caption_fix?: CaptionFix;
+    /** the client's own B-roll for a headline layout (its index in the clip's headlines), in place of the AI's pick */
+    broll_fix?: { i: number; url: string; video: boolean }[];
   };
 };
 
