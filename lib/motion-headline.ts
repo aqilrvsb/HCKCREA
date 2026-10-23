@@ -15,7 +15,7 @@ import { orChatVision } from "@/lib/openrouter";
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 4;
+export const HEADLINE_VERSION = 5;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -43,7 +43,8 @@ export const HEADLINE_SPEC = `"headlines": [HEADLINE] — REQUIRED in every vide
   {"kind": "over", "at": CUE, "to"?: CUE, "lead": 2–5 words (sentence case, the set-up), "big": 1–3 words (≤16 characters, the punch), "box": 2–5 words (the payoff)} — the speaker stays full-frame and a three-line headline animates over them: an elegant italic lead-in, one huge word, a short line in a colour box (e.g. lead "Rahsia kulit", big "GLOWING", box "dalam 7 hari"); ~3 s,
   {"kind": "split", "at": CUE, "to"?: CUE, "lead", "big", "box" (as above), "query": 2–4 plain English stock-footage keywords naming the ONE main thing the B-roll shows — a visual of what is being said ("cooking oil", "woman applying serum", "traffic jam", "blood sugar test"; no colours, no adjectives, no brand), "media": "video" | "photo"} — a B-roll panel slides into one half of the frame, the speaker moves into the other half and the headline rides the seam; ~3.5 s,
   {"kind": "pip", "at": CUE, "to"?: CUE, "lead", "big", "box", "query", "media"} — the B-roll fills the whole frame with the headline over it while the speaker shrinks into a small box bottom-right (they keep talking); ~3.5 s, for a moment that SHOWS something (a place, a result, a product in use);
-  the words are the video's own message in the speaker's language (only facts and numbers the speaker says); every headline different; never the hook's words.`;
+  the words are the video's own message in the speaker's language (only facts and numbers the speaker says); every headline different; never the hook's words.
+  CONTEXT FIRST: before writing any headline, understand the whole video — who is speaking, what they sell / teach / tell and why (the purpose). Every headline and every B-roll query serves THAT purpose and shows THAT subject; never build one from a single word taken alone. A word that doesn't fit the topic was probably misheard by the transcriber (in a cake seller's video "kulit" = skin is really "kulat" = mould): use the meaning that fits the topic ("Kek berkulat", query "mouldy cake"), or pick another line. The query always names the video's own subject ("mouldy cake", "chocolate cake slice", "diabetic patch on arm") — a picture of another subject ("skin acne" in a cake video) is wrong.`;
 
 const W_CUE = /^w(\d{1,4})(\$)?([+-]\d{0,2}(?:\.\d+)?)?$/i;
 const clean = (v: unknown, max: number) => String(v ?? "").replace(/\s+/g, " ").replace(/[<>{}]/g, "").trim().slice(0, max);
@@ -131,6 +132,7 @@ export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], 
 export async function enrichHeadlines(heads: HeadlinePlan[], context: string): Promise<HeadlinePlan[]> {
   // a headline the AI didn't write borrows another one's search (stock libraries read English keywords, not the title)
   const shared = heads.find((x) => x.kind !== "over" && x.query)?.query || "";
+  const topic = context.replace(/\s+/g, " ").trim().slice(0, 400);
   return Promise.all(heads.map(async (h) => {
     if (h.kind === "over") return h;
     const q = (h.query || shared || `${context} ${h.big}`).replace(/\s+/g, " ").trim().slice(0, 80);
@@ -145,7 +147,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
       const firstFit = async (xs: { url: string; thumb?: string }[]) => {
         const top = xs.filter((x) => ok(x.url)).slice(0, 5);
         if (!top.length) return null;
-        const k = await pickClean(q, h.big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })));
+        const k = await pickClean(q, h.big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic);
         return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
       };
       const clips = await firstFit(order(await searchClips(q)));
@@ -156,7 +158,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
       const hits = (await searchImages(`${q} ${noSites}`.trim())).hits
         .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? "")))
         .slice(0, 4);
-      const pick = hits.length ? await pickClean(q, h.big, hits) : -1;
+      const pick = hits.length ? await pickClean(q, h.big, hits, topic) : -1;
       return pick >= 0 ? { ...h, query: q, media: "photo" as const, candidates: [hits[pick].url, ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) }
         : { ...h, query: q, candidates: [] };
     } catch {
@@ -167,11 +169,11 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
 
 /** Web pictures for a headline panel get the same eye as the B-roll: the cleanest literal match — no watermark, no
  *  screenshot / meme / text-heavy poster, no other brand's ad — or none (-1: the panel uses the look's surface). */
-async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[]): Promise<number> {
+async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[], topic = ""): Promise<number> {
   const r = await orChatVision({
     modelKey: "model_motion",
     systemPrompt: "You pick a background picture (a photo, or a still of a stock video) for a TikTok split-screen headline panel. Choose the image that most literally shows the query's main thing as a clean, real shot (a scene, an object, a place, people doing it) — an image of something else (a flower for 'cooking oil') does NOT fit. REJECT any image with a visible watermark or stock-site stamp, a screenshot of an app / social post / website, a meme, a poster or graphic full of text, a collage, a price tag or another brand's ad. Answer ONLY JSON: {\"pick\": n} (0-based) or {\"pick\": -1} when none is clean.",
-    textPrompt: `Query: "${query}" (headline word: "${big}"). Images #0..#${hits.length - 1} attached in order.`,
+    textPrompt: `${topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}Query: "${query}" (headline word: "${big}"). Images #0..#${hits.length - 1} attached in order.`,
     images: hits.map((h) => h.thumb || h.url),
     temperature: 0.1,
     maxTokens: 60,

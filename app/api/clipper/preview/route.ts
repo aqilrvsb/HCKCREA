@@ -6,6 +6,7 @@ import { clipPolish } from "@/lib/clipper-polish";
 import { getMotionConfig } from "@/lib/motion";
 import { HEADLINE_VERSION, enrichHeadlines } from "@/lib/motion-headline";
 import { clipKey, previewWords, type PolishRef, type SrcFaces, type TLine } from "@/lib/clipper-preview";
+import { clipContext } from "@/lib/clipper";
 
 // POST /api/clipper/preview { job_id, start, end, title?, polish?, faces? } — the Studio's live preview of one clip:
 // its words (from the analysis transcript, clip seconds); with polish, the keyword colours / emoji / zooms (one
@@ -74,11 +75,12 @@ export async function POST(req: Request) {
   if (ref && (!Array.isArray(ref.headlines) || (ref as { hv?: number }).hv !== HEADLINE_VERSION)) ref = undefined; // older headline logic: polish again
   let fx = (meta.preview_faces ?? {})[key] as (SrcFaces & { at?: number }) | undefined;
   const mediaUrl = String(meta.analysis?.media_url || "");
+  const context = clipContext(meta.analysis, start, end);
   const [newRef, newFx] = await Promise.all([
     b?.polish && !ref && words.length >= 8
-      ? clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000)
+      ? clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000, context)
         .then(async (p) => {
-          const headlines = await enrichHeadlines(p.headlines, String(b?.title ?? "")).catch(() => p.headlines);
+          const headlines = await enrichHeadlines(p.headlines, context || String(b?.title ?? "")).catch(() => p.headlines);
           return { words: words.map((w) => w.w), keywords: p.keywords, zooms: p.zooms, headlines, hv: HEADLINE_VERSION, at: Date.now() };
         })
       : Promise.resolve(undefined),

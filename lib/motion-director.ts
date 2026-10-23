@@ -28,6 +28,7 @@ import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuer
 import { HEADLINE_SPEC, cleanHeadlines, enrichHeadlines, type HeadlinePlan } from "@/lib/motion-headline";
 
 type Cue = string | number;
+const clean30 = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 30);
 export type DirectorWord = { i: number; w: string; t: number; e?: number };
 
 export type BRollPlan = {
@@ -49,7 +50,7 @@ export type EditPlanV2 = {
   facts: FactPlan[];
   keywords: { i: number; color: "benefit" | "price" | "pain" | "brand" | "accent"; emoji?: string }[];
   rehook?: { at: Cue; text: string };
-  cta?: { at: Cue; text: string; sub?: string };
+  cta?: { at: Cue; text: string; sub?: string; kind?: "bag" | "live" };
   /** REQUIRED headline layouts (over the speaker, a split panel, the speaker docked) — lib/motion-headline.ts */
   headlines?: HeadlinePlan[];
   /** TikTok guard: word indices the rules always mute (Modal adds the LLM's). */
@@ -964,6 +965,16 @@ export async function directEdit(opts: {
       plan.direction = direction;
     }
   }
+  // the client's closing CTA choice wins over the director's: the yellow basket, the LIVE, or none
+  if (input.ctaKind === "none") delete plan.cta;
+  else if ((input.ctaKind === "bag" || input.ctaKind === "live") && duration >= 6) {
+    plan.cta = {
+      at: plan.cta?.at ?? Math.max(0, duration - 3.5),
+      text: input.ctaKind === "live" ? "Jom masuk LIVE" : clean30(input.locks?.cta) || "Tekan beg kuning",
+      ...(input.ctaKind === "bag" && plan.cta?.sub ? { sub: plan.cta.sub } : {}),
+      kind: input.ctaKind,
+    };
+  }
   // the required headline layouts (made up when the director wrote none; guard mode keeps none that breaks the rules)
   const headSource = [plan.hook?.text, input.product].filter(Boolean).join(" ");
   plan.headlines = cleanHeadlines(raw?.headlines, words, duration, headSource);
@@ -983,7 +994,7 @@ export async function directEdit(opts: {
     input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, uploads), [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
-    byDeadline(enrichHeadlines(plan.headlines ?? [], plan.brand || input.product || ""), plan.headlines ?? []),
+    byDeadline(enrichHeadlines(plan.headlines ?? [], [input.product || plan.brand, plan.angle, input.instructions?.slice(0, 200)].filter(Boolean).join(" — ")), plan.headlines ?? []),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));

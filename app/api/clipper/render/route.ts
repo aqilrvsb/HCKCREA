@@ -5,7 +5,7 @@ import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
-import { CLIPPER_JOB_TAB, CLIPPER_TAB, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
+import { CLIPPER_JOB_TAB, CLIPPER_TAB, clipContext, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
 import { clipFlash, clipKey, clipSeed, type PolishRef } from "@/lib/clipper-preview";
 import { HEADLINE_VERSION } from "@/lib/motion-headline";
 
@@ -53,6 +53,7 @@ export async function POST(req: Request) {
   const jumpcut = s.jumpcut !== false; // long pauses inside the clip shortened
   const coldOpen = s.coldOpen !== false; // the clip's punchline teased first, when the director marked one
   const polish = s.polish !== false; // captions mode: keyword colours, emoji, punch-ins, progress bar
+  const ctaKind = s.cta === "bag" || s.cta === "live" ? (s.cta as "bag" | "live") : undefined; // the closing CTA (none by default)
   const wmText = String(s.watermark?.text ?? "").replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
   const wmImage = /^https:\/\/[^\s]+$/.test(String(s.watermark?.image ?? "")) ? String(s.watermark.image).slice(0, 1000) : "";
   const language = (["ms", "en", "id"].includes(String(a.language)) ? a.language : "ms") as "ms" | "en" | "id";
@@ -79,10 +80,16 @@ export async function POST(req: Request) {
       hook: String(c?.hook ?? "").replace(/\s+/g, " ").trim().slice(0, 60),
       flash,
       // the client's caption corrections: [word index, text] on the clip's preview words ("" drops the word)
-      // the client's own B-roll per headline layout (uploaded to our storage only)
+      // the client's own overlay per headline layout: corrected words and / or B-roll (uploaded to our storage only)
       brollFix: (Array.isArray(c?.broll_fix) ? c.broll_fix : []).slice(0, 6)
-        .filter((f: any) => Number.isInteger(f?.i) && f.i >= 0 && f.i < 8 && OWN_MEDIA.test(String(f?.url || "")))
-        .map((f: any) => ({ i: f.i as number, url: String(f.url).slice(0, 600), video: !!f.video })),
+        .filter((f: any) => Number.isInteger(f?.i) && f.i >= 0 && f.i < 8)
+        .map((f: any) => {
+          const t = (v: unknown, n: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").replace(/[<>{}]/g, "").trim().slice(0, n) : undefined);
+          const url = OWN_MEDIA.test(String(f?.url || "")) ? String(f.url).slice(0, 600) : undefined;
+          return { i: f.i as number, ...(url ? { url, video: !!f.video } : {}),
+            ...(t(f?.lead, 34) !== undefined ? { lead: t(f.lead, 34) } : {}), ...(t(f?.big, 18) ? { big: t(f.big, 18) } : {}), ...(t(f?.box, 34) !== undefined ? { box: t(f.box, 34) } : {}) };
+        })
+        .filter((f: any) => f.url || f.lead !== undefined || f.big || f.box !== undefined),
       captionFix: Array.isArray(c?.caption_fix?.words) && Array.isArray(c?.caption_fix?.fix) && c.caption_fix.fix.length
         ? {
           words: c.caption_fix.words.slice(0, 1200).map((w: unknown) => String(w ?? "").slice(0, 40)),
@@ -134,10 +141,12 @@ export async function POST(req: Request) {
       auto: true,
       ...(captionLook ? { locks: { captionLook: captionLook as any } } : {}),
       engine: "laju",
+      ...(ctaKind ? { ctaKind } : {}),
       clip: { mode, title: c.title, ...(hookOn && c.hook ? { hook: c.hook } : {}), job_id: job.id, start: c.start, end: c.end,
         ...(c.flash ? { flash: c.flash } : {}), polish, seed,
         ...(c.captionFix ? { caption_fix: c.captionFix } : {}),
         ...(c.brollFix.length ? { broll_fix: c.brollFix } : {}),
+        ...(clipContext(a, c.start, c.end) ? { topic: clipContext(a, c.start, c.end) } : {}),
         ...(ref?.words?.length ? { polish_ref: { words: ref.words, keywords: ref.keywords ?? [], zooms: ref.zooms ?? [], ...(Array.isArray(ref.headlines) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { headlines: ref.headlines } : {}) } } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({

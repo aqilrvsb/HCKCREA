@@ -71,6 +71,7 @@ export async function POST(req: Request) {
   const review = true;
   const input: EditInput = {
     videoUrl,
+    ...(["bag", "live", "none"].includes(b?.cta_kind) ? { ctaKind: b.cta_kind as "bag" | "live" | "none" } : {}),
     durationSec,
     language: b?.language === "en" ? "en" : b?.language === "auto" ? "auto" : "ms",
     instructions: auto && !manual ? undefined : str(b?.prompt ?? b?.instructions, 900) || undefined,

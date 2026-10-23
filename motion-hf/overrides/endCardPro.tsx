@@ -16,6 +16,17 @@ const BagIcon: React.FC<{ size: number; color?: string }> = ({ size, color = '#1
   </svg>
 );
 
+/** "LIVE" as TikTok shows it on a creator who is live: a red pill with a pulsing dot. */
+const LiveIcon: React.FC<{ size: number; f: number; fps: number }> = ({ size, f, fps }) => {
+  const pulse = 0.55 + 0.45 * Math.abs(Math.sin((f / fps) * Math.PI * 1.6));
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: size * 0.12, background: '#fff', borderRadius: size * 0.22, padding: `${size * 0.1}px ${size * 0.2}px`, flexShrink: 0 }}>
+      <span style={{ width: size * 0.26, height: size * 0.26, borderRadius: 999, background: '#FF2D55', opacity: pulse }} />
+      <span style={{ fontFamily: "'Archivo Black', sans-serif", fontSize: size * 0.42, color: '#FF2D55', lineHeight: 1 }}>LIVE</span>
+    </div>
+  );
+};
+
 const press = (f: number, fps: number) => {
   const len = Math.round(fps * 1.4);
   const tf = (f + len - Math.round(fps * 0.5)) % len;
@@ -58,7 +69,9 @@ export function placeCard(h: number, faceTop: number, faceBottom: number, capTop
 
 export const EndCardPro: React.FC<{
   text: string; sub?: string; start: number; frame: number; faceTop: number; faceBottom?: number; capTop?: number; look: Look;
-}> = ({ text, sub, start, frame, faceTop, faceBottom, capTop, look }) => {
+  /** the client's CTA choice: the yellow basket (default) or the LIVE */
+  ctaKind?: 'bag' | 'live';
+}> = ({ text, sub, start, frame, faceTop, faceBottom, capTop, look, ctaKind }) => {
   const { fps } = useVideoConfig();
   const f = frame - start;
   if (f < 0) return null;
@@ -79,7 +92,11 @@ export const EndCardPro: React.FC<{
     : 64 + Math.max(size * 1.15, n * size * 1.05) + 14 + subH;
   const spot = placeCard(cardH, faceTop, faceBottom ?? faceTop + 420, capTop ?? 1700);
   const top = spot.top + (kind === 'banner' ? 54 * spot.k : 0);
-  const yellow = '#FFD93B';
+  const live = ctaKind === 'live';
+  // a LIVE call is red with the LIVE badge; the basket call stays yellow with the bag
+  const yellow = live ? '#FF2D55' : '#FFD93B';
+  const ink = live ? '#fff' : '#111';
+  const Icon = ({ size: z }: { size: number }) => (live ? <LiveIcon size={z} f={f} fps={fps} /> : <BagIcon size={z} />);
   const shineP = ((f % Math.round(fps * 1.3)) / (fps * 1.3)) * 1.6 - 0.3;
   const shine = (
     <span style={{ position: 'absolute', top: -60, bottom: -60, width: 90, left: `${shineP * 100}%`, transform: 'skewX(-20deg)',
@@ -97,7 +114,7 @@ export const EndCardPro: React.FC<{
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
         <div style={{ position: 'relative', width: 230, height: 230, borderRadius: 999, background: yellow, border: '8px solid #111', display: 'flex',
           alignItems: 'center', justifyContent: 'center', boxShadow: '0 14px 0 #111, 0 30px 60px rgba(0,0,0,0.4)', transform: `translateY(${bob}px) scale(${1 - 0.1 * p}) rotate(${-6 + 6 * s}deg)`, overflow: 'hidden' }}>
-          <BagIcon size={130} />
+          <Icon size={130} />
           {shine}
         </div>
         <div style={{ background: '#111', color: yellow, fontFamily: fam, fontWeight: look.display.weight, fontSize: size, lineHeight: 1.05, padding: '14px 34px',
@@ -108,10 +125,10 @@ export const EndCardPro: React.FC<{
   } else if (look.endcard === 'banner') {
     card = (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, width: '100%' }}>
-        <div style={{ position: 'relative', overflow: 'hidden', width: 1240, marginLeft: -80, background: look.hi, transform: `rotate(-5deg) scaleY(${1 - 0.08 * p})`,
+        <div style={{ position: 'relative', overflow: 'hidden', width: 1240, marginLeft: -80, background: live ? yellow : look.hi, transform: `rotate(-5deg) scaleY(${1 - 0.08 * p})`,
           padding: '26px 0', boxShadow: '0 16px 0 rgba(0,0,0,0.35)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 22, borderTop: '6px solid #111', borderBottom: '6px solid #111' }}>
-          <BagIcon size={size * 1.1} />
-          <span style={{ fontFamily: fam, fontWeight: look.display.weight, fontSize: size, lineHeight: 1.04, color: '#111', textAlign: 'center', maxWidth: 820 }}>{label}</span>
+          <Icon size={size * 1.1} />
+          <span style={{ fontFamily: fam, fontWeight: look.display.weight, fontSize: size, lineHeight: 1.04, color: live ? '#fff' : '#111', textAlign: 'center', maxWidth: 820 }}>{label}</span>
           {shine}
         </div>
         {subEl}
@@ -120,9 +137,9 @@ export const EndCardPro: React.FC<{
   } else {
     card = (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
-        <div style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 22, background: yellow, color: '#111',
+        <div style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 22, background: yellow, color: ink,
           padding: '26px 46px', borderRadius: 999, border: '6px solid #111', boxShadow: '0 14px 0 #111, 0 30px 60px rgba(0,0,0,0.45)', transform: `scale(${1 - 0.1 * p})` }}>
-          <BagIcon size={size * 1.15} />
+          <Icon size={size * 1.15} />
           <span style={{ fontFamily: fam, fontWeight: look.display.weight, fontSize: size, lineHeight: 1.05, textAlign: 'center', maxWidth: 700 }}>{label}</span>
           {shine}
         </div>
@@ -133,7 +150,8 @@ export const EndCardPro: React.FC<{
 
   // the chevrons (down the left edge toward the basket) sit under a card placed below the face, or are left out
   const cardBottom = spot.top + cardH * spot.k;
-  const chevTop = !spot.below ? Math.max(980, cardBottom + 16) : cardBottom + 16 + 194 <= (capTop ?? 1700) ? cardBottom + 16 : null;
+  // (a LIVE call has no basket to point at)
+  const chevTop = live ? null : !spot.below ? Math.max(980, cardBottom + 16) : cardBottom + 16 + 194 <= (capTop ?? 1700) ? cardBottom + 16 : null;
 
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>

@@ -23,16 +23,21 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
   // the polish the preview made (keyword colours, zooms, the required headlines), moved onto this render's words;
   // afresh when it doesn't fit or there was none — the headlines are made even with the keyword polish off
   const reused = input.clip?.polish_ref ? reusePolish(input.clip.polish_ref, words) : null;
-  const fresh = !reused || !reused.headlines.length ? await clipPolish(words, duration, input.clip?.title ?? "", deadline) : null;
+  const fresh = !reused || !reused.headlines.length ? await clipPolish(words, duration, input.clip?.title ?? "", deadline, input.clip?.topic ?? "") : null;
   const keywords = !polish ? [] : reused?.keywords.length ? reused.keywords : fresh?.keywords ?? [];
   const zooms = !polish ? [] : reused?.zooms.length ? reused.zooms : fresh?.zooms ?? [];
   const picked = reused?.headlines.length ? reused.headlines
-    : await enrichHeadlines(fresh?.headlines ?? [], input.clip?.title ?? "").catch(() => fresh?.headlines ?? []);
-  // the client's own B-roll (Studio "🎞️ B-roll") in place of the AI's pick on that layout
+    : await enrichHeadlines(fresh?.headlines ?? [], input.clip?.topic || input.clip?.title || "").catch(() => fresh?.headlines ?? []);
+  // the client's own overlay (Studio "🎬 Overlay"): corrected words and / or their B-roll in place of the AI's
   const own = input.clip?.broll_fix ?? [];
   const headlines = picked.map((h, i) => {
     const f = own.find((x) => x.i === i);
-    return f && h.kind !== "over" ? { ...h, media: f.video ? "video" as const : "photo" as const, candidates: [f.url], credit: undefined } : h;
+    if (!f) return h;
+    return {
+      ...h,
+      ...(f.lead !== undefined ? { lead: f.lead } : {}), ...(f.big ? { big: f.big.toUpperCase() } : {}), ...(f.box !== undefined ? { box: f.box } : {}),
+      ...(f.url && h.kind !== "over" ? { media: f.video ? "video" as const : "photo" as const, candidates: [f.url], credit: undefined } : {}),
+    };
   });
   return {
     hook: input.clip?.hook ? { text: input.clip.hook } : null,
@@ -40,6 +45,9 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
     mood: "upbeat" as const,
     captions: { on: input.captions !== false, style: input.locks?.captionLook === "tiktok" ? "tiktok" : "pop", pos: input.captionPos ?? "low", maxWords: 3 },
     overlays: [], zooms, broll: [], facts: [], keywords, headlines,
+    // the client's closing CTA (Studio): the yellow basket or the LIVE, over the last ~3 s
+    ...(input.ctaKind === "bag" || input.ctaKind === "live"
+      ? { cta: { at: Math.max(0, duration - 3.2), text: input.ctaKind === "live" ? "Jom masuk LIVE" : "Tekan beg kuning", kind: input.ctaKind } } : {}),
     music: !!input.music,
     energy: "gempak",
     ...(input.sfx && input.clip?.hook ? { hookSound: seed % HOOK_SOUND_COUNT } : {}),

@@ -13,12 +13,16 @@ import {
 
 /** the client's caption corrections of one clip, made on its preview words (key = the clip's start-end) */
 export type CapFix = { key: string; words: string[]; fix: Record<number, string> };
-/** the client's own B-roll per headline layout (index in the clip's headlines), made for this clip (key = start-end) */
-export type BrollFix = { key: string; items: Record<number, { url: string; video: boolean }> };
+/** the client's own overlay per headline layout (index in the clip's headlines): corrected words and / or their own
+ *  B-roll, made for this clip (key = start-end) */
+export type OverlayItem = { url?: string; video?: boolean; lead?: string; big?: string; box?: string };
+export type BrollFix = { key: string; items: Record<number, OverlayItem> };
 type PClip = { start: number; end: number; title: string; hook: string; flash?: { start: number; end: number } | null; capFix?: CapFix | null; brollFix?: BrollFix | null };
 export type PreviewSettings = {
   frame: "face" | "fit" | "center" | "split"; captions: boolean; captionLook?: string; captionPos: "low" | "mid";
   hookOn: boolean; jumpcut: boolean; coldOpen: boolean; polish: boolean; wmText: string; wmImage: string;
+  /** the closing CTA: the yellow basket, the LIVE, or none */
+  cta: "none" | "bag" | "live";
 };
 type Data = {
   key: string; words: PWord[]; aligned: boolean; keywords: PolishKeyword[]; zooms: PolishZoom[]; polished: boolean;
@@ -117,14 +121,23 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
     // the client's caption corrections (same words they were made on): each word keeps its timing, "" drops it
     const cf = clip.capFix && clip.capFix.key === clipKey(clip.start, clip.end) && clip.capFix.words.length === data.words.length ? clip.capFix.fix : null;
     if (cf) tl.words = tl.words.map((w) => (w.si in cf ? { ...w, w: cf[w.si] } : w)).filter((w) => w.w.trim());
-    // the client's own B-roll in place of the AI's pick on a layout
+    // the client's own overlay: corrected words and / or their B-roll in place of the AI's
     const bf = clip.brollFix && clip.brollFix.key === clipKey(clip.start, clip.end) ? clip.brollFix.items : null;
-    const heads = bf ? data.headlines.map((h, i) => (bf[i] && h.kind !== "over" ? { ...h, media: bf[i].video ? "video" as const : "photo" as const, candidates: [bf[i].url], credit: undefined } : h)) : data.headlines;
+    const heads = bf ? data.headlines.map((h, i) => {
+      const o = bf[i];
+      if (!o) return h;
+      return {
+        ...h,
+        ...(o.lead !== undefined ? { lead: o.lead } : {}), ...(o.big ? { big: o.big.toUpperCase() } : {}), ...(o.box !== undefined ? { box: o.box } : {}),
+        ...(o.url && h.kind !== "over" ? { media: o.video ? "video" as const : "photo" as const, candidates: [o.url], credit: undefined } : {}),
+      };
+    }) : data.headlines;
     const pol = polishOnTimeline(tl, data.keywords, data.zooms, heads);
     const props = previewProps({
       video: "clip://preview", tl, seed: clipSeed(jobId, clip.start, clip.end), hook: settings.hookOn ? clip.hook : null,
       captions: settings.captions, captionLook: settings.captionLook, captionPos: settings.captionPos, polish: settings.polish,
       keywords: pol.keywords, zooms: pol.zooms, faces: previewFaces(data.faces, tl, settings.frame), headlines: pol.headlines,
+      cta: settings.cta === "none" ? null : settings.cta,
     });
     const wmText = settings.wmText.replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);
     return {
@@ -388,65 +401,86 @@ export function ClipBrollEditor({ jobId, clip, onChange, onClose, theme }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, key]);
   const fix = clip.brollFix && clip.brollFix.key === key ? clip.brollFix.items : {};
-  const setItem = (i: number, v: { url: string; video: boolean } | null) => {
+  const setItem = (i: number, v: OverlayItem | null) => {
     const items = { ...fix };
-    if (v) items[i] = v; else delete items[i];
+    if (v && Object.keys(v).length) items[i] = v; else delete items[i];
     onChange(Object.keys(items).length ? { key, items } : null);
+  };
+  const patch = (i: number, p: OverlayItem) => {
+    const cur: OverlayItem = { ...(fix[i] ?? {}), ...p };
+    for (const k of Object.keys(cur) as (keyof OverlayItem)[]) if (cur[k] === undefined) delete cur[k];
+    setItem(i, cur);
   };
   async function pick(i: number, f: File | null) {
     if (!f) return;
     setErr(null);
     setPct((p) => ({ ...p, [i]: 0 }));
     try {
-      setItem(i, await uploadOwn(f, (n) => setPct((p) => ({ ...p, [i]: n }))));
+      patch(i, await uploadOwn(f, (n) => setPct((p) => ({ ...p, [i]: n }))));
     } catch (e: any) {
       setErr(e?.message || "Upload gagal");
     } finally {
       setPct((p) => { const q = { ...p }; delete q[i]; return q; });
     }
   }
-  const rows = (heads ?? []).map((h, i) => ({ h, i })).filter((x) => x.h.kind !== "over");
+  const rows = (heads ?? []).map((h, i) => ({ h, i }));
   return (
     <div className="rounded-lg p-3 space-y-2" style={{ border: `1px solid ${theme.soft}`, background: theme.faint }}>
-      <div className="text-[11px] font-extrabold text-[var(--color-text-primary)]">🎞️ B-roll klip — guna gambar / video anda sendiri</div>
+      <div className="text-[11px] font-extrabold text-[var(--color-text-primary)]">🎬 Overlay klip — betulkan teks &amp; tukar B-roll sebelum jana</div>
       {err && <p className="text-[11px] text-red-500">{err}</p>}
       {!heads && !err && (
         <div className="flex items-center gap-2 text-[11px] text-[var(--color-text-muted)]"><Loader2 className="w-3.5 h-3.5 animate-spin" /> AI sedang susun headline &amp; pilih B-roll…</div>
       )}
-      {heads && !rows.length && <p className="text-[11px] text-[var(--color-text-muted)]">Klip ini terlalu pendek untuk panel B-roll (hanya headline atas orang).</p>}
+
       {rows.map(({ h, i }) => {
         const own = fix[i];
         const ai = h.candidates?.[0];
         const up = pct[i];
+        const media = h.kind !== "over";
+        const field = (k: "lead" | "big" | "box", label: string, max: number) => (
+          <input key={`${i}${k}${own?.[k] ?? h[k] ?? ""}`} defaultValue={own?.[k] ?? h[k] ?? ""} maxLength={max} aria-label={label} placeholder={label}
+            onBlur={(e) => { const v = e.target.value.replace(/\s+/g, " ").trim(); const ai0 = (h[k] ?? "").trim(); patch(i, { [k]: v === ai0 ? undefined : k === "big" ? v.toUpperCase() : v }); }}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+            className={`w-full rounded-md px-2 py-1 text-[12px] outline-none ${k === "big" ? "font-extrabold uppercase" : k === "lead" ? "italic" : "font-mono"}`}
+            style={{ background: "var(--color-surface, var(--color-bg))", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
+        );
         return (
-          <div key={i} className="flex items-center gap-3 rounded-lg p-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
-            <Thumb url={own?.url ?? ai} video={own ? own.video : h.media !== "photo"} />
+          <div key={i} className="flex items-start gap-3 rounded-lg p-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+            {media ? <Thumb url={own?.url ?? ai} video={own?.url ? own.video : h.media !== "photo"} />
+              : <div className="w-[72px] h-[72px] rounded-lg shrink-0 flex items-center justify-center text-[9px] text-white/80 text-center px-1" style={{ background: theme.gradient }}>atas orang</div>}
             <div className="flex-1 min-w-0 space-y-1">
               <div className="text-[11px] font-extrabold text-[var(--color-text-primary)]">
-                {h.kind === "split" ? "Split-screen" : "Sudut — orang kecil bawah kanan"}
-                <span className="font-normal text-[var(--color-text-muted)]"> · {[h.lead, h.big, h.box].filter(Boolean).join(" ")}</span>
+                {h.kind === "split" ? "Split-screen" : h.kind === "pip" ? "Sudut — orang kecil bawah kanan" : "Headline atas orang"}
+                {media && <span className="font-normal text-[10px] text-[var(--color-text-muted)]"> · {own?.url ? "✓ B-roll anda" : ai ? `pilihan AI${h.query ? ` "${h.query}"` : ""}` : "tiada gambar sesuai — latar warna"}</span>}
               </div>
-              <div className="text-[10px] text-[var(--color-text-muted)]">
-                {own ? "✓ B-roll anda" : ai ? `Pilihan AI${h.query ? ` · "${h.query}"` : ""}` : "Tiada gambar sesuai — latar warna"}
+              <div className="grid gap-1">
+                {field("lead", "Ayat pembuka (italic)", 34)}
+                {field("big", "PERKATAAN BESAR", 18)}
+                {field("box", "Ayat dalam kotak", 34)}
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              {media && <div className="flex flex-wrap gap-1.5">
                 <label className="relative px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white cursor-pointer inline-flex items-center gap-1" style={{ background: theme.gradient }}>
-                  {up !== undefined ? <><Loader2 className="w-3 h-3 animate-spin" /> {up}%</> : <><Upload className="w-3 h-3" /> {own ? "Tukar" : "Upload sendiri"}</>}
+                  {up !== undefined ? <><Loader2 className="w-3 h-3 animate-spin" /> {up}%</> : <><Upload className="w-3 h-3" /> {own?.url ? "Tukar B-roll" : "Upload B-roll sendiri"}</>}
                   <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" className="absolute inset-0 opacity-0 cursor-pointer"
                     disabled={up !== undefined} onChange={(e) => { void pick(i, e.target.files?.[0] ?? null); e.target.value = ""; }} />
                 </label>
-                {own && (
-                  <button type="button" onClick={() => setItem(i, null)} className="px-2.5 py-1 rounded-lg text-[11px] font-bold" style={{ border: "1px solid var(--color-border)" }}>
+                {own?.url && (
+                  <button type="button" onClick={() => patch(i, { url: undefined, video: undefined })} className="px-2.5 py-1 rounded-lg text-[11px] font-bold" style={{ border: "1px solid var(--color-border)" }}>
                     Guna pilihan AI
                   </button>
                 )}
-              </div>
+              </div>}
+              {own && (own.lead !== undefined || own.big || own.box !== undefined) && (
+                <button type="button" onClick={() => patch(i, { lead: undefined, big: undefined, box: undefined })} className="text-[10px] underline text-[var(--color-text-muted)]">
+                  Kembalikan teks AI
+                </button>
+              )}
             </div>
           </div>
         );
       })}
       <p className="text-[10px] leading-snug text-[var(--color-text-muted)]">
-        Gambar atau video pendek (video: ~5 saat pertama dipakai). Pratonton terus tunjuk B-roll baru, dan klip akhir guna yang sama.
+        Betulkan perkataan yang AI salah faham, atau upload gambar / video pendek anda (video: ~5 saat pertama dipakai). Pratonton terus tunjuk perubahan, dan klip akhir guna yang sama.
       </p>
       <button type="button" onClick={onClose} className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-white" style={{ background: theme.gradient }}>Siap</button>
     </div>

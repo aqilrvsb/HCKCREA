@@ -415,6 +415,8 @@ export function previewProps(o: {
   faces?: { t: number; x: number; y: number; w: number; h: number }[];
   /** the required headline layouts; the B-roll is their first found picture / clip (the render downloads the same) */
   headlines?: PolishHeadline[];
+  /** the closing CTA the client chose (as the plan sets it) */
+  cta?: "bag" | "live" | null;
 }) {
   const picks = clipPicks(o.seed, o.captionLook);
   const words = o.tl.words.map((w) => ({ w: w.w, t: w.t, e: w.e }));
@@ -426,6 +428,7 @@ export function previewProps(o: {
     lottie: o.polish ? emojiLottie(o.keywords) : {}, progress: true, cuts: o.tl.cuts,
     direction: { ...picks, end_card: "none", progress: o.polish && o.tl.dur > 35 ? "bar" : "none", fx: "light", captions: "big", camera: "calm" },
     lookSeed: o.seed,
+    ...(o.cta ? { cta: { at: Math.max(0, o.tl.dur - 3.2), text: o.cta === "live" ? "Jom masuk LIVE" : "Tekan beg kuning", kind: o.cta } } : {}),
     headlines: (o.headlines ?? []).map((h) => ({
       kind: h.kind, at: h.at, ...(h.to !== undefined ? { to: h.to } : {}), lead: h.lead, big: h.big, ...(h.box ? { box: h.box } : {}),
       ...(h.candidates?.[0] ? { media: { src: h.candidates[0], video: h.media !== "photo" } } : {}),

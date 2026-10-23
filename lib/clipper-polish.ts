@@ -10,7 +10,7 @@ const KEY_COLORS = new Set(["benefit", "price", "pain", "brand", "accent"]);
  *  emoji), and the emphasis / punchline lines get a punch-in zoom — what Submagic / OpusClip ship by default.
  *  Cues are word indices ("w12", "w18$"), resolved by the render like the director's. Fails → none.
  *  Made once per clip: for the Studio preview (/api/clipper/preview), then reused by the render. */
-export async function clipPolish(words: PlanWord[], duration: number, title: string, deadline: number): Promise<{ keywords: PolishKeyword[]; zooms: PolishZoom[]; headlines: HeadlinePlan[] }> {
+export async function clipPolish(words: PlanWord[], duration: number, title: string, deadline: number, context = ""): Promise<{ keywords: PolishKeyword[]; zooms: PolishZoom[]; headlines: HeadlinePlan[] }> {
   // the headline layouts are required: made up from the title when the call fails or the clip is too short for it
   const fallback = () => ({ keywords: [] as PolishKeyword[], zooms: [] as PolishZoom[], headlines: cleanHeadlines([], words, duration, title) });
   if (words.length < 8) return fallback();
@@ -22,7 +22,7 @@ export async function clipPolish(words: PlanWord[], duration: number, title: str
 3. ${HEADLINE_SPEC.replace(/CUE/g, '"wN"')}
    The clip's first ~2.5 s carry its hook title: no headline there. No zoom inside a headline's time.
 Return ONLY JSON: {"keywords": [{"i": n, "color": "...", "emoji"?: "…"}], "zooms": [{"at": "wN", "to": "wM$", "scale": n}], "headlines": [{"kind": "over" | "split" | "pip", "at": "wN", "to"?: "wM$", "lead": "...", "big": "...", "box": "...", "query"?: "...", "media"?: "video" | "photo"}]}`,
-    userPrompt: `CLIP: "${title}" (${Math.round(duration)} s)\nWORDS (index:word@second):\n${words.map((w) => `${w.i}:${w.w}@${w.t.toFixed(1)}`).join(" ")}\nJSON only.`,
+    userPrompt: `${context ? `THE VIDEO (what it is about and why — every headline and every B-roll query serves this): ${context.slice(0, 600)}\n` : ""}CLIP: "${title}" (${Math.round(duration)} s)\nWORDS (index:word@second):\n${words.map((w) => `${w.i}:${w.w}@${w.t.toFixed(1)}`).join(" ")}\nJSON only.`,
     temperature: 0.3,
     maxTokens: 2600,
     timeoutMs: 45_000,

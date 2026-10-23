@@ -184,6 +184,9 @@ export type EditInput = {
   auto?: boolean;
   /** "Saya nak pilih sendiri": AI Auto plus the client's picks as rules (lib/motion-manual.ts); unset = AI decides. */
   locks?: MotionLocks;
+  /** the closing call to action the client chose: "bag" = Tekan beg kuning, "live" = Jom masuk LIVE, "none", or
+   *  "auto" / unset = the AI decides (CLIPPER: none) */
+  ctaKind?: "auto" | "bag" | "live" | "none";
   /** engine "custom": the client's Custom Style prompt + materials, built after the script is approved */
   custom?: { prompt: string; title: string; stepId: string; materials: { url: string; name: string }[] };
   engine?: MotionEngine;
@@ -201,8 +204,10 @@ export type EditInput = {
     polish_ref?: PolishRef;
     /** the client's caption corrections (Studio editor), moved onto the render's words by /api/motion/plan "fixes" */
     caption_fix?: CaptionFix;
-    /** the client's own B-roll for a headline layout (its index in the clip's headlines), in place of the AI's pick */
-    broll_fix?: { i: number; url: string; video: boolean }[];
+    /** the client's own overlay for a headline layout (its index in the clip's headlines): words and / or B-roll */
+    broll_fix?: { i: number; url?: string; video?: boolean; lead?: string; big?: string; box?: string }[];
+    /** what the clip's overlays must serve: the video's title + summary + why this clip (lib/clipper clipContext) */
+    topic?: string;
   };
 };
 

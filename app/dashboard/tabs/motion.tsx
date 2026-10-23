@@ -161,6 +161,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   // always HD 1080p (the picker is hidden)
   const resolution = "1080";
   const [sfx, setSfx] = useState(true);
+  const [ctaKind, setCtaKind] = useState<"auto" | "bag" | "live" | "none">("auto");
   const [accent, setAccent] = useState("");
   // "Check Guideline TikTok" is always on (no box in the form): it only reports
   // what may break the guideline on the History card — the video isn't changed.
@@ -394,7 +395,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
       product: productName, product_images: editImages, auto: true,
       ...(custom ? { locks: styleLocks } : editAuto ? {} : { locks: { ...locks, styleId: undefined, styleName: undefined } }),
       captions, caption_style: captionStyle, sfx,
-      accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard, engine,
+      accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard, engine, cta_kind: ctaKind,
     };
     const keys = new Set(batch.map((v) => v.key));
     // pct null = waiting for an upload slot
@@ -598,6 +599,15 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               <label className={label}>Nama produk *</label>
               <input className={inputCls} style={inputStyle} value={editProduct} maxLength={80} onChange={(e) => setEditProduct(e.target.value)} placeholder="cth. Kopi Pening" />
               <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tulis ejaan yang betul — AI guna untuk caption &amp; skrip.</p>
+            </div>
+            <div>
+              <label className={label}>CTA penutup</label>
+              <div className="flex flex-wrap gap-2">
+                <Chip active={ctaKind === "auto"} onClick={() => setCtaKind("auto")}>✨ AI pilih</Chip>
+                <Chip active={ctaKind === "bag"} onClick={() => setCtaKind("bag")}>🛒 Tekan beg kuning</Chip>
+                <Chip active={ctaKind === "live"} onClick={() => setCtaKind("live")}>🔴 Jom masuk LIVE</Chip>
+                <Chip active={ctaKind === "none"} onClick={() => setCtaKind("none")}>Tiada</Chip>
+              </div>
             </div>
             <div>
               <label className={label}>{custom ? "Gambar *" : "Gambar produk *"} (1–{MAX_PRODUCT_PHOTOS})</label>

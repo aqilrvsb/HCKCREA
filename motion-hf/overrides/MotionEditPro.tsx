@@ -847,8 +847,10 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
                 onLight={plan.scenes.some((sc) => frame >= sc.s && frame < sc.e && sceneOnLight(sc.bg))}
                 keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} faceBottom={faceBottom} avoid={stickerScene?.speaker} />;
         })()}
-        {p.cta?.text && plan.ctaStart >= 0 && look.endcard !== 'none' && (
-          <EndCardPro text={p.cta.text} sub={p.cta.sub} start={plan.ctaStart} frame={frame} faceTop={plan.ctaBand?.top ?? 730} faceBottom={plan.ctaBand?.bottom} capTop={cap.on ? capCenter - 140 : undefined} look={look} />
+        {/* a CTA the client chose (basket / LIVE) always shows, even on a look without an end card */}
+        {p.cta?.text && plan.ctaStart >= 0 && (look.endcard !== 'none' || (p.cta as { kind?: string }).kind) && (
+          <EndCardPro text={p.cta.text} sub={p.cta.sub} start={plan.ctaStart} frame={frame} faceTop={plan.ctaBand?.top ?? 730} faceBottom={plan.ctaBand?.bottom} capTop={cap.on ? capCenter - 140 : undefined} look={look}
+            ctaKind={(p.cta as { kind?: string }).kind === 'live' ? 'live' : 'bag'} />
         )}
       </AbsoluteFill>
 

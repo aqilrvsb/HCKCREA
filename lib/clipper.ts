@@ -83,6 +83,13 @@ const YT_ID = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|yo
 const GD_ID = /(?:\/file\/d\/|[?&]id=|\/open\?id=)([A-Za-z0-9_-]{20,})/;
 const UPLOAD_HOST = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/clipper-uploads\//;
 
+/** What a clip's overlays must serve: the video's title + summary + why this clip was picked (≤ 600 chars). */
+export function clipContext(a: { title?: string | null; summary?: string; clips?: { start: number; end: number; title?: string; reason?: string }[] } | null | undefined, start: number, end: number): string {
+  if (!a) return "";
+  const c = (a.clips ?? []).find((x) => Math.abs(Number(x.start) - start) < 3 && Math.abs(Number(x.end) - end) < 6);
+  return [a.title, a.summary, c ? `Klip ini: ${c.title ?? ""} — ${c.reason ?? ""}` : ""].filter((x) => x && String(x).trim()).join(" · ").replace(/\s+/g, " ").slice(0, 600);
+}
+
 /** A client's source, checked and made canonical (null: not a link we can read). */
 export function cleanSource(type: unknown, url: unknown, name?: unknown): { type: ClipSourceType; url: string; name?: string; video_id?: string } | null {
   const u = String(url ?? "").trim();

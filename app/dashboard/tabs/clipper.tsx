@@ -161,6 +161,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const [jumpcut, setJumpcut] = useState(true);
   const [coldOpen, setColdOpen] = useState(true);
   const [polish, setPolish] = useState(true);
+  const [cta, setCta] = useState<"none" | "bag" | "live">("none");
   const [wmText, setWmText] = useState("");
   const [wmImage, setWmImage] = useState("");
   const [wmBusy, setWmBusy] = useState(false);
@@ -373,9 +374,9 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
               ? { caption_fix: { words: c.capFix.words, fix: Object.entries(c.capFix.fix).map(([k, v]) => [Number(k), v]) } } : {}),
             // the client's own B-roll, when chosen for this very clip
             ...(c.brollFix && c.brollFix.key === clipKey(c.start, c.end)
-              ? { broll_fix: Object.entries(c.brollFix.items).map(([k, v]) => ({ i: Number(k), url: v.url, video: v.video })) } : {}),
+              ? { broll_fix: Object.entries(c.brollFix.items).map(([k, v]) => ({ i: Number(k), ...v })) } : {}),
           })),
-          settings: { mode, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
+          settings: { mode, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, cta, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
         }),
       });
       const d = await r.json();
@@ -664,7 +665,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                     <div className="lg:order-2 lg:sticky lg:top-4">
                       <ClipPreview jobId={job.id} mediaUrl={job.analysis?.media_url} clips={clips} auto={pickSet.size ? Math.min(...pickSet) : 0} autoPicked={pickSet.size > 0}
                         focus={(() => { const o = brollOpen?.startsWith(`${job.id}:`) ? brollOpen : capOpen?.startsWith(`${job.id}:`) ? capOpen : null; return o ? Number(o.split(":")[1]) : null; })()}
-                        settings={{ frame, captions, captionLook, captionPos, hookOn, jumpcut, coldOpen, polish, wmText, wmImage }} theme={THEME} />
+                        settings={{ frame, captions, captionLook, captionPos, hookOn, jumpcut, coldOpen, polish, wmText, wmImage, cta }} theme={THEME} />
                     </div>
                     <div className="lg:order-1 space-y-4 min-w-0">
                       <div className="px-3 py-2.5 rounded-xl" style={on}>
@@ -706,7 +707,13 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                           </div>
                         </div>
                         <div>
-                          <label className={label}>Highlight kata kunci + zoom</label>
+                          <label className={label}>CTA penutup</label>
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        <Chip active={cta === "none"} onClick={() => setCta("none")}>Tiada</Chip>
+                        <Chip active={cta === "bag"} onClick={() => setCta("bag")} title="3 saat terakhir: butang TEKAN BEG KUNING + anak panah ke bakul">🛒 Beg kuning</Chip>
+                        <Chip active={cta === "live"} onClick={() => setCta("live")} title="3 saat terakhir: butang JOM MASUK LIVE">🔴 Masuk LIVE</Chip>
+                      </div>
+                      <label className={label}>Highlight kata kunci + zoom</label>
                           <div className="flex flex-wrap gap-1.5">
                             <Chip active={polish} onClick={() => setPolish(true)} title="Kata penting berwarna + emoji, zoom masuk pada ayat penting, bar progres">Ya</Chip>
                             <Chip active={!polish} onClick={() => setPolish(false)}>Tidak</Chip>
@@ -833,8 +840,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                             <span className="ml-auto flex gap-1.5">
                               <Chip active={isPrev} onClick={() => setPreview(isPrev ? null : { job: job.id, i })}><Play className="w-3.5 h-3.5" />{isPrev ? "Tutup" : "Tonton"}</Chip>
                               <Chip active={brollOpen === `${job.id}:${i}`} onClick={() => setBrollOpen(brollOpen === `${job.id}:${i}` ? null : `${job.id}:${i}`)}
-                                title="Tukar gambar / video panel split-screen & sudut dengan B-roll anda sendiri">
-                                🎞️ B-roll{c.brollFix && c.brollFix.key === clipKey(c.start, c.end) ? ` · ${Object.keys(c.brollFix.items).length}` : ""}
+                                title="Betulkan teks headline overlay & tukar B-roll dengan gambar / video anda sendiri">
+                                🎬 Overlay{c.brollFix && c.brollFix.key === clipKey(c.start, c.end) ? ` · ${Object.keys(c.brollFix.items).length}` : ""}
                               </Chip>
                               <Chip active={capOpen === `${job.id}:${i}`} onClick={() => setCapOpen(capOpen === `${job.id}:${i}` ? null : `${job.id}:${i}`)}
                                 title="Tengok & betulkan caption (subtitle) klip ini sebelum jana">
