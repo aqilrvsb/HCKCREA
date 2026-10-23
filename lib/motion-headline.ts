@@ -12,10 +12,33 @@ import { searchClips, searchPhotos } from "@/lib/motion-media";
 import { excludeOperators, getSitePrefs, searchImages } from "@/lib/motion-search";
 import { extractJson } from "@/lib/motion";
 import { orChatVision } from "@/lib/openrouter";
+import { uploadBufferToContent } from "@/lib/b2";
+
+/** A picked picture copied to our storage: stock / web picture links expire (Pixabay's in 24 h), rate-limit or block
+ *  hotlinking, while a preview is kept for days — the panel loads the same in the preview and in the render.
+ *  Fail-soft: the original link. */
+async function keepPhoto(url: string): Promise<string> {
+  if (/^https:\/\/peninglab-content\.s3\./.test(url)) return url;
+  try {
+    const r = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36" },
+      signal: AbortSignal.timeout(12_000),
+    });
+    const ct = (r.headers.get("content-type") || "").split(";")[0].trim();
+    if (!r.ok || !/^image\/(jpeg|png|webp)$/.test(ct)) return url;
+    const body = Buffer.from(await r.arrayBuffer());
+    if (body.length < 4000 || body.length > 15_000_000) return url;
+    const { createHash } = await import("crypto");
+    const key = `motion-broll/${createHash("sha1").update(url).digest("hex")}.${ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : "jpg"}`;
+    return (await uploadBufferToContent({ body, key, contentType: ct })).publicUrl;
+  } catch {
+    return url;
+  }
+}
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 7;
+export const HEADLINE_VERSION = 8;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -207,12 +230,12 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
       const clips = await firstFit(order(await searchClips(q)));
       if (clips) return { ...h, query: q, media: "video" as const, candidates: clips };
       const photos = await firstFit(order(await searchPhotos(q)));
-      if (photos) return { ...h, query: q, media: "photo" as const, candidates: photos };
+      if (photos) return { ...h, query: q, media: "photo" as const, candidates: [await keepPhoto(photos[0]), ...photos.slice(1)] };
       const noSites = excludeOperators((await getSitePrefs()).exclude);
       const hits = page((await searchImages(`${q} ${noSites}`.trim())).hits
         .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))), hi, 4);
       const pick = hits.length ? await pickClean(q, h.big, hits, topic) : -1;
-      return pick >= 0 ? { ...h, query: q, media: "photo" as const, candidates: [hits[pick].url, ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) }
+      return pick >= 0 ? { ...h, query: q, media: "photo" as const, candidates: [await keepPhoto(hits[pick].url), ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) }
         : { ...h, query: q, candidates: [] };
     } catch {
       return h;
