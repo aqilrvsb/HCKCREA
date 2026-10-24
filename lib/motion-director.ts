@@ -17,7 +17,7 @@ import { currentDeadline, orChat, orChatVision } from "@/lib/openrouter";
 import {
   brandImagePool, dropExcluded, excludeOperators, findBrandSites, getSitePrefs, searchImages, searchWeb, type ImageHit, type WebHit,
 } from "@/lib/motion-search";
-import { searchClips, searchStickers } from "@/lib/motion-media";
+import { searchClips, searchPhotos, searchStickers } from "@/lib/motion-media";
 import { MOTION_EDIT_PRESETS, MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
 import { MOTION_STYLES, motionStyle, type MotionEnergy, type MotionStyleId } from "@/lib/motion-styles";
 import type { MotionLocks } from "@/lib/motion-manual";
@@ -38,6 +38,9 @@ export type BRollPlan = {
   kind?: "photo" | "video";
   /** pinned (an ingredient the speaker names): the composition makes room for it, nothing drops it */
   must?: boolean;
+  /** the owner's sourcing rule: "product" = the product's own story (the product, its ingredients, how it is used)
+   *  → Google Images; "story" = a new scene that adds to the story → Pixabay stock */
+  about?: "product" | "story";
 };
 export type FactPlan = { at: Cue; to?: Cue; text: string; source: string };
 export type EditPlanV2 = {
@@ -853,7 +856,7 @@ Return ONLY one JSON object:
   "mood": "chill" | "upbeat" | "hype",
   "overlays": [ITEM],
   "zooms": [{"at": CUE, "to": CUE, "scale": 1.08–1.25}],
-  "broll": [{"at": CUE, "to": CUE, "layout": "full" | "pip", "kind": "photo" | "video", "query": string, "label"?: string (≤4 words)}],
+  "broll": [{"at": CUE, "to": CUE, "layout": "full" | "pip", "kind": "photo" | "video", "about": "product" | "story", "query": string, "label"?: string (≤4 words)}],
   ${HEADLINE_SPEC},
   "facts": [{"at": CUE, "to": CUE, "query": string, "topic": string}],
   "keywords": [{"i": word index, "color": "benefit" | "price" | "pain" | "brand", "emoji"?: one emoji}],
@@ -878,6 +881,7 @@ RULES
 - YOU ARE A CLOSING DIRECTOR. This video exists to SELL: every edit decision serves the sale and speaks from the viewer's side (what THEY get, avoid, save). Read the whole transcript first and list its SELLING BEATS in "beats", each on its own words: the PAIN (the viewer's problem / fear), the PRODUCT (named or shown), each INGREDIENT, HOW it is used, each BENEFIT / RESULT (the viewer's win), PROOF (the seller's own experience, a testimony, a number they say), an OBJECTION broken ("tak payah telan", "selamat", "tak mahal"), the OFFER (price, promo, free gift), URGENCY, the CTA. EVERY beat is HIT on screen right on its words — a picture for anything showable (the pain, the product, the ingredient, the use, the result: B-roll / a scene with an image / a headline panel), a strong sticker for the rest (offer → price / tape, objection broken → check, urgency → stamp / tape, proof → circle). A selling beat left on the talking head alone is a lost sale; zooms don't count. Colour the beat words in "keywords".
 - Hook covers 0–2.5 s: the video's promise in ≤5 punchy words. null if the video is under 5 s.
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once — one at a time reads best. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly. The renderer keeps every sticker clear of the eyes, the captions and the other stickers (shrinking it a little if needed); a sticker with no room left is DROPPED — so never stack stickers on the same moment, and keep sticker text short (a big word = 1–2 short words).
+- B-ROLL SOURCES (the owner's rule): "about": "product" for the PRODUCT'S OWN STORY — the product itself, its ingredients, how it is used / applied, anything specific to it → a Google Images photo (query: exactly that thing); "about": "story" for a NEW SCENE that adds to the story — a feeling, a person, a place, a lifestyle moment (someone tired at work, a family at dinner) → Pixabay stock (photo, or "kind": "video" for a moving scene; plain English query, no brand).
 - B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
 - Mix the tools — a pro edit uses variety: circle / underline the key words, a point toward the product or the beg kuning, 0–2 gif reactions, 0–2 confetti, not the same sticker type twice in a row. The STYLE line wins over these defaults (a style that says "no emoji" / "no confetti" means none).
 - SPREAD the edit over the WHOLE runtime: the middle and the last third get as many overlays as the opening — never more than ${maxGap} without a new overlay or B-roll (zooms alone don't count). Viewers drop off in the middle; that's where a callout, circle, check or re-hook keeps them.
@@ -1266,7 +1270,9 @@ function hitBeats(plan: EditPlanV2, beats: Beat[], words: DirectorWord[], durati
     const label = /\d/.test(b.say) ? "" : b.say.split(/\s+/).slice(0, 4).join(" ");
     if (SHOWABLE.has(b.kind) && b.query) {
       const query = b.kind === "product" && brandWord && !b.query.toLowerCase().startsWith(brandWord.toLowerCase()) ? `${brandWord} ${b.query}` : b.query;
-      plan.broll.push({ at: b.at, ...(b.to !== undefined ? { to: b.to } : {}), layout: "pip", kind: "photo", query, ...(label ? { label } : {}), candidates: [] });
+      // the product / how it's used → Google Images; the pain / win / proof as a scene → Pixabay
+      const about = b.kind === "product" || b.kind === "how" ? "product" as const : "story" as const;
+      plan.broll.push({ at: b.at, ...(b.to !== undefined ? { to: b.to } : {}), layout: "pip", kind: "photo", about, query, ...(label ? { label } : {}), candidates: [] });
     } else if (b.say) {
       const sticker: MotionItem = b.kind === "objection" ? { t: "check", text: b.say.split(/\s+/).slice(0, 4).join(" "), mark: "check", zone: "bottom", at: b.at }
         : b.kind === "urgency" ? { t: "stamp", text: b.say.split(/\s+/).slice(0, 2).join(" "), zone: "middle", at: b.at }
@@ -1339,7 +1345,8 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
       if (at === undefined || !query) return null;
       const to = cueIn(b?.to, nWords, duration);
       return { at, ...(to !== undefined ? { to } : {}), layout: b?.layout === "full" ? "full" : "pip", label: clean(b?.label, 30) || undefined, query, candidates: [],
-        kind: b?.kind === "video" ? "video" : "photo" };
+        // the product's own story comes from Google Images (photos); a new story scene from Pixabay (photo or clip)
+        ...(b?.about === "product" ? { about: "product" as const, kind: "photo" as const } : { kind: b?.kind === "video" ? "video" as const : "photo" as const, ...(b?.about === "story" ? { about: "story" as const } : {}) }) };
     })
     .filter(Boolean)
     .slice(0, Math.max(1, Math.ceil(duration / 5))) as BRollPlan[];
@@ -1443,8 +1450,20 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
     const productShot = isProduct(m);
     // The seller's own photos: those only — no search for a product shot.
     if (productShot && own.length) return { kind: "photo" as const, hits: fromPool[k], source: "own" as const };
+    // The owner's sourcing rule: a new story scene comes from Pixabay stock only (a moving clip, else a photo) …
+    if (!productShot && m.about === "story") {
+      if (m.kind === "video") {
+        const clips = await searchClips(m.query).catch(() => []);
+        if (clips.length) {
+          return { kind: "video" as const, hits: clips.map((c) => ({ url: c.url, thumb: c.thumb, width: c.width, height: c.height, title: m.query })), source: "stock" as const };
+        }
+      }
+      const photos = await searchPhotos(m.query).catch(() => []);
+      return { kind: "photo" as const, hits: photos.map((c) => ({ url: c.url, thumb: c.thumb, width: c.width, height: c.height, title: m.query })), source: "stock" as const };
+    }
+    // … the product's own story (about "product") from Google Images below (the brand / seller photos first for the product itself)
     // Moving cutaway: stock clips (vision sees their thumbnails); none → photos.
-    if (m.kind === "video") {
+    if (m.kind === "video" && m.about !== "product") {
       const clips = await searchClips(m.query).catch(() => []);
       if (clips.length) {
         return { kind: "video" as const, hits: clips.map((c) => ({ url: c.url, thumb: c.thumb, width: c.width, height: c.height, title: m.query })), source: "stock" as const };

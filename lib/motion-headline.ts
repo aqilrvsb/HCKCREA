@@ -43,7 +43,7 @@ const keepPhoto = (url: string) => keepMedia(url, false);
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 12;
+export const HEADLINE_VERSION = 13;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -64,16 +64,20 @@ export type HeadlinePlan = {
   media?: "video" | "photo";
   /** split / pip: picture / clip URLs found for the query (Modal downloads the first that works) */
   candidates?: string[];
+  /** the owner's sourcing rule: "product" (the product's own story: the product, its ingredients, how it is used)
+   *  → Google Images; "story" (a new scene that adds to the story) → Pixabay stock */
+  about?: "product" | "story";
 };
 
 /** What the director / polish call is asked for (the same words in every flow). */
 export const HEADLINE_SPEC = `"headlines": [HEADLINE] — REQUIRED in every video, in this order through the video: one "over", one "split", then (from 20 s) one "pip", then (from 45 s) a second "split"; one at a time, each on a different strong line, spread over the whole video after the hook and before the CTA, in the speaker-on-screen gaps (never inside a scene):
   {"kind": "over", "at": CUE, "to"?: CUE, "lead": 2–5 words (sentence case, the set-up), "big": 1–3 words (≤16 characters, the punch), "box": 2–5 words (the payoff)} — the speaker stays full-frame and a three-line headline animates over them: an elegant italic lead-in, one huge word, a short line in a colour box (e.g. lead "Rahsia kulit", big "GLOWING", box "dalam 7 hari"); ~3 s,
-  {"kind": "split", "at": CUE, "to"?: CUE, "lead", "big", "box" (as above), "query": 2–4 plain English stock-footage keywords naming the ONE main thing the B-roll shows — a visual of what is being said ("cooking oil", "woman applying serum", "traffic jam", "blood sugar test"; no colours, no adjectives, no brand), "media": "video" | "photo"} — a B-roll panel slides into one half of the frame, the speaker moves into the other half and the headline rides the seam; ~3.5 s,
-  {"kind": "pip", "at": CUE, "to"?: CUE, "lead", "big", "box", "query", "media"} — the B-roll fills the whole frame with the headline over it while the speaker shrinks into a small box bottom-right (they keep talking); ~3.5 s, for a moment that SHOWS something (a place, a result, a product in use);
+  {"kind": "split", "at": CUE, "to"?: CUE, "lead", "big", "box" (as above), "query": 2–4 plain English stock-footage keywords naming the ONE main thing the B-roll shows — a visual of what is being said ("cooking oil", "woman applying serum", "traffic jam", "blood sugar test"; no colours, no adjectives, no brand), "media": "video" | "photo", "about": "product" | "story"} — a B-roll panel slides into one half of the frame, the speaker moves into the other half and the headline rides the seam; ~3.5 s,
+  {"kind": "pip", "at": CUE, "to"?: CUE, "lead", "big", "box", "query", "media", "about"} — the B-roll fills the whole frame with the headline over it while the speaker shrinks into a small box bottom-right (they keep talking); ~3.5 s, for a moment that SHOWS something (a place, a result, a product in use);
   the words are the video's own message in the speaker's language — only facts and numbers the speaker says in THESE words (a number from anywhere else, even from the video's summary, is a claim the speaker doesn't make here: it is removed); every headline different, and every split / pip its own B-roll query (never the same query twice); never the hook's words.
   Spell every headline word correctly: the WORDS come from speech recognition and hold misheard tokens — never copy a token that isn't a real word ("empat kuruh" → write what the speaker meant, or use other words).
-  CONTEXT FIRST: before writing any headline, understand the whole video — who is speaking, what they sell / teach / tell and why (the purpose). Every headline and every B-roll query serves THAT purpose and shows THAT subject; never build one from a single word taken alone. A word that doesn't fit the topic was probably misheard by the transcriber (in a cake seller's video "kulit" = skin is really "kulat" = mould): use the meaning that fits the topic ("Kek berkulat", query "mouldy cake"), or pick another line. The query always names the video's own subject ("mouldy cake", "chocolate cake slice", "diabetic patch on arm") — a picture of another subject ("skin acne" in a cake video) is wrong.`;
+  CONTEXT FIRST: before writing any headline, understand the whole video — who is speaking, what they sell / teach / tell and why (the purpose). Every headline and every B-roll query serves THAT purpose and shows THAT subject; never build one from a single word taken alone. A word that doesn't fit the topic was probably misheard by the transcriber (in a cake seller's video "kulit" = skin is really "kulat" = mould): use the meaning that fits the topic ("Kek berkulat", query "mouldy cake"), or pick another line. The query always names the video's own subject ("mouldy cake", "chocolate cake slice", "diabetic patch on arm") — a picture of another subject ("skin acne" in a cake video) is wrong.
+  SOURCES (the owner's rule): "about": "product" when the panel tells the PRODUCT'S OWN STORY — the product itself, its ingredients, how it is used / applied, anything specific to it (a Google Images photo of exactly that); "about": "story" when it adds a NEW SCENE to the story — a feeling, a person, a place, a lifestyle moment (Pixabay stock, photo or video).`;
 
 const W_CUE = /^w(\d{1,4})(\$)?([+-]\d{0,2}(?:\.\d+)?)?$/i;
 const clean = (v: unknown, max: number) => String(v ?? "").replace(/\s+/g, " ").replace(/[<>{}]/g, "").trim().slice(0, max);
@@ -230,7 +234,10 @@ export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], 
     got.push({
       kind, at, ...(to !== undefined ? { to } : {}), big: punch,
       lead, ...(box ? { box } : {}),
-      ...(kind !== "over" ? { query, media: h?.media === "photo" ? "photo" as const : "video" as const } : {}),
+      ...(kind !== "over" ? {
+        query, media: h?.media === "photo" || h?.about === "product" ? "photo" as const : "video" as const,
+        ...(h?.about === "product" || h?.about === "story" ? { about: h.about as "product" | "story" } : {}),
+      } : {}),
     });
   }
   if (duration < 4 || !n) return got.slice(0, 1);
@@ -270,7 +277,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
     const q = qs[hi];
     if (!q) return h;
     try {
-      const found = await findBroll(h.kind, q, h.big, topic, { page: nth[hi] });
+      const found = await findBroll(h.kind, q, h.big, topic, { page: nth[hi], ...(h.about === "product" ? { source: "google" as const } : h.about === "story" ? { source: "stock" as const } : {}) });
       return found ? { ...h, query: q, ...found } : { ...h, query: q, candidates: [] };
     } catch {
       return h;
@@ -285,7 +292,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
  *  reads further down the results; `skip`: pictures already shown are left out (asking again gives the next one);
  *  `keep`: a stock clip is copied to our storage too (a client's pick must render the same days later). */
 async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
-  o: { page?: number; skip?: Set<string>; keep?: boolean; asked?: boolean; photosOnly?: boolean } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
+  o: { page?: number; skip?: Set<string>; keep?: boolean; asked?: boolean; photosOnly?: boolean; source?: "google" | "stock" } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
   const land = (c: { width: number; height: number }) => Number(c.width >= c.height);
   const order = <T extends { width: number; height: number }>(xs: T[]) => xs.sort((a, b) => (kind === "split" ? land(b) - land(a) : land(a) - land(b)));
   const seen = (u: string) => !!o.skip?.size && (o.skip.has(u) || o.skip.has(sha1(u)));
@@ -302,10 +309,14 @@ async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
     const k = await pickClean(q, big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic, o.asked);
     return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
   };
-  const clips = o.photosOnly ? null : await firstFit(order(await searchClips(q)));
-  if (clips) return { media: "video", candidates: o.keep ? [await keepMedia(clips[0], true), ...clips.slice(1)] : clips };
-  const photos = await firstFit(order(await searchPhotos(q)));
-  if (photos) return { media: "photo", candidates: [await keepPhoto(photos[0]), ...photos.slice(1)] };
+  // the owner's sourcing rule: the product's own story → Google Images only; a new story scene → Pixabay stock only
+  if (o.source !== "google") {
+    const clips = o.photosOnly ? null : await firstFit(order(await searchClips(q)));
+    if (clips) return { media: "video", candidates: o.keep ? [await keepMedia(clips[0], true), ...clips.slice(1)] : clips };
+    const photos = await firstFit(order(await searchPhotos(q)));
+    if (photos) return { media: "photo", candidates: [await keepPhoto(photos[0]), ...photos.slice(1)] };
+    if (o.source === "stock") return null;
+  }
   const noSites = excludeOperators((await getSitePrefs()).exclude);
   const hits = page((await searchImages(`${q} ${noSites}`.trim())).hits
     .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))), 4);
@@ -338,17 +349,14 @@ async function toStockQuery(text: string, topic: string): Promise<string> {
  *  first, for a full-frame shot: stock photos → web pictures, the vision pick (the speaker named it, so it IS the
  *  subject; nothing watermarked or branded), kept on our storage. Null when nothing clean shows it. */
 export async function pickPhoto(query: string, label: string, topic: string): Promise<string | null> {
-  // a named thing needs the real one: web pictures (specific — "astragalus root" finds the herb) beside free stock
-  // photos (a stock library may only hold a lookalike), judged together with an identity check
+  // a named thing needs the real one: Google Images ("astragalus root" finds the herb; a stock library may only hold
+  // a lookalike), judged with an identity check
   const ok = (u: string) => /^https:\/\//.test(u) && !WATERMARKED.test(u) && !SOCIAL.test(u);
   const noSites = excludeOperators((await getSitePrefs().catch(() => ({ exclude: [] as string[] }))).exclude);
-  const [web, stock] = await Promise.all([
-    searchImages(`${query} ${noSites}`.trim()).then((r) => r.hits).catch(() => []),
-    searchPhotos(query).catch(() => []),
-  ]);
+  // an ingredient is the product's own story: Google Images only (the owner's rule)
+  const web = await searchImages(`${query} ${noSites}`.trim()).then((r) => r.hits).catch(() => []);
   const pool = [
-    ...web.filter((x) => ok(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))).slice(0, 5),
-    ...stock.filter((x) => ok(x.url)).slice(0, 3),
+    ...web.filter((x) => ok(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))).slice(0, 6),
   ].map((x) => ({ url: x.url, thumb: (x as { thumb?: string }).thumb || undefined }));
   if (!pool.length) return null;
   const k = await pickClean(query, label, pool, topic, true, label);
