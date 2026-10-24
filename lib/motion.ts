@@ -325,8 +325,15 @@ async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccou
   return [...accounts].sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0))[0];
 }
 
+/** The accounts that are up (a disabled workspace sits out); all of them when none answers. */
+async function upAccounts(accounts: MotionAccount[]): Promise<MotionAccount[]> {
+  const up = (await Promise.all(accounts.map(async (a) => ((await accountUp(a)) ? a : null)))).filter(Boolean) as MotionAccount[];
+  return up.length ? up : accounts;
+}
+
 export async function motionStart(payload: Record<string, any>): Promise<{ ok: true; callId: string } | { ok: false; error: string }> {
-  const accounts = await getMotionAccounts();
+  // jobs spread over the accounts that are up — a disabled workspace sits out instead of failing every first try
+  const accounts = await upAccounts(await getMotionAccounts());
   if (!accounts.length) return { ok: false, error: "Motion renderer not configured (motion_modal)" };
   const first = await pickMotionAccount(accounts);
   // Laju renderer: the admin switch (app_settings.motion_renderer); a payload that
@@ -363,7 +370,7 @@ export async function motionStart(payload: Record<string, any>): Promise<{ ok: t
 /** Start a Custom Style (VGC) run on the least busy account that has the VGC
  *  app (main first on a tie). Task id: "vgc:<call id>[@<account>]". */
 export async function vgcStart(payload: Record<string, any>): Promise<{ ok: true; callId: string } | { ok: false; error: string }> {
-  const accounts = (await getMotionAccounts()).filter((a) => a.vgc_url);
+  const accounts = await upAccounts((await getMotionAccounts()).filter((a) => a.vgc_url));
   if (!accounts.length) return { ok: false, error: "Custom Style belum disediakan (motion_modal.vgc_api_url)" };
   const first = await pickMotionAccount(accounts);
   let lastErr = "";
