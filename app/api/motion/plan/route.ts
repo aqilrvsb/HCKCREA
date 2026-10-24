@@ -182,6 +182,8 @@ export async function POST(req: Request) {
             brand: plan.brand ?? null,
             broll_src: plan.broll.map((b) => { try { return new URL(b.candidates[0]).hostname; } catch { return null; } }),
             broll_kinds: plan.broll.map((b) => b.kind ?? "photo"),
+            ...(plan.beats ? { beats: plan.beats.slice(0, 24) } : {}),
+            broll_must: plan.broll.filter((b) => b.must).length,
             stickers: plan.overlays.filter((o) => o.t === "gif").map((o) => (o.src ? "giphy" : "emoji-fallback")),
             caption_fixes: (mode === "plan" ? cur?.metadata?.caption_fixes ?? [] : fixes).slice(0, 40),
             uploads: input?.productImages?.length ?? 0,

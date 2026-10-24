@@ -59,6 +59,8 @@ export type EditPlanV2 = {
   cta?: { at: Cue; text: string; sub?: string; kind?: "bag" | "live" };
   /** REQUIRED headline layouts (over the speaker, a split panel, the speaker docked) — lib/motion-headline.ts */
   headlines?: HeadlinePlan[];
+  /** the closing director's selling beats and what the code added for the ones nothing hit (diagnostics) */
+  beats?: { kind: string; at: Cue; say: string; filled?: boolean }[];
   /** TikTok guard: word indices the rules always mute (Modal adds the LLM's). */
   censor?: number[];
   guard?: { fixed: number; dropped: number };
@@ -998,7 +1000,9 @@ export async function directEdit(opts: {
   }
   // only numbers the speaker says (or the client wrote) reach the screen; nothing that sits on the speaker hides inside a scene
   // CLOSING: a selling beat the plan left on the talking head gets a picture / sticker (grounded + guarded below)
-  const beatFills = hitBeats(plan, cleanBeats(raw?.beats, words, duration), words, duration, String(input.product || plan.brand || ""));
+  const beatsAll = cleanBeats(raw?.beats, words, duration);
+  const beatFills = hitBeats(plan, beatsAll, words, duration, String(input.product || plan.brand || ""));
+  plan.beats = beatsAll.map((b) => ({ kind: b.kind, at: b.at, say: b.say, ...(beatFills.includes(b) ? { filled: true } : {}) }));
   groundPlan(plan, words, duration, [input.product, input.instructions, input.locks?.hook, input.locks?.cta].filter(Boolean).join(" "), input.locks?.scenes);
   const guard = !!input.guard;
   if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
@@ -1281,9 +1285,18 @@ function hitBeats(plan: EditPlanV2, beats: Beat[], words: DirectorWord[], durati
   const brandWord = brand.split(/\s+/)[0] || "";
   for (const b of beats) {
     if (b.kind === "cta" || b.kind === "ingredient") continue;
-    const s = cueT(b.at, words);
-    if (s < 2.6 || s > duration - 3.4) continue;
     const alert = ALERT.has(b.kind);
+    let s = cueT(b.at, words);
+    // the hook owns 0–2.5 s: an alert beat the director put there ("berapa gula dalam tu" at 0.1 s, said again at
+    // 3.2 s) lands on the first word after the hook instead of being lost
+    if (s < 2.6) {
+      const j = words.findIndex((w) => w.t >= 2.6);
+      if (!alert || j < 0 || words[j].t > s + 5) continue;
+      b.at = `w${j}`;
+      if (b.to !== undefined && cueT(b.to, words, true) <= words[j].t + 0.6) delete b.to;
+      s = words[j].t;
+    }
+    if (s > duration - 3.4) continue;
     // an alert beat needs a picture (a sticker / text headline there doesn't count); the others any visual
     if (alert ? (b.kind === "urgency" ? hit(s - 0.4, s + 1.8) : hasPic(s - 0.4, s + 1.8)) : hit(s - 0.4, s + 1.8)) {
       if (alert && d0 && Array.isArray(d0.moves) && !moved(s)) d0.moves.push({ at: b.at, move: ALERT_MOVE[b.kind], power: 1 });
