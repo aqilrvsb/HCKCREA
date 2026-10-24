@@ -858,7 +858,8 @@ Return ONLY one JSON object:
   "facts": [{"at": CUE, "to": CUE, "query": string, "topic": string}],
   "keywords": [{"i": word index, "color": "benefit" | "price" | "pain" | "brand", "emoji"?: one emoji}],
   "rehook"?: {"at": CUE, "text": string (≤4 words)},
-  "cta"?: {"at": CUE, "text": string (≤4 words, e.g. "Tekan beg kuning"), "sub"?: string (≤5 words)}
+  "cta"?: {"at": CUE, "text": string (≤4 words, e.g. "Tekan beg kuning"), "sub"?: string (≤5 words)},
+  "beats": [{"at": CUE, "to"?: CUE, "kind": "pain" | "product" | "ingredient" | "how" | "benefit" | "proof" | "objection" | "offer" | "urgency" | "cta", "say": string (≤5 words — the point, in the speaker's language), "query": string (2–4 plain English words for a picture of it; the product itself → start with the brand)}]
 }
 ITEM = {"t": TYPE, "text": string, "sub"?: string, "at": CUE, "to"?: CUE, "zone": "top" | "middle" | "bottom", "tone"?: "yellow"|"white"|"red"|"green"|"accent"|"dark", "mark"?: "check"|"cross"}
 TYPE (on-screen text is SHORT, never a transcript):
@@ -874,6 +875,7 @@ TYPE (on-screen text is SHORT, never a transcript):
 CUE: "w12" = when transcript word #12 starts, "w12$" = when it ends, "w12+0.3" offsets; plain seconds also OK.
 
 RULES
+- YOU ARE A CLOSING DIRECTOR. This video exists to SELL: every edit decision serves the sale and speaks from the viewer's side (what THEY get, avoid, save). Read the whole transcript first and list its SELLING BEATS in "beats", each on its own words: the PAIN (the viewer's problem / fear), the PRODUCT (named or shown), each INGREDIENT, HOW it is used, each BENEFIT / RESULT (the viewer's win), PROOF (the seller's own experience, a testimony, a number they say), an OBJECTION broken ("tak payah telan", "selamat", "tak mahal"), the OFFER (price, promo, free gift), URGENCY, the CTA. EVERY beat is HIT on screen right on its words — a picture for anything showable (the pain, the product, the ingredient, the use, the result: B-roll / a scene with an image / a headline panel), a strong sticker for the rest (offer → price / tape, objection broken → check, urgency → stamp / tape, proof → circle). A selling beat left on the talking head alone is a lost sale; zooms don't count. Colour the beat words in "keywords".
 - Hook covers 0–2.5 s: the video's promise in ≤5 punchy words. null if the video is under 5 s.
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once — one at a time reads best. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly. The renderer keeps every sticker clear of the eyes, the captions and the other stickers (shrinking it a little if needed); a sticker with no room left is DROPPED — so never stack stickers on the same moment, and keep sticker text short (a big word = 1–2 short words).
 - B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
@@ -990,6 +992,8 @@ export async function directEdit(opts: {
     plan.headlines = cleanHeadlines(plan.headlines.filter((h) => !guardHits([h.lead, h.big, h.box].join(" ")).length), words, duration, headSource, headNums);
   }
   // only numbers the speaker says (or the client wrote) reach the screen; nothing that sits on the speaker hides inside a scene
+  // CLOSING: a selling beat the plan left on the talking head gets a picture / sticker (grounded + guarded below)
+  const beatFills = hitBeats(plan, cleanBeats(raw?.beats, words, duration), words, duration, String(input.product || plan.brand || ""));
   groundPlan(plan, words, duration, [input.product, input.instructions, input.locks?.hook, input.locks?.cta].filter(Boolean).join(" "), input.locks?.scenes);
   const guard = !!input.guard;
   if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
@@ -1012,6 +1016,12 @@ export async function directEdit(opts: {
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
   // the client's own headline words / B-roll (review step) win over the AI's, slot by slot — and appear only there
   const finalHeads = applyOwnHeadlines(headlines ?? [], input.headlineFix ?? [], words, headSource);
+  // a selling beat whose picture wasn't found still gets hit: its words on a tape sticker
+  for (const b of beatFills) {
+    if (!SHOWABLE.has(b.kind) || broll.some((x) => x.at === b.at) || !b.say || /\d/.test(b.say) || (guard && guardHits(b.say).length)) continue;
+    const s = cueT(b.at, words);
+    plan.overlays.push({ t: "tape", text: b.say.split(/\s+/).slice(0, 4).join(" "), zone: "top", at: b.at, to: Math.round((s + 2) * 100) / 100 });
+  }
   // the ingredient shots are pinned; any other B-roll at their time gives way
   const allBroll = withIngredientShots(dedupedBroll, ingShots, words) as BRollPlan[];
   return { ...plan, director, broll: allBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts, headlines: finalHeads };
@@ -1191,6 +1201,72 @@ async function guardEditPlan(plan: EditPlanV2, words: DirectorWord[], input: Edi
 }
 
 // ── validation ────────────────────────────────────────────────────────────────
+// ── closing: every selling beat is hit on screen (the owner's call, 2026-10-24: "director master closing sales") ──
+type Beat = { at: Cue; to?: Cue; kind: string; say: string; query: string };
+const BEAT_KINDS = new Set(["pain", "product", "ingredient", "how", "benefit", "proof", "objection", "offer", "urgency", "cta"]);
+// beats a picture shows best; the rest get a strong sticker
+const SHOWABLE = new Set(["pain", "product", "how", "benefit", "proof"]);
+
+/** The seconds a cue stands for on these words. */
+function cueT(c: Cue | undefined, words: DirectorWord[], end = false): number {
+  if (typeof c === "number") return c;
+  const m = /^w(\d+)(\$)?([+-][\d.]+)?/i.exec(String(c ?? ""));
+  if (!m) return Number(c) || 0;
+  const w = words[Math.min(words.length - 1, Number(m[1]))];
+  return ((m[2] || end) ? (w?.e ?? w?.t ?? 0) : (w?.t ?? 0)) + (m[3] ? Number(m[3]) : 0);
+}
+
+function cleanBeats(raw: unknown, words: DirectorWord[], duration: number): Beat[] {
+  const out: Beat[] = [];
+  for (const b of Array.isArray(raw) ? raw.slice(0, 24) : []) {
+    const kind = String((b as any)?.kind ?? "").toLowerCase();
+    const at = cueIn((b as any)?.at, words.length, duration);
+    if (!BEAT_KINDS.has(kind) || at === undefined) continue;
+    const to = cueIn((b as any)?.to, words.length, duration);
+    out.push({ at, ...(to !== undefined ? { to } : {}), kind, say: clean((b as any)?.say, 34), query: clean((b as any)?.query, 60) });
+  }
+  return out.sort((a, b) => cueT(a.at, words) - cueT(b.at, words));
+}
+
+/** The plan's selling beats that nothing hits on screen (no sticker, B-roll, headline or scene on their words) get
+ *  one: a picture (B-roll card, its search the beat's) for what can be shown, a sticker for the rest. Ingredients
+ *  have their own pinned shots; the CTA has its end card; the hook covers the opening. */
+function hitBeats(plan: EditPlanV2, beats: Beat[], words: DirectorWord[], duration: number, brand: string): Beat[] {
+  const busy: [number, number][] = [];
+  const add = (at: Cue | undefined, to: Cue | undefined, len: number) => {
+    if (at === undefined) return;
+    const s = cueT(at, words);
+    busy.push([s, to !== undefined ? Math.max(s + 0.6, cueT(to, words, true)) : s + len]);
+  };
+  for (const o of plan.overlays ?? []) add(o.at, o.to, 1.6);
+  for (const b of plan.broll ?? []) add(b.at, b.to, 2.4);
+  for (const h of plan.headlines ?? []) add(h.at, h.to, 3.4);
+  const d = plan.direction as Record<string, any> | undefined;
+  for (const k of ["scenes", "side", "banner", "behind"]) for (const x of (d?.[k] ?? []) as any[]) add(x?.at, x?.to, 3);
+  const hit = (s: number, e: number) => busy.some(([a, z]) => s < z && e > a);
+  const filled: Beat[] = [];
+  const brandWord = brand.split(/\s+/)[0] || "";
+  for (const b of beats) {
+    if (b.kind === "cta" || b.kind === "ingredient") continue;
+    const s = cueT(b.at, words);
+    if (s < 2.6 || s > duration - 3.4 || hit(s - 0.4, s + 1.8)) continue;
+    if (filled.length >= 8) break;
+    const label = /\d/.test(b.say) ? "" : b.say.split(/\s+/).slice(0, 4).join(" ");
+    if (SHOWABLE.has(b.kind) && b.query) {
+      const query = b.kind === "product" && brandWord && !b.query.toLowerCase().startsWith(brandWord.toLowerCase()) ? `${brandWord} ${b.query}` : b.query;
+      plan.broll.push({ at: b.at, ...(b.to !== undefined ? { to: b.to } : {}), layout: "pip", kind: "photo", query, ...(label ? { label } : {}), candidates: [] });
+    } else if (b.say) {
+      const sticker: MotionItem = b.kind === "objection" ? { t: "check", text: b.say.split(/\s+/).slice(0, 4).join(" "), mark: "check", zone: "bottom", at: b.at }
+        : b.kind === "urgency" ? { t: "stamp", text: b.say.split(/\s+/).slice(0, 2).join(" "), zone: "middle", at: b.at }
+        : { t: "tape", text: b.say.split(/\s+/).slice(0, 4).join(" "), zone: "top", at: b.at };
+      plan.overlays.push({ ...sticker, to: Math.round((s + 2) * 100) / 100 });
+    } else continue;
+    busy.push([s - 0.2, s + 2.2]);
+    filled.push(b);
+  }
+  return filled;
+}
+
 function cueIn(c: unknown, nWords: number, duration: number): Cue | undefined {
   if (typeof c === "number" && Number.isFinite(c)) return c >= 0 && c < duration - 0.3 ? Math.round(c * 100) / 100 : undefined;
   if (typeof c !== "string") return undefined;
