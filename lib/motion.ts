@@ -322,8 +322,19 @@ async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccou
     const id = splitTaskId(t.startsWith(VGC_TASK_PREFIX) ? t.slice(VGC_TASK_PREFIX.length) : t).account;
     if (load.has(id)) load.set(id, (load.get(id) ?? 0) + 1);
   }
-  return [...accounts].sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0))[0];
+  // jobs this server just handed out count too: a batch started side by side (several CLIPPER clips, several
+  // Motion videos) isn't in the table yet when the next one picks — without this they all landed on one account
+  const now = Date.now();
+  for (const [id, times] of JUST_STARTED) {
+    const live = times.filter((t) => now - t < 90_000);
+    JUST_STARTED.set(id, live);
+    if (load.has(id)) load.set(id, (load.get(id) ?? 0) + live.length);
+  }
+  const pick = [...accounts].sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0))[0];
+  JUST_STARTED.set(pick.id, [...(JUST_STARTED.get(pick.id) ?? []), now]);
+  return pick;
 }
+const JUST_STARTED = new Map<string, number[]>();
 
 /** The accounts that are up (a disabled workspace sits out); all of them when none answers. */
 async function upAccounts(accounts: MotionAccount[]): Promise<MotionAccount[]> {
