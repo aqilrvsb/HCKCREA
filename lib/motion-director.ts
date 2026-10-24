@@ -26,6 +26,7 @@ import { vgcStyle, type VaultStyle } from "@/lib/vgc-styles";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
 import { HEADLINE_SPEC, applyOwnHeadlines, cleanHeadlines, enrichHeadlines, type HeadlinePlan } from "@/lib/motion-headline";
+import { ingredientShots, withIngredientShots, type IngredientShot } from "@/lib/motion-ingredients";
 
 type Cue = string | number;
 const clean30 = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 30);
@@ -35,6 +36,8 @@ export type BRollPlan = {
   at: Cue; to?: Cue; layout: "full" | "pip"; label?: string; query: string; candidates: string[];
   /** video = stock clip (candidates are MP4 links); photo otherwise. */
   kind?: "photo" | "video";
+  /** pinned (an ingredient the speaker names): the composition makes room for it, nothing drops it */
+  must?: boolean;
 };
 export type FactPlan = { at: Cue; to?: Cue; text: string; source: string };
 export type EditPlanV2 = {
@@ -995,18 +998,23 @@ export async function directEdit(opts: {
   const factMoments = rawFacts(raw, words.length, duration)
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
-  const [broll, facts, , headlines] = await Promise.all([
+  const [broll, facts, , headlines, ingShots] = await Promise.all([
     input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, uploads), [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
     byDeadline(enrichHeadlines(plan.headlines ?? [], [input.product || plan.brand, plan.angle, input.instructions?.slice(0, 200)].filter(Boolean).join(" — ")), plan.headlines ?? []),
+    // every ingredient the speaker names gets its picture on that word (required; off only with B-roll off)
+    input.broll === false ? Promise.resolve([] as IngredientShot[])
+      : byDeadline(ingredientShots(words, [input.product || plan.brand, input.instructions?.slice(0, 200)].filter(Boolean).join(" — "), { uploads }), [] as IngredientShot[]),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
   // the client's own headline words / B-roll (review step) win over the AI's, slot by slot — and appear only there
   const finalHeads = applyOwnHeadlines(headlines ?? [], input.headlineFix ?? [], words, headSource);
-  return { ...plan, director, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts, headlines: finalHeads };
+  // the ingredient shots are pinned; any other B-roll at their time gives way
+  const allBroll = withIngredientShots(dedupedBroll, ingShots, words) as BRollPlan[];
+  return { ...plan, director, broll: allBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts, headlines: finalHeads };
 }
 
 // ── grounding: numbers on screen are spoken; on-speaker pieces live between scenes; scenes ≤ ~70 % ─────────────

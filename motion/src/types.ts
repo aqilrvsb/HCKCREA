@@ -141,6 +141,8 @@ export type BRoll = {
   layout: 'full' | 'pip';
   /** Optional small label on the card (≤ 4 words). */
   label?: string;
+  /** Pinned (an ingredient the speaker names): headlines move and scenes give way for it — never dropped. */
+  must?: boolean;
 };
 
 export type FactCard = { at: string | number; to?: string | number; text: string; source: string; icon?: string };

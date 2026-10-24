@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, Pause, Play, RotateCcw, Upload, Volume2, VolumeX } from "lucide-react";
 import {
   captionFixMap, clipFlash, clipKey, clipSeed, faceTrack, fixedText, polishOnTimeline, previewFaces, previewProps, previewTimeline,
-  type PWord, type PolishHeadline, type PolishKeyword, type PolishZoom, type SrcFaces,
+  type PWord, type PolishHeadline, type PolishKeyword, type PolishShot, type PolishZoom, type SrcFaces,
 } from "@/lib/clipper-preview";
 import { uploadOwn } from "@/lib/upload-own";
 
@@ -30,6 +30,8 @@ type Data = {
   key: string; words: PWord[]; aligned: boolean; keywords: PolishKeyword[]; zooms: PolishZoom[]; polished: boolean;
   /** the required headline layouts (with their B-roll found) */
   headlines: PolishHeadline[];
+  /** pinned pictures of the ingredients the speaker names */
+  shots: PolishShot[];
   faces: SrcFaces | null; faced: boolean;
 };
 type PState = { t: number; dur: number; playing: boolean; muted: boolean; ready: boolean; waiting: boolean };
@@ -73,7 +75,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         if (off) return;
         if (!r.ok || !d?.ok) throw new Error(d?.error || "Pratonton gagal");
         setData({ key, words: d.words, aligned: !!d.aligned, keywords: d.keywords ?? [], zooms: d.zooms ?? [], polished: !!d.polished,
-          headlines: d.headlines ?? [], faces: d.faces ?? null, faced: !!d.faced });
+          headlines: d.headlines ?? [], shots: d.shots ?? [], faces: d.faces ?? null, faced: !!d.faced });
       } catch (e: any) {
         if (!off) setErr(e?.message || "Pratonton gagal");
       }
@@ -101,7 +103,7 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
           setData((cur) => (cur && cur.key === key ? {
             ...cur,
             // the polish comes with the AI's caption corrections: the words as the render will show them (same count)
-            ...(wantPolish ? { keywords: d.keywords ?? [], zooms: d.zooms ?? [], headlines: d.headlines ?? [], polished: true,
+            ...(wantPolish ? { keywords: d.keywords ?? [], zooms: d.zooms ?? [], headlines: d.headlines ?? [], shots: d.shots ?? [], polished: true,
               ...(Array.isArray(d.words) && d.words.length === cur.words.length ? { words: d.words } : {}) } : {}),
             ...(wantFaces ? { faces: d.faces ?? null, faced: true } : {}),
           } : cur));
@@ -136,11 +138,11 @@ export default function ClipPreview({ jobId, mediaUrl, clips, auto, autoPicked, 
         ...(o.url && h.kind !== "over" ? { media: o.video ? "video" as const : "photo" as const, candidates: [o.url], credit: undefined } : {}),
       };
     }) : data.headlines;
-    const pol = polishOnTimeline(tl, data.keywords, data.zooms, heads);
+    const pol = polishOnTimeline(tl, data.keywords, data.zooms, heads, data.shots);
     const props = previewProps({
       video: "clip://preview", tl, seed: clipSeed(jobId, clip.start, clip.end), hook: settings.hookOn ? clip.hook : null,
       captions: settings.captions, captionLook: settings.captionLook, captionPos: settings.captionPos, polish: settings.polish,
-      keywords: pol.keywords, zooms: pol.zooms, faces: previewFaces(data.faces, tl, settings.frame), headlines: pol.headlines,
+      keywords: pol.keywords, zooms: pol.zooms, faces: previewFaces(data.faces, tl, settings.frame), headlines: pol.headlines, shots: pol.shots,
       cta: settings.cta === "none" ? null : settings.cta,
     });
     const wmText = settings.wmText.replace(/[^\w@.\- ]/g, "").trim().slice(0, 40);

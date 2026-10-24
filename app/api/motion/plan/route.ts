@@ -9,6 +9,7 @@ import { HOOK_SOUND_COUNT } from "@/lib/motion-hook-sounds";
 import { clipPolish } from "@/lib/clipper-polish";
 import { alignWords, clipPicks, reusePolish, userCaptionFixes } from "@/lib/clipper-preview";
 import { enrichHeadlines } from "@/lib/motion-headline";
+import { ingredientShots, type IngredientShot } from "@/lib/motion-ingredients";
 
 type PlanWord = { i: number; w: string; t: number; e?: number };
 
@@ -23,7 +24,16 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
   // the polish the preview made (keyword colours, zooms, the required headlines), moved onto this render's words;
   // afresh when it doesn't fit or there was none — the headlines are made even with the keyword polish off
   const reused = input.clip?.polish_ref ? reusePolish(input.clip.polish_ref, words) : null;
-  const fresh = !reused || !reused.headlines.length ? await clipPolish(words, duration, input.clip?.title ?? "", deadline, input.clip?.topic ?? "") : null;
+  // the ingredient pictures the preview showed (pinned) — else found now, beside the polish
+  const [fresh, ingFresh] = await Promise.all([
+    !reused || !reused.headlines.length ? clipPolish(words, duration, input.clip?.title ?? "", deadline, input.clip?.topic ?? "") : Promise.resolve(null),
+    reused?.hasShots ? Promise.resolve(null)
+      : ingredientShots(words, input.clip?.topic || input.clip?.title || "", { deadline: deadline + 15_000 }).catch(() => [] as IngredientShot[]),
+  ]);
+  const shots = reused?.hasShots ? reused.shots
+    : (ingFresh ?? []).map((s) => ({ at: s.at, to: s.to, label: s.label, query: s.query, candidates: s.candidates }));
+  const broll = shots.filter((s) => s.candidates?.[0])
+    .map((s) => ({ at: s.at, ...(s.to ? { to: s.to } : {}), layout: "full" as const, kind: "photo" as const, label: s.label, query: s.query ?? s.label, candidates: s.candidates, must: true }));
   const keywords = !polish ? [] : reused?.keywords.length ? reused.keywords : fresh?.keywords ?? [];
   const zooms = !polish ? [] : reused?.zooms.length ? reused.zooms : fresh?.zooms ?? [];
   const picked = reused?.headlines.length ? reused.headlines
@@ -44,7 +54,7 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
     accent: "#FFD93B",
     mood: "upbeat" as const,
     captions: { on: input.captions !== false, style: input.locks?.captionLook === "tiktok" ? "tiktok" : "pop", pos: input.captionPos ?? "low", maxWords: 3 },
-    overlays: [], zooms, broll: [], facts: [], keywords, headlines,
+    overlays: [], zooms, broll, facts: [], keywords, headlines,
     // the client's closing CTA (Studio): the yellow basket or the LIVE, over the last ~3 s
     ...(input.ctaKind === "bag" || input.ctaKind === "live"
       ? { cta: { at: Math.max(0, duration - 3.2), text: input.ctaKind === "live" ? "Jom masuk LIVE" : "Tekan beg kuning", kind: input.ctaKind } } : {}),

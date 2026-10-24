@@ -16,7 +16,9 @@ export type PolishHeadline = {
 };
 /** the polish made for a preview, kept on the analysis row and reused by the render; `fixes` = the AI's caption
  *  corrections of these words (index → word), shown in the preview and applied by the render the same way */
-export type PolishRef = { words: string[]; keywords: PolishKeyword[]; zooms: PolishZoom[]; headlines?: PolishHeadline[]; fixes?: [number, string][] };
+export type PolishRef = { words: string[]; keywords: PolishKeyword[]; zooms: PolishZoom[]; headlines?: PolishHeadline[]; fixes?: [number, string][]; shots?: PolishShot[] };
+/** a full-frame picture of an ingredient the speaker names (pinned: it always shows, on that word) */
+export type PolishShot = { at: string; to?: string; label: string; query?: string; candidates: string[] };
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -196,7 +198,7 @@ export function previewTimeline(words: PWord[], clipDur: number, o: { flash?: { 
 }
 
 /** The polish (made on the clip's words) on the timeline's words: the clip body only, not the teaser copy. */
-export function polishOnTimeline(tl: Timeline, keywords: PolishKeyword[], zooms: PolishZoom[], headlines: PolishHeadline[] = []) {
+export function polishOnTimeline(tl: Timeline, keywords: PolishKeyword[], zooms: PolishZoom[], headlines: PolishHeadline[] = [], shots: PolishShot[] = []) {
   const at = new Map<number, number>();
   tl.words.forEach((w, k) => { if (!w.teaser && !at.has(w.si)) at.set(w.si, k); });
   const near = (si: number) => {
@@ -220,7 +222,13 @@ export function polishOnTimeline(tl: Timeline, keywords: PolishKeyword[], zooms:
     const b = typeof h.to === "string" ? near(Number(/^w(\d+)/.exec(h.to)?.[1] ?? -1)) : -1;
     return { ...h, at: `w${a}`, ...(b > a ? { to: `w${b}$` } : { to: undefined }) };
   }).filter(Boolean) as PolishHeadline[];
-  return { keywords: kw, zooms: zm, headlines: hd };
+  const sh = shots.map((s) => {
+    const a = near(Number(/^w(\d+)/.exec(s.at)?.[1] ?? -1));
+    if (a < 0) return null;
+    const b = s.to ? near(Number(/^w(\d+)/.exec(s.to)?.[1] ?? -1)) : -1;
+    return { ...s, at: `w${a}`, to: b >= a ? `w${b}$` : undefined };
+  }).filter(Boolean) as PolishShot[];
+  return { keywords: kw, zooms: zm, headlines: hd, shots: sh };
 }
 
 /** Word-by-word alignment (longest common subsequence on letters / digits): index in a → index in b, or -1. */
@@ -276,7 +284,13 @@ export function reusePolish(ref: PolishRef, words: { w: string; t: number }[]) {
     const b = typeof h.to === "string" ? near(Number(/^w(\d+)/.exec(h.to)?.[1] ?? -1)) : -1;
     return { ...h, at: `w${a}`, ...(b > a ? { to: `w${b}$` } : { to: undefined }) };
   }).filter(Boolean) as PolishHeadline[];
-  return { keywords, zooms, headlines };
+  const shots = (ref.shots || []).map((s) => {
+    const a = near(Number(/^w(\d+)/.exec(s.at)?.[1] ?? -1));
+    if (a < 0) return null;
+    const b = s.to ? near(Number(/^w(\d+)/.exec(s.to)?.[1] ?? -1)) : -1;
+    return { ...s, at: `w${a}`, to: b >= a ? `w${b}$` : undefined };
+  }).filter(Boolean) as PolishShot[];
+  return { keywords, zooms, headlines, shots, hasShots: Array.isArray(ref.shots) };
 }
 
 // ── the client's own caption corrections ──
@@ -418,6 +432,8 @@ export function previewProps(o: {
   headlines?: PolishHeadline[];
   /** the closing CTA the client chose (as the plan sets it) */
   cta?: "bag" | "live" | null;
+  /** pinned full-frame pictures of the ingredients the speaker names */
+  shots?: PolishShot[];
 }) {
   const picks = clipPicks(o.seed, o.captionLook);
   const words = o.tl.words.map((w) => ({ w: w.w, t: w.t, e: w.e }));
@@ -425,7 +441,9 @@ export function previewProps(o: {
     fps: 30, durationInFrames: Math.max(1, Math.floor(o.tl.dur * 30)), video: o.video, words,
     captions: { on: o.captions, style: o.captionLook === "tiktok" ? "tiktok" : "pop", pos: o.captionPos, maxWords: 3 },
     accent: "#FFD93B", overlays: [], zooms: o.polish ? o.zooms : [], hook: o.hook ? { text: o.hook } : null,
-    sfx: false, style: "gempak", faces: o.faces ?? [], broll: [], facts: [], keywords: o.polish ? o.keywords : [],
+    sfx: false, style: "gempak", faces: o.faces ?? [],
+    broll: (o.shots ?? []).filter((s) => s.candidates?.[0]).map((s) => ({ at: s.at, ...(s.to ? { to: s.to } : {}), src: s.candidates[0], layout: "full" as const, label: s.label, must: true })),
+    facts: [], keywords: o.polish ? o.keywords : [],
     lottie: o.polish ? emojiLottie(o.keywords) : {}, progress: true, cuts: o.tl.cuts,
     direction: { ...picks, end_card: "none", progress: o.polish && o.tl.dur > 35 ? "bar" : "none", fx: "light", captions: "big", camera: "calm" },
     lookSeed: o.seed,

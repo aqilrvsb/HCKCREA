@@ -153,7 +153,9 @@ export async function POST(req: Request) {
           ...(Array.isArray(ref.headlines) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { headlines: ref.headlines } : {}),
           // the caption corrections the preview showed: the render applies the same ones
           // (an empty list too: the preview's corrector found nothing to change, so the render changes nothing there)
-          ...(Array.isArray(ref.fixes) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { fixes: ref.fixes.slice(0, 400) } : {}) } } : {}) },
+          ...(Array.isArray(ref.fixes) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { fixes: ref.fixes.slice(0, 400) } : {}),
+          // the ingredient pictures the preview showed (pinned)
+          ...(Array.isArray(ref.shots) && (ref as { hv?: number }).hv === HEADLINE_VERSION ? { shots: ref.shots.slice(0, 6) } : {}) } } : {}) },
     };
     const { data: row, error } = await admin.from("history").insert({
       user_id: user.id,

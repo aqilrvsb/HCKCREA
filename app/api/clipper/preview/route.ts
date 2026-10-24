@@ -6,6 +6,7 @@ import { clipPolish } from "@/lib/clipper-polish";
 import { getMotionConfig } from "@/lib/motion";
 import { HEADLINE_VERSION, enrichHeadlines, fixHeadlineWords } from "@/lib/motion-headline";
 import { fixTranscript } from "@/lib/motion-captions";
+import { ingredientShots } from "@/lib/motion-ingredients";
 import { clipKey, previewWords, type PolishRef, type SrcFaces, type TLine } from "@/lib/clipper-preview";
 import { clipContext } from "@/lib/clipper";
 
@@ -86,11 +87,14 @@ export async function POST(req: Request) {
   const makePolish = (): Promise<Polished> => Promise.all([
     clipPolish(words.map((w, i) => ({ i, ...w })), end - start, String(b?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 90), Date.now() + 50_000, context),
     fixTranscript(words.map((w, i) => ({ i, w: w.w })), context || undefined, language).catch(() => [] as [number, string][]),
-  ]).then(async ([p, fixes]) => {
+    // every ingredient the speaker names gets its picture on that word (required)
+    ingredientShots(words, context || String(b?.title ?? ""), { deadline: Date.now() + 70_000 }).catch(() => []),
+  ]).then(async ([p, fixes, ing]) => {
     const raw = words.map((w) => w.w);
     const fixedHeads = fixHeadlineWords(p.headlines, raw, fixes);
     const headlines = await enrichHeadlines(fixedHeads, context || String(b?.title ?? "")).catch(() => fixedHeads);
-    return { words: raw, keywords: p.keywords, zooms: p.zooms, headlines, fixes, hv: HEADLINE_VERSION, at: Date.now() };
+    const shots = ing.map((s) => ({ at: s.at, to: s.to, label: s.label, query: s.query, candidates: s.candidates }));
+    return { words: raw, keywords: p.keywords, zooms: p.zooms, headlines, fixes, shots, hv: HEADLINE_VERSION, at: Date.now() };
   });
   // one polish per clip: the Studio preview and the Overlay editor ask at the same time — they share it
   const pkey = `${jobId}|${key}`;
@@ -138,7 +142,7 @@ export async function POST(req: Request) {
   const shown = fixes.size ? words.map((w, i) => (fixes.has(i) ? { ...w, w: String(fixes.get(i)) } : w)) : words;
   return NextResponse.json({
     ok: true, words: shown, aligned, autofixed: fixes.size,
-    keywords: fits ? ref!.keywords : [], zooms: fits ? ref!.zooms : [], headlines: fits ? ref!.headlines : [], polished: !!fits,
+    keywords: fits ? ref!.keywords : [], zooms: fits ? ref!.zooms : [], headlines: fits ? ref!.headlines : [], shots: fits ? ref!.shots ?? [] : [], polished: !!fits,
     faces: fx ? { w: fx.w, h: fx.h, faces: fx.faces } : null, faced: !!fx,
   });
 }

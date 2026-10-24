@@ -18,6 +18,8 @@ import type { Look, Transition } from './look';
 
 export type PlacedBRoll = {
   s: number; e: number; src: string; video?: string; blur?: string; layout: 'full' | 'pip'; label?: string; k: number;
+  /** pinned (an ingredient the speaker names) — never dropped for a headline or a scene */
+  must?: boolean;
   /** pip: card box chosen by fitPip (px of the 1080x1920 frame) */
   box?: { top: number; width: number; imgH: number };
 };

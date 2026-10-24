@@ -1304,6 +1304,8 @@ def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
             entry["to"] = b["to"]
         if b.get("label"):
             entry["label"] = str(b["label"])[:40]
+        if b.get("must"):
+            entry["must"] = True  # an ingredient the speaker names: pinned — the composition makes room for it
         if str(src) in clips:
             entry["video"] = srv.url(clips[str(src)])
         elif layout == "full":
@@ -1945,7 +1947,7 @@ def _qa(props: dict, d: Path, p: dict) -> tuple:
     for i in patch.get("pip_broll") or []:
         if str(i).isdigit() and int(i) < len(br):
             br[int(i)] = {**br[int(i)], "layout": "pip"}
-    props["broll"] = [b for i, b in enumerate(br) if i not in bdrop]
+    props["broll"] = [b for i, b in enumerate(br) if i not in bdrop or b.get("must")]  # pinned ingredient shots stay
     return props, {"qa": "applied", "stills": via, "drop": len(drop), "moved": len(patch.get("move") or []), "broll_drop": len(bdrop),
                    "notes": str(patch.get("notes") or "")[:200]}
 

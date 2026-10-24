@@ -43,7 +43,7 @@ const keepPhoto = (url: string) => keepMedia(url, false);
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 11;
+export const HEADLINE_VERSION = 12;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -285,7 +285,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
  *  reads further down the results; `skip`: pictures already shown are left out (asking again gives the next one);
  *  `keep`: a stock clip is copied to our storage too (a client's pick must render the same days later). */
 async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
-  o: { page?: number; skip?: Set<string>; keep?: boolean; asked?: boolean } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
+  o: { page?: number; skip?: Set<string>; keep?: boolean; asked?: boolean; photosOnly?: boolean } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
   const land = (c: { width: number; height: number }) => Number(c.width >= c.height);
   const order = <T extends { width: number; height: number }>(xs: T[]) => xs.sort((a, b) => (kind === "split" ? land(b) - land(a) : land(a) - land(b)));
   const seen = (u: string) => !!o.skip?.size && (o.skip.has(u) || o.skip.has(sha1(u)));
@@ -302,7 +302,7 @@ async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
     const k = await pickClean(q, big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic, o.asked);
     return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
   };
-  const clips = await firstFit(order(await searchClips(q)));
+  const clips = o.photosOnly ? null : await firstFit(order(await searchClips(q)));
   if (clips) return { media: "video", candidates: o.keep ? [await keepMedia(clips[0], true), ...clips.slice(1)] : clips };
   const photos = await firstFit(order(await searchPhotos(q)));
   if (photos) return { media: "photo", candidates: [await keepPhoto(photos[0]), ...photos.slice(1)] };
@@ -332,6 +332,17 @@ async function toStockQuery(text: string, topic: string): Promise<string> {
   } catch {
     return t.slice(0, 80);
   }
+}
+
+/** One clean picture of a thing the speaker names (an ingredient: "mulberry leaves", "astragalus root"), portrait
+ *  first, for a full-frame shot: stock photos → web pictures, the vision pick (the speaker named it, so it IS the
+ *  subject; nothing watermarked or branded), kept on our storage. Null when nothing clean shows it. */
+export async function pickPhoto(query: string, label: string, topic: string): Promise<string | null> {
+  const f = await findBroll("pip", query, label, topic, { keep: true, asked: true, photosOnly: true }).catch(() => null);
+  const url = f?.candidates[0];
+  if (!url) return null;
+  const kept = /^https:\/\/peninglab-content\.s3\./.test(url) ? url : await keepPhoto(url);
+  return /^https:\/\/peninglab-content\.s3\./.test(kept) ? kept : null;
 }
 
 /** "🔄 Cari gambar lain (AI)" — another B-roll for one split / pip panel, without an upload: the client's own words

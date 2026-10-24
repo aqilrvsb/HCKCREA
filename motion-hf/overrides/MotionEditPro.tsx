@@ -151,6 +151,12 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     // ── HEADLINES (required in every video): one at a time, after the hook, before the CTA; each gets its layout
     //    variant and box colour from the video's seed; a split moves the speaker into the other half, a pip docks them ──
     const hseed = Number.isInteger(p.lookSeed) ? (p.lookSeed as number) : vseed;
+    // pinned B-roll (an ingredient the speaker names) keeps its moment: placed as the B-roll pass below places it
+    const mustWins = (p.broll ?? []).filter((b) => b.must).map((b) => {
+      const s = Math.max(onBeat(fr(cue(b.at, 0))), fr(1), p.hook?.text ? hookEnd + 2 : 0);
+      const e0 = b.to !== undefined ? fr(cue(b.to, s / fps + BROLL_DUR)) : s + fr(BROLL_DUR);
+      return { s, e: Math.min(Math.max(e0, s + fr(1.2)), s + fr(4)) };
+    }).sort((a, b) => a.s - b.s);
     const heads: PlacedHeadline[] = [];
     {
       const hStart = Math.max(fr(1.2), hookEnd ? hookEnd + 6 : 0);
@@ -177,8 +183,17 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       for (let ri = 0; ri < raws.length; ri++) {
         const { h, kind, s0, len } = raws[ri];
         const prev = heads[heads.length - 1];
-        const s = Math.max(hStart, prev ? prev.e + gap : 0, Math.min(s0, latest[ri]));
-        const e = Math.min(s + len, hLimit);
+        let s = Math.max(hStart, prev ? prev.e + gap : 0, Math.min(s0, latest[ri]));
+        let e = Math.min(s + len, hLimit);
+        // an ingredient picture holds its moment: the headline goes right after it, else right before it
+        for (const w of mustWins) {
+          if (!(s < w.e + 4 && e > w.s - 4)) continue;
+          const aS = w.e + gap, aE = Math.min(aS + len, hLimit);
+          if (aE - aS >= fr(1.8) && !mustWins.some((x) => aS < x.e + 4 && aE > x.s - 4)) { s = aS; e = aE; continue; }
+          const bE = w.s - gap, bS = Math.max(hStart, prev ? prev.e + gap : 0, bE - len);
+          if (bE - bS >= fr(1.8) && !mustWins.some((x) => bS < x.e + 4 && bE > x.s - 4)) { s = bS; e = bE; } else { e = s; }
+          break;
+        }
         if (e - s < fr(1.8)) continue;
         const i = heads.length;
         const v = variantFor(kind, hseed, i);
@@ -228,7 +243,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       let layout = b.layout;
       const box = layout === 'pip' ? fitPip(faces, s / fps, e / fps, b.label) : null;
       if (layout === 'pip' && !box) layout = 'full';
-      broll.push({ s, e, src: b.src, video: b.video, blur: b.blur, layout, label: b.label, k, ...(box ? { box } : {}) });
+      broll.push({ s, e, src: b.src, video: b.video, blur: b.blur, layout, label: b.label, k, ...(box ? { box } : {}), ...(b.must ? { must: true } : {}) });
     }
     // explainer scenes: full-screen motion graphics over the voice, each line on its spoken word
     const scenes: PlacedScene[] = [];
@@ -361,6 +376,16 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     });
     // a float card never shares the screen with a full-screen scene
     for (let i = floats.length - 1; i >= 0; i--) if (scenes.some((sc) => floats[i].s < sc.e && floats[i].e > sc.s)) floats.splice(i, 1);
+    // an ingredient picture wins its moment: a scene / float card there ends just before it (or goes, when it
+    // would be left under 2 s)
+    for (const b of broll.filter((x) => x.must)) {
+      for (const xs of [scenes, floats]) {
+        for (let i = xs.length - 1; i >= 0; i--) {
+          if (!(xs[i].s < b.e && xs[i].e > b.s)) continue;
+          if (b.s - 2 - xs[i].s >= fr(2)) xs[i].e = b.s - 2; else xs.splice(i, 1);
+        }
+      }
+    }
     // a card shows the picture of the B-roll planned at that moment; a scene or a float card replaces any B-roll under it
     for (const sc of [...scenes, ...floats]) {
       const under = broll.filter((b) => b.s < sc.e && b.e > sc.s);
@@ -368,7 +393,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       // a card is one still: a picture card may hold ~9 s, a text-only quote card ~5.5 s (then back to the speaker)
       if (sc.kind === 'card' && sc.style !== 'float') sc.e = Math.min(sc.e, sc.s + fr(sc.image ? 9 : 5.5));
     }
-    for (let i = broll.length - 1; i >= 0; i--) if ([...scenes, ...floats].some((sc) => broll[i].s < sc.e && broll[i].e > sc.s)) broll.splice(i, 1);
+    for (let i = broll.length - 1; i >= 0; i--) if (!broll[i].must && [...scenes, ...floats].some((sc) => broll[i].s < sc.e && broll[i].e > sc.s)) broll.splice(i, 1);
     const inScene = (f: number) => scenes.some((sc) => f >= sc.s && f < sc.e);
 
     // big stacked words beside the speaker (never during a scene)
@@ -621,7 +646,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     {
       const hit = (s: number, e: number) => heads.some((h) => s < h.e + 4 && e > h.s - 4);
       const drop = <T extends { s: number; e: number }>(xs: T[]) => { for (let i = xs.length - 1; i >= 0; i--) if (hit(xs[i].s, xs[i].e)) xs.splice(i, 1); };
-      drop(broll); drop(scenes); drop(floats); drop(sides); drop(banners); drop(placed); drop(behinds); drop(spots); drop(blocks);
+      for (let i = broll.length - 1; i >= 0; i--) if (!broll[i].must && hit(broll[i].s, broll[i].e)) broll.splice(i, 1); // ingredient pictures stay
+      drop(scenes); drop(floats); drop(sides); drop(banners); drop(placed); drop(behinds); drop(spots); drop(blocks);
       for (let i = smashes.length - 1; i >= 0; i--) if (hit(smashes[i].f, smashes[i].f + 12)) smashes.splice(i, 1);
       for (let i = focus.length - 1; i >= 0; i--) if (hit(focus[i].f, focus[i].f + 22)) focus.splice(i, 1);
     }
