@@ -43,7 +43,7 @@ const keepPhoto = (url: string) => keepMedia(url, false);
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 15;
+export const HEADLINE_VERSION = 16;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -75,6 +75,7 @@ export const HEADLINE_SPEC = `"headlines": [HEADLINE] — REQUIRED in every vide
   {"kind": "split", "at": CUE, "to"?: CUE, "lead", "big", "box" (as above), "query": 2–4 plain English stock-footage keywords naming the ONE main thing the B-roll shows — a visual of what is being said ("cooking oil", "woman applying serum", "traffic jam", "blood sugar test"; no colours, no adjectives, no brand), "media": "video" | "photo", "about": "product" | "story"} — a B-roll panel slides into one half of the frame, the speaker moves into the other half and the headline rides the seam; ~3.5 s,
   {"kind": "pip", "at": CUE, "to"?: CUE, "lead", "big", "box", "query", "media", "about"} — the B-roll fills the whole frame with the headline over it while the speaker shrinks into a small box bottom-right (they keep talking); ~3.5 s, for a moment that SHOWS something (a place, a result, a product in use);
   the words are the video's own message in the speaker's language — only facts and numbers the speaker says in THESE words (a number from anywhere else, even from the video's summary, is a claim the speaker doesn't make here: it is removed); every headline different, and every split / pip its own B-roll query (never the same query twice); never the hook's words.
+  The query follows the MEANING of the Malay words, not the literal words ("masalah manis" / "kencing manis" = high blood sugar → "blood sugar" / "sugar cubes", never sweets, lipstick or something pretty).
   Spell every headline word correctly: the WORDS come from speech recognition and hold misheard tokens — never copy a token that isn't a real word ("empat kuruh" → write what the speaker meant, or use other words).
   CONTEXT FIRST: before writing any headline, understand the whole video — who is speaking, what they sell / teach / tell and why (the purpose). Every headline and every B-roll query serves THAT purpose and shows THAT subject; never build one from a single word taken alone. A word that doesn't fit the topic was probably misheard by the transcriber (in a cake seller's video "kulit" = skin is really "kulat" = mould): use the meaning that fits the topic ("Kek berkulat", query "mouldy cake"), or pick another line. The query always names the video's own subject ("mouldy cake", "chocolate cake slice", "diabetic patch on arm") — a picture of another subject ("skin acne" in a cake video) is wrong.
   SOURCES (the owner's rule): "about": "product" when the panel tells the PRODUCT'S OWN STORY — the product itself, its ingredients, how it is used / applied, anything specific to it (a Google Images photo of exactly that); "about": "story" when it adds a NEW SCENE to the story — a feeling, a person, a place, a lifestyle moment (Pixabay stock, photo or video).`;
@@ -448,7 +449,7 @@ async function pickClean(query: string, big: string, hits: { url: string; thumb?
       : ""}${asked
       ? `THE SELLER ASKED FOR THIS PICTURE (their own words) — it fits their video by definition; pick the cleanest image that literally shows the query.\n${topic ? `(The video, for context only: ${topic.slice(0, 300)})\n` : ""}`
       : topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}${said ? `THE SPEAKER SAYS RIGHT THERE: "${said}"
-` : ""}Query: "${query}" (on screen: "${big}") — the picture must show what that line and those words mean, in the video's sense — literally, never a metaphor or a mood picture; a related-but-different thing is WRONG (candy or chocolate for sugar in a drink). Images #0..#${hits.length - 1} attached in order.`,
+` : ""}Query: "${query}" (on screen: "${big}") — the picture must show what that line and those words mean, in the video's sense — literally, never a metaphor or a mood picture. Read Malay words in their MEANING, not literally: 'masalah manis' / 'kencing manis' = high blood sugar (diabetes) — never sweets, lipstick or something pretty; 'buat dono' = acting like they don't know. a related-but-different thing is WRONG (candy or chocolate for sugar in a drink). Images #0..#${hits.length - 1} attached in order.`,
     images: hits.map((h) => h.thumb || h.url),
     temperature: 0.1,
     maxTokens: 60,
