@@ -271,8 +271,34 @@ export async function getMotionAccounts(opts: { includeDisabled?: boolean } = {}
   return [...(main ? [main] : []), ...extra];
 }
 
+// A workspace Modal has switched off ("modal-http: workspace … is disabled") must not take uploads, Studio previews or
+// ZIPs — clients saw "Upload gagal — semak sambungan internet" while the main workspace was disabled. Each account is
+// checked (cached a minute per server); a slow answer (a cold start) counts as up, a disabled / 5xx one as down.
+const ACCOUNT_UP = new Map<string, { ok: boolean; at: number }>();
+async function accountUp(a: MotionAccount): Promise<boolean> {
+  const hit = ACCOUNT_UP.get(a.api_url);
+  if (hit && Date.now() - hit.at < 60_000) return hit.ok;
+  let ok = true;
+  try {
+    const r = await fetch(`${a.api_url}/upload`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://peninglab.com", "Access-Control-Request-Method": "POST" },
+      signal: AbortSignal.timeout(6_000),
+    });
+    const text = r.ok ? "" : await r.text().catch(() => "");
+    ok = r.status < 500 && !/workspace .* is disabled|app .* (?:not found|stopped)/i.test(text);
+  } catch {
+    ok = true; // a timeout is a cold start more often than a dead workspace
+  }
+  ACCOUNT_UP.set(a.api_url, { ok, at: Date.now() });
+  return ok;
+}
+
+/** The account that serves uploads, Studio previews and ZIPs: the first one that is up (main first). */
 export async function getMotionConfig(): Promise<MotionCfg | null> {
-  return (await getMotionAccounts())[0] ?? null;
+  const accounts = await getMotionAccounts();
+  for (const a of accounts) if (await accountUp(a)) return a;
+  return accounts[0] ?? null;
 }
 
 /** "fc-…@acc2" → { callId: "fc-…", account: "acc2" }; a plain id → the main account. */
