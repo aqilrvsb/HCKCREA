@@ -314,7 +314,7 @@ function splitTaskId(taskId: string): { callId: string; account: string } {
 async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccount> {
   if (accounts.length < 2) return accounts[0];
   const { data } = await createAdminClient()
-    .from("history").select("task_id").eq("tab", "motion").eq("status", "pending").not("task_id", "is", null).limit(1000);
+    .from("history").select("task_id").in("tab", ["motion", "clipper", "clipper-job"]).eq("status", "pending").not("task_id", "is", null).limit(1000);
   const load = new Map(accounts.map((a) => [a.id, 0]));
   for (const r of data ?? []) {
     const t = String(r.task_id || "");
