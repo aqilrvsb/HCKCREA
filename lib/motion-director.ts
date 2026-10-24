@@ -1287,11 +1287,12 @@ function hitBeats(plan: EditPlanV2, beats: Beat[], words: DirectorWord[], durati
     // an alert beat needs a picture (a sticker / text headline there doesn't count); the others any visual
     if (alert ? (b.kind === "urgency" ? hit(s - 0.4, s + 1.8) : hasPic(s - 0.4, s + 1.8)) : hit(s - 0.4, s + 1.8)) {
       if (alert && d0 && Array.isArray(d0.moves) && !moved(s)) d0.moves.push({ at: b.at, move: ALERT_MOVE[b.kind], power: 1 });
-      // the director's own B-roll on an alert beat is pinned too, so no headline drops it
+      // the director's own B-roll on an alert beat is pinned too (no headline drops it) and fills the screen —
+      // a small card isn't emphasis enough for a fear / pain moment
       if (alert && b.kind !== "urgency") {
         for (const x of plan.broll ?? []) {
           const xs = cueT(x.at, words), xe = x.to !== undefined ? cueT(x.to, words, true) : xs + 2.4;
-          if (xs < s + 1.8 && xe > s - 0.4) x.must = true;
+          if (xs < s + 1.8 && xe > s - 0.4) { x.must = true; x.layout = "full"; }
         }
       }
       continue;
