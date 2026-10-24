@@ -263,7 +263,9 @@ export async function getMotionAccounts(opts: { includeDisabled?: boolean } = {}
     const vgc_url = String(a?.vgc_api_url || "").replace(/\/+$/, "") || undefined;
     return api_url && secret ? { id, api_url, secret, vgc_url } : null;
   };
-  const main = norm(c, MAIN_ACCOUNT);
+  // the main workspace can be switched off too (motion_modal.enabled = false — e.g. its monthly usage ran out);
+  // its running jobs are still checked to the end (includeDisabled)
+  const main = opts.includeDisabled || c?.enabled !== false ? norm(c, MAIN_ACCOUNT) : null;
   const extra = (Array.isArray(c?.accounts) ? c.accounts : [])
     .filter((a: any) => (opts.includeDisabled || a?.enabled !== false) && /^[a-z0-9-]{1,20}$/.test(String(a?.id || "")) && a.id !== MAIN_ACCOUNT)
     .map((a: any) => norm(a, String(a.id)))

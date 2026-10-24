@@ -300,6 +300,28 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     }
     setVideos((cur) => [...cur, ...picked].slice(0, MAX_VIDEOS));
     if (files.length > room) setNotice(`Maksimum ${MAX_VIDEOS} video sekali hantar.`);
+    // uploads start right away, side by side, while the client fills in the rest of the form
+    for (const v of picked) void startUpload(v).catch(() => undefined);
+  }
+
+  // one upload per video, started when it is picked; "Jana" waits for the same one (never a second upload)
+  const uploads = useRef(new Map<string, Promise<string>>());
+  function startUpload(v: VideoPick): Promise<string> {
+    const have = uploads.current.get(v.key);
+    if (have) return have;
+    const p = withUploadSlot(() => {
+      patchVideo(v.key, { pct: 0, error: null });
+      return uploadVideo(v);
+    }).then((url) => {
+      patchVideo(v.key, { uploadedUrl: url, pct: 100 });
+      return url;
+    }).catch((e: any) => {
+      uploads.current.delete(v.key); // "Jana" tries it again
+      patchVideo(v.key, { pct: null, ...(v.sending ? {} : { error: e?.message || "Upload gagal" }) });
+      throw e;
+    });
+    uploads.current.set(v.key, p);
+    return p;
   }
   const removeVideo = (key: string) => setVideos((cur) => {
     const v = cur.find((x) => x.key === key);
@@ -403,17 +425,15 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     };
     const keys = new Set(batch.map((v) => v.key));
     // pct null = waiting for an upload slot
-    setVideos((cur) => cur.map((v) => (keys.has(v.key) ? { ...v, sending: true, error: null, pct: v.uploadedUrl ? 100 : null } : v)));
+    setVideos((cur) => cur.map((v) => (keys.has(v.key) ? { ...v, sending: true, error: null, pct: v.uploadedUrl ? 100 : v.pct ?? null } : v)));
     setNotice(`📤 ${batch.length} video dihantar — setiap video terus diproses sebaik upload siap. Boleh tambah video lain sementara menunggu.`);
     const failed: string[] = [];
     let noCredit = false;
     await Promise.all(batch.map(async (v) => {
       try {
-        const url = v.uploadedUrl || (await withUploadSlot(() => {
-          if (noCredit) throw new Error("Kredit tidak mencukupi.");
-          patchVideo(v.key, { pct: 0 });
-          return uploadVideo(v);
-        }));
+        if (noCredit) throw new Error("Kredit tidak mencukupi.");
+        // the upload that started when the video was picked (or a fresh one when that failed)
+        const url = v.uploadedUrl || (await startUpload(v));
         patchVideo(v.key, { uploadedUrl: url, pct: 100 });
         const r = await fetch("/api/motion/edit", {
           method: "POST",
@@ -531,9 +551,18 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                         {typeof v.pct !== "number" ? "Menunggu giliran upload" : v.pct < 100 ? `Upload ${v.pct}%` : "Mula proses…"}
                       </div>
                     ) : (
-                      <button type="button" onClick={() => removeVideo(v.key)} className="absolute top-1 right-1 bg-black/70 rounded-full p-0.5">
-                        <X className="w-3 h-3 text-white" />
-                      </button>
+                      <>
+                        <button type="button" onClick={() => removeVideo(v.key)} className="absolute top-1 right-1 bg-black/70 rounded-full p-0.5">
+                          <X className="w-3 h-3 text-white" />
+                        </button>
+                        {/* the upload runs as soon as the video is picked */}
+                        {typeof v.pct === "number" && (
+                          <div className="absolute left-1 right-7 top-1 rounded-md text-center text-[10px] font-extrabold text-white py-0.5"
+                            style={{ background: v.pct < 100 ? "rgba(0,0,0,0.65)" : "rgba(22,163,74,0.85)" }}>
+                            {v.pct < 100 ? `⬆ Upload ${v.pct}%` : "✓ Siap upload"}
+                          </div>
+                        )}
+                      </>
                     )}
                     <div className="text-[10px] mt-1 text-[var(--color-text-secondary)] truncate">{v.file.name}</div>
                     <div className="text-[10px] text-[var(--color-text-muted)]">{v.dur.toFixed(1)}s{v.dur > MAX_SEC ? " (3 min pertama)" : ""}</div>
