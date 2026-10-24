@@ -885,7 +885,7 @@ RULES
 - Hook covers 0–2.5 s: the video's promise in ≤5 punchy words. null if the video is under 5 s.
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once — one at a time reads best. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly. The renderer keeps every sticker clear of the eyes, the captions and the other stickers (shrinking it a little if needed); a sticker with no room left is DROPPED — so never stack stickers on the same moment, and keep sticker text short (a big word = 1–2 short words).
 - B-ROLL SOURCES (the owner's rule): "about": "product" for the PRODUCT'S OWN STORY — the product itself, its ingredients, how it is used / applied, anything specific to it → a Google Images photo (query: exactly that thing); "about": "story" for a NEW SCENE that adds to the story — a feeling, a person, a place, a lifestyle moment (someone tired at work, a family at dinner) → Pixabay stock (photo, or "kind": "video" for a moving scene; plain English query, no brand).
-- B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
+- B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = EXACTLY the thing the speaker says at that moment, in their sense ("berapa kandungan gula dalam air kotak" → "sugar cubes beside juice box") — never a nearby thing (candy, chocolate); specific. For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
 - Mix the tools — a pro edit uses variety: circle / underline the key words, a point toward the product or the beg kuning, 0–2 gif reactions, 0–2 confetti, not the same sticker type twice in a row. The STYLE line wins over these defaults (a style that says "no emoji" / "no confetti" means none).
 - SPREAD the edit over the WHOLE runtime: the middle and the last third get as many overlays as the opening — never more than ${maxGap} without a new overlay or B-roll (zooms alone don't count). Viewers drop off in the middle; that's where a callout, circle, check or re-hook keeps them.
 - FACTS: 0–2 per video, only for checkable, non-medical background facts the speaker mentions (what an ingredient is, how something works in general, a brand/origin fact). "query" = a Google search that would confirm it. NEVER health/medical/cure/efficacy, price or "best/No.1" claims.
@@ -1012,7 +1012,8 @@ export async function directEdit(opts: {
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
   const [broll, facts, , headlines, ingShots] = await Promise.all([
-    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, uploads), [] as BRollPlan[]),
+    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, uploads, words,
+      [input.product || plan.brand, plan.angle, input.instructions?.slice(0, 160)].filter(Boolean).join(" — ")), [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
     byDeadline(enrichHeadlines(plan.headlines ?? [], [input.product || plan.brand, plan.angle, input.instructions?.slice(0, 200)].filter(Boolean).join(" — ")), plan.headlines ?? []),
@@ -1454,7 +1455,8 @@ function rawFacts(raw: any, nWords: number, duration: number) {
 // Generic shots (a body part, an action, a place) → stock clips / general
 // Google Images, and vision only accepts an image with NO product packaging,
 // label or brand on it — that's where competitors' boxes used to slip in.
-async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string, uploads: string[] = []): Promise<BRollPlan[]> {
+async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string, uploads: string[] = [],
+  spoken: DirectorWord[] = [], purpose = ""): Promise<BRollPlan[]> {
   if (!moments.length) return [];
   const prefs = await getSitePrefs();
   // Finding the sales site uses the full product name (medical words included —
@@ -1533,7 +1535,13 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
   // (24 images) per call, all batches in parallel.
   const batches: (typeof withHits)[] = [];
   for (let i = 0; i < withHits.length; i += 8) batches.push(withHits.slice(i, i + 8));
-  const picked = await Promise.all(batches.map((b) => visionPick(b, guard, brandName || undefined).catch(() => null)));
+  // each picture is checked against what the speaker SAYS right there and what the video is for, not just its search words
+  const saidAt = (m: BRollPlan) => {
+    if (!spoken.length) return "";
+    const s = cueT(m.at, spoken) - 1.2, e = (m.to !== undefined ? cueT(m.to, spoken, true) : cueT(m.at, spoken) + 2.4) + 0.6;
+    return spoken.filter((w) => w.t >= s && w.t <= e).slice(0, 16).map((w) => w.w).join(" ");
+  };
+  const picked = await Promise.all(batches.map((b) => visionPick(b.map((x) => ({ ...x, said: saidAt(x.m) })), guard, brandName || undefined, purpose).catch(() => null)));
   const picks: (number | undefined)[] = batches.flatMap((b, i) => b.map((_, k) => picked[i]?.[k]));
   const shown = new Set<string>();
   return withHits
@@ -1573,18 +1581,19 @@ const SOURCE_NOTE: Record<string, string> = {
   generic: " [GENERIC SHOT — only an image with NO product packaging, box, label, logo or brand name on it; -1 if every option shows one]",
 };
 
-async function visionPick(items: { m: BRollPlan; hits: ImageHit[]; source?: string }[], guard = false, brand?: string): Promise<number[] | null> {
+async function visionPick(items: { m: BRollPlan; hits: ImageHit[]; source?: string; said?: string }[], guard = false, brand?: string, purpose = ""): Promise<number[] | null> {
   const images: string[] = [];
   const lines: string[] = [];
-  items.forEach(({ m, hits, source }, k) => {
+  items.forEach(({ m, hits, source, said }, k) => {
     const opts = hits.slice(0, 3);
-    lines.push(`Moment ${k} — query "${m.query}"${m.label ? ` (label "${m.label}")` : ""}${SOURCE_NOTE[source ?? ""] ?? ""}: images ${opts.map((_, j) => `#${images.length + j}`).join(", ")}`);
+    lines.push(`Moment ${k} — ${said ? `SPEAKER SAYS: "${said}" — ` : ""}query "${m.query}"${m.label ? ` (label "${m.label}")` : ""}${m.must ? " [KEY SELLING MOMENT: it must show exactly what is said]" : ""}${SOURCE_NOTE[source ?? ""] ?? ""}: images ${opts.map((_, j) => `#${images.length + j}`).join(", ")}`);
     for (const h of opts) images.push(h.thumb || h.url);
   });
   if (images.length > 24) return null;
   const r = await orChatVision({
     modelKey: "model_motion",
-    systemPrompt: "You pick B-roll images for a TikTok edit. For each moment choose the image that best and most literally matches the query (real product/object, clean, no big watermark, not a meme, not text-heavy, safe for ads)." +
+    systemPrompt: "You pick B-roll images for a TikTok edit. For each moment choose the image that shows EXACTLY what the speaker says at that moment, in the sense they mean it, and serves the video's purpose — the query only helps. A related-but-different thing is WRONG: candy or chocolate when they say how much sugar is in a boxed drink (show sugar / a sugary drink), a blood donor when they say 'buat dono' (= acting like they don't know). Literal, never a metaphor or a mood picture: for 'ramai tak ambil tahu' show a person shrugging / ignoring it, not a storm or a dark sky. Also: a real product/object, clean, no big watermark, not a meme, not text-heavy, safe for ads." +
+      (purpose ? ` THE VIDEO: ${purpose.slice(0, 260)}.` : "") +
       ` The video sells ${brand ? `"${brand}"` : "the seller's own product"}: never pick an image showing ANOTHER brand's name, logo, packaging or ad copy (a competitor's product shot) — generic unbranded shots of a body part, object or scene are fine; answer -1 when every option is another brand's ad.` +
       (guard ? " TIKTOK GUIDELINE MODE (TikTok Shop Malaysia 2026): never pick an image showing doctors / white coats / stethoscopes, hospitals, syringes or injections, glucometers, blood, wounds or graphic skin close-ups, pills, before/after bodies or skin, or a poster full of health claims / disease names — prefer clean product or lifestyle shots; answer -1 when every option is like that." : "") +
       " Answer ONLY JSON: {\"picks\":[n0,n1,...]} where n is the 0-based position WITHIN that moment's own images (0..2), or -1 if none fits.",

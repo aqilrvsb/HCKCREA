@@ -43,7 +43,7 @@ const keepPhoto = (url: string) => keepMedia(url, false);
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 13;
+export const HEADLINE_VERSION = 14;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -277,7 +277,8 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
     const q = qs[hi];
     if (!q) return h;
     try {
-      const found = await findBroll(h.kind, q, h.big, topic, { page: nth[hi], ...(h.about === "product" ? { source: "google" as const } : h.about === "story" ? { source: "stock" as const } : {}) });
+      // the picture is checked against the whole headline on screen (what the moment says), not one word
+      const found = await findBroll(h.kind, q, [h.lead, h.big, h.box].filter(Boolean).join(" "), topic, { page: nth[hi], ...(h.about === "product" ? { source: "google" as const } : h.about === "story" ? { source: "stock" as const } : {}) });
       return found ? { ...h, query: q, ...found } : { ...h, query: q, candidates: [] };
     } catch {
       return h;
@@ -402,7 +403,7 @@ async function pickClean(query: string, big: string, hits: { url: string; thumb?
       ? `IDENTITY CHECK — the picture must truly show "${exact}" (${query}) itself, recognisably. A different thing that merely looks alike is WRONG: ginger, turmeric or ginseng are not astragalus root; a generic green leaf is not a mulberry leaf. Pick the clearest true one; -1 when none of them truly is it.\n`
       : ""}${asked
       ? `THE SELLER ASKED FOR THIS PICTURE (their own words) — it fits their video by definition; pick the cleanest image that literally shows the query.\n${topic ? `(The video, for context only: ${topic.slice(0, 300)})\n` : ""}`
-      : topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}Query: "${query}" (headline word: "${big}"). Images #0..#${hits.length - 1} attached in order.`,
+      : topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}Query: "${query}" (on screen: "${big}") — the picture must show what that line means, in the video's sense; a related-but-different thing is WRONG (candy or chocolate for sugar in a drink). Images #0..#${hits.length - 1} attached in order.`,
     images: hits.map((h) => h.thumb || h.url),
     temperature: 0.1,
     maxTokens: 60,

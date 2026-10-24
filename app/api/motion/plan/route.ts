@@ -184,6 +184,7 @@ export async function POST(req: Request) {
             broll_kinds: plan.broll.map((b) => b.kind ?? "photo"),
             ...(plan.beats ? { beats: plan.beats.slice(0, 24) } : {}),
             broll_must: plan.broll.filter((b) => b.must).length,
+            broll_q: plan.broll.map((b) => `${b.must ? "!" : ""}${b.about ?? ""}:${b.query}`.slice(0, 70)),
             stickers: plan.overlays.filter((o) => o.t === "gif").map((o) => (o.src ? "giphy" : "emoji-fallback")),
             caption_fixes: (mode === "plan" ? cur?.metadata?.caption_fixes ?? [] : fixes).slice(0, 40),
             uploads: input?.productImages?.length ?? 0,
