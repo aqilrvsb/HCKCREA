@@ -296,11 +296,28 @@ async function accountUp(a: MotionAccount): Promise<boolean> {
   return ok;
 }
 
-/** The account that serves uploads, Studio previews and ZIPs: the first one that is up (main first). */
-export async function getMotionConfig(): Promise<MotionCfg | null> {
+/** The next turn of the shared counter (the same one on every server); a local count when the database doesn't answer. */
+let LOCAL_TURN = Math.floor(Math.random() * 1000);
+async function nextTurn(): Promise<number> {
+  try {
+    const { data, error } = await createAdminClient().rpc("motion_rr_next");
+    if (!error && data != null && Number.isFinite(Number(data))) return Number(data);
+  } catch { /* fall through */ }
+  return LOCAL_TURN++;
+}
+
+/** The account that serves an upload, a Studio preview or a ZIP: the accounts that are up take turns (round robin,
+ *  one turn per call). `avoidHost` = the workspace a retry just failed on — it sits this one out when another is up. */
+export async function getMotionConfig(opts: { avoidHost?: string } = {}): Promise<MotionCfg | null> {
   const accounts = await getMotionAccounts();
-  for (const a of accounts) if (await accountUp(a)) return a;
-  return accounts[0] ?? null;
+  if (!accounts.length) return null;
+  let up = await upAccounts(accounts);
+  const avoid = String(opts.avoidHost || "").toLowerCase();
+  if (avoid && up.length > 1) {
+    const rest = up.filter((a) => { try { return new URL(a.api_url).host.toLowerCase() !== avoid; } catch { return true; } });
+    if (rest.length) up = rest;
+  }
+  return up.length === 1 ? up[0] : up[(await nextTurn()) % up.length];
 }
 
 /** "fc-…@acc2" → { callId: "fc-…", account: "acc2" }; a plain id → the main account. */
@@ -309,8 +326,9 @@ function splitTaskId(taskId: string): { callId: string; account: string } {
   return at > 0 ? { callId: taskId.slice(0, at), account: taskId.slice(at + 1) } : { callId: taskId, account: MAIN_ACCOUNT };
 }
 
-/** The account with the fewest Motion jobs still running (ties → listed order,
- *  main first). Every video is its own job, so they all run side by side. */
+/** The account with the fewest Motion jobs still running, counted per video; ties go round robin (the shared turn
+ *  counter), so videos started at the same moment on different servers still land on different accounts.
+ *  Every video is its own job (its own container), so they all run side by side. */
 async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccount> {
   if (accounts.length < 2) return accounts[0];
   const { data } = await createAdminClient()
@@ -330,7 +348,10 @@ async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccou
     JUST_STARTED.set(id, live);
     if (load.has(id)) load.set(id, (load.get(id) ?? 0) + live.length);
   }
-  const pick = [...accounts].sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0))[0];
+  // the turn decides the order among equally busy accounts (sort is stable)
+  const turn = await nextTurn();
+  const order = accounts.map((_, i) => accounts[(i + turn) % accounts.length]);
+  const pick = order.sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0))[0];
   JUST_STARTED.set(pick.id, [...(JUST_STARTED.get(pick.id) ?? []), now]);
   return pick;
 }
@@ -440,8 +461,8 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
  *  Vercel caps request bodies at 4.5MB, so the file never touches Next. */
 const VGC_EXTS = ["jpg", "jpeg", "png", "webp", "mp4", "mov", "webm", "m4v", "mp3", "wav", "m4a", "aac", "ogg"];
 
-export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" | "vgc" | "clip" = "video"): Promise<{ uploadUrl: string; key: string } | null> {
-  const cfg = await getMotionConfig();
+export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" | "vgc" | "clip" = "video", avoidHost?: string): Promise<{ uploadUrl: string; key: string } | null> {
+  const cfg = await getMotionConfig({ avoidHost });
   if (!cfg) return null;
   const extRaw = (fileName.split(".").pop() || "").toLowerCase();
   // videos → motion-uploads/, product photos → motion-images/, Custom Style

@@ -31,18 +31,25 @@ export async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> 
 /** Same browser → Modal → B2 path as the video, so it doesn't depend on a third-party image host. */
 export async function uploadProductPhoto(input: File): Promise<string> {
   const { file } = await compressImageIfNeeded(input);
-  const r = await fetch("/api/motion/upload-url", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: file.name, size: file.size, kind: "image" }),
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
+  // every try gets its own link: the Modal accounts take turns, and a retry skips the one that just failed
+  let failedHost = "";
   return withRetry(async () => {
+    const r = await fetch("/api/motion/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, size: file.size, kind: "image", avoid: failedHost || undefined }),
+    }).catch(() => { throw Object.assign(new Error("Upload gagal — semak sambungan internet."), { retry: true }); });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d?.upload_url) throw Object.assign(new Error(d?.error || "Tak dapat link upload"), { retry: r.status >= 500 });
+    const host = (() => { try { return new URL(d.upload_url).host; } catch { return ""; } })();
     const up = await fetch(d.upload_url, { method: "POST", headers: { "Content-Type": file.type || "image/jpeg" }, body: file })
-      .catch(() => { throw Object.assign(new Error("Upload gagal — semak sambungan internet."), { retry: true }); });
+      .catch(() => { failedHost = host; throw Object.assign(new Error("Upload gagal — semak sambungan internet."), { retry: true }); });
     const j = await up.json().catch(() => ({}));
-    if (!up.ok || !j?.url) throw Object.assign(new Error(j?.error || `Upload gagal (${up.status})`), { retry: up.status >= 500 });
+    if (!up.ok || !j?.url) {
+      failedHost = host;
+      // 404 = that Modal workspace is switched off: another account takes the retry
+      throw Object.assign(new Error(j?.error || `Upload gagal (${up.status})`), { retry: up.status >= 500 || up.status === 404 });
+    }
     return String(j.url);
   });
 }

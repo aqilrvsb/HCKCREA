@@ -331,29 +331,37 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const patchVideo = (key: string, patch: Partial<VideoPick>) => setVideos((cur) => cur.map((v) => (v.key === key ? { ...v, ...patch } : v)));
 
   async function uploadVideo(v: VideoPick): Promise<string> {
-    const r = await fetch("/api/motion/upload-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: v.file.name, size: v.file.size }),
-    });
-    const d = await r.json();
-    if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
-    const send = () => new Promise<string>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", d.upload_url);
-      xhr.setRequestHeader("Content-Type", v.file.type || "video/mp4");
-      xhr.upload.onprogress = (e) => { if (e.lengthComputable) patchVideo(v.key, { pct: Math.round((e.loaded / e.total) * 100) }); };
-      xhr.onload = () => {
-        try {
-          const j = JSON.parse(xhr.responseText || "{}");
-          if (xhr.status >= 200 && xhr.status < 300 && j?.url) resolve(j.url);
-          else reject(Object.assign(new Error(j?.error || `Upload gagal (${xhr.status})`), { retry: xhr.status >= 500 }));
-        } catch { reject(Object.assign(new Error(`Upload gagal (${xhr.status})`), { retry: xhr.status >= 500 })); }
-      };
-      xhr.onerror = () => reject(Object.assign(new Error("Upload gagal — semak sambungan internet."), { retry: true }));
-      xhr.send(v.file);
-    });
-    // a dropped connection (SSL reset, flaky mobile data) or a 5xx is retried
+    // every try gets its own link: the Modal accounts take turns, and a retry skips the one that just failed
+    let failedHost = "";
+    const send = async () => {
+      const r = await fetch("/api/motion/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: v.file.name, size: v.file.size, avoid: failedHost || undefined }),
+      }).catch(() => { throw Object.assign(new Error("Upload gagal — semak sambungan internet."), { retry: true }); });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.upload_url) throw Object.assign(new Error(d?.error || "Tak dapat link upload"), { retry: r.status >= 500 });
+      const host = (() => { try { return new URL(d.upload_url).host; } catch { return ""; } })();
+      return new Promise<string>((resolve, reject) => {
+        const fail = (msg: string, retry: boolean) => { failedHost = host; reject(Object.assign(new Error(msg), { retry })); };
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", d.upload_url);
+        xhr.setRequestHeader("Content-Type", v.file.type || "video/mp4");
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) patchVideo(v.key, { pct: Math.round((e.loaded / e.total) * 100) }); };
+        xhr.onload = () => {
+          // 404 = that Modal workspace is switched off: another account takes the retry
+          const retry = xhr.status >= 500 || xhr.status === 404;
+          try {
+            const j = JSON.parse(xhr.responseText || "{}");
+            if (xhr.status >= 200 && xhr.status < 300 && j?.url) resolve(j.url);
+            else fail(j?.error || `Upload gagal (${xhr.status})`, retry);
+          } catch { fail(`Upload gagal (${xhr.status})`, retry); }
+        };
+        xhr.onerror = () => fail("Upload gagal — semak sambungan internet.", true);
+        xhr.send(v.file);
+      });
+    };
+    // a dropped connection (SSL reset, flaky mobile data), a 5xx or a switched-off account is retried
     return withRetry(send);
   }
 

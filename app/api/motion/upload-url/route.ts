@@ -32,7 +32,9 @@ export async function POST(req: Request) {
   if (kind !== "image" && kind !== "clip" && size > MOTION_EDIT_MAX_MB * 1024 * 1024) {
     return NextResponse.json({ error: `Video terlalu besar (maks ${MOTION_EDIT_MAX_MB}MB).` }, { status: 413 });
   }
-  const signed = await signMotionUpload(user.id, String(b?.name || (kind === "image" ? "photo.jpg" : "video.mp4")), kind);
+  // avoid = the upload host a retry just failed on: the next link goes to another account
+  const avoid = typeof b?.avoid === "string" && /^[a-z0-9.-]{1,120}$/i.test(b.avoid) ? b.avoid : undefined;
+  const signed = await signMotionUpload(user.id, String(b?.name || (kind === "image" ? "photo.jpg" : "video.mp4")), kind, avoid);
   if (!signed) return NextResponse.json({ error: "Motion renderer not configured" }, { status: 500 });
   return NextResponse.json({ ok: true, upload_url: signed.uploadUrl });
 }
