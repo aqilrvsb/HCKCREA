@@ -862,7 +862,7 @@ Return ONLY one JSON object:
   "keywords": [{"i": word index, "color": "benefit" | "price" | "pain" | "brand", "emoji"?: one emoji}],
   "rehook"?: {"at": CUE, "text": string (≤4 words)},
   "cta"?: {"at": CUE, "text": string (≤4 words, e.g. "Tekan beg kuning"), "sub"?: string (≤5 words)},
-  "beats": [{"at": CUE, "to"?: CUE, "kind": "pain" | "product" | "ingredient" | "how" | "benefit" | "proof" | "objection" | "offer" | "urgency" | "cta", "say": string (≤5 words — the point, in the speaker's language), "query": string (2–4 plain English words for a picture of it; the product itself → start with the brand)}]
+  "beats": [{"at": CUE, "to"?: CUE, "kind": "pain" | "fear" | "emotion" | "product" | "ingredient" | "how" | "benefit" | "proof" | "objection" | "offer" | "urgency" | "cta", "say": string (≤5 words — the point, in the speaker's language), "query": string (2–4 plain English words for a picture of it; the product itself → start with the brand)}]
 }
 ITEM = {"t": TYPE, "text": string, "sub"?: string, "at": CUE, "to"?: CUE, "zone": "top" | "middle" | "bottom", "tone"?: "yellow"|"white"|"red"|"green"|"accent"|"dark", "mark"?: "check"|"cross"}
 TYPE (on-screen text is SHORT, never a transcript):
@@ -879,6 +879,7 @@ CUE: "w12" = when transcript word #12 starts, "w12$" = when it ends, "w12+0.3" o
 
 RULES
 - YOU ARE A CLOSING DIRECTOR. This video exists to SELL: every edit decision serves the sale and speaks from the viewer's side (what THEY get, avoid, save). Read the whole transcript first and list its SELLING BEATS in "beats", each on its own words: the PAIN (the viewer's problem / fear), the PRODUCT (named or shown), each INGREDIENT, HOW it is used, each BENEFIT / RESULT (the viewer's win), PROOF (the seller's own experience, a testimony, a number they say), an OBJECTION broken ("tak payah telan", "selamat", "tak mahal"), the OFFER (price, promo, free gift), URGENCY, the CTA. EVERY beat is HIT on screen right on its words — a picture for anything showable (the pain, the product, the ingredient, the use, the result: B-roll / a scene with an image / a headline panel), a strong sticker for the rest (offer → price / tape, objection broken → check, urgency → stamp / tape, proof → circle). A selling beat left on the talking head alone is a lost sale; zooms don't count. Colour the beat words in "keywords".
+- ALERT BEATS are the strongest selling moments — catch every one: PAIN (the problem hurting them), FEAR (a hidden danger or risk: how much sugar is in that drink, a side effect, what happens if they ignore it), EMOTION (worry, shame, relief, love for family) and URGENCY (limited stock, price ends today). Mark them "kind": "pain" | "fear" | "emotion" | "urgency". Each one gets a PICTURE of it on screen right on its words ("query": sugar cubes, a sugary drink, a worried face…) plus an impact move — a text headline alone does NOT hit an alert beat.
 - Hook covers 0–2.5 s: the video's promise in ≤5 punchy words. null if the video is under 5 s.
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once — one at a time reads best. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly. The renderer keeps every sticker clear of the eyes, the captions and the other stickers (shrinking it a little if needed); a sticker with no room left is DROPPED — so never stack stickers on the same moment, and keep sticker text short (a big word = 1–2 short words).
 - B-ROLL SOURCES (the owner's rule): "about": "product" for the PRODUCT'S OWN STORY — the product itself, its ingredients, how it is used / applied, anything specific to it → a Google Images photo (query: exactly that thing); "about": "story" for a NEW SCENE that adds to the story — a feeling, a person, a place, a lifestyle moment (someone tired at work, a family at dinner) → Pixabay stock (photo, or "kind": "video" for a moving scene; plain English query, no brand).
@@ -1219,9 +1220,13 @@ async function guardEditPlan(plan: EditPlanV2, words: DirectorWord[], input: Edi
 // ── validation ────────────────────────────────────────────────────────────────
 // ── closing: every selling beat is hit on screen (the owner's call, 2026-10-24: "director master closing sales") ──
 type Beat = { at: Cue; to?: Cue; kind: string; say: string; query: string };
-const BEAT_KINDS = new Set(["pain", "product", "ingredient", "how", "benefit", "proof", "objection", "offer", "urgency", "cta"]);
+const BEAT_KINDS = new Set(["pain", "fear", "emotion", "product", "ingredient", "how", "benefit", "proof", "objection", "offer", "urgency", "cta"]);
 // beats a picture shows best; the rest get a strong sticker
-const SHOWABLE = new Set(["pain", "product", "how", "benefit", "proof"]);
+const SHOWABLE = new Set(["pain", "fear", "emotion", "product", "how", "benefit", "proof"]);
+// the strongest selling moments (the owner's call): a PICTURE on their words (a text headline doesn't count),
+// pinned so a headline moves off it, plus an impact move
+const ALERT = new Set(["pain", "fear", "emotion", "urgency"]);
+const ALERT_MOVE: Record<string, string> = { pain: "shake", fear: "shake", emotion: "punch", urgency: "crash" };
 
 /** The seconds a cue stands for on these words. */
 function cueT(c: Cue | undefined, words: DirectorWord[], end = false): number {
@@ -1260,19 +1265,47 @@ function hitBeats(plan: EditPlanV2, beats: Beat[], words: DirectorWord[], durati
   const d = plan.direction as Record<string, any> | undefined;
   for (const k of ["scenes", "side", "banner", "behind"]) for (const x of (d?.[k] ?? []) as any[]) add(x?.at, x?.to, 3);
   const hit = (s: number, e: number) => busy.some(([a, z]) => s < z && e > a);
+  // what shows a picture: B-roll and the split / corner headline panels
+  const pics: [number, number][] = [];
+  const pic = (at: Cue | undefined, to: Cue | undefined, len: number) => {
+    if (at === undefined) return;
+    const s = cueT(at, words);
+    pics.push([s, to !== undefined ? Math.max(s + 0.6, cueT(to, words, true)) : s + len]);
+  };
+  for (const b of plan.broll ?? []) pic(b.at, b.to, 2.4);
+  for (const h of plan.headlines ?? []) if (h.kind !== "over") pic(h.at, h.to, 3.4);
+  const hasPic = (s: number, e: number) => pics.some(([a, z]) => s < z && e > a);
+  const d0 = plan.direction as Record<string, any> | undefined;
+  const moved = (s: number) => ((d0?.moves ?? []) as { at: Cue }[]).some((m) => Math.abs(cueT(m.at, words) - s) < 1);
   const filled: Beat[] = [];
   const brandWord = brand.split(/\s+/)[0] || "";
   for (const b of beats) {
     if (b.kind === "cta" || b.kind === "ingredient") continue;
     const s = cueT(b.at, words);
-    if (s < 2.6 || s > duration - 3.4 || hit(s - 0.4, s + 1.8)) continue;
+    if (s < 2.6 || s > duration - 3.4) continue;
+    const alert = ALERT.has(b.kind);
+    // an alert beat needs a picture (a sticker / text headline there doesn't count); the others any visual
+    if (alert ? (b.kind === "urgency" ? hit(s - 0.4, s + 1.8) : hasPic(s - 0.4, s + 1.8)) : hit(s - 0.4, s + 1.8)) {
+      if (alert && d0 && Array.isArray(d0.moves) && !moved(s)) d0.moves.push({ at: b.at, move: ALERT_MOVE[b.kind], power: 1 });
+      // the director's own B-roll on an alert beat is pinned too, so no headline drops it
+      if (alert && b.kind !== "urgency") {
+        for (const x of plan.broll ?? []) {
+          const xs = cueT(x.at, words), xe = x.to !== undefined ? cueT(x.to, words, true) : xs + 2.4;
+          if (xs < s + 1.8 && xe > s - 0.4) x.must = true;
+        }
+      }
+      continue;
+    }
     if (filled.length >= 8) break;
+    if (alert && d0 && !moved(s)) (d0.moves ??= []).push({ at: b.at, move: ALERT_MOVE[b.kind], power: 1 });
     const label = /\d/.test(b.say) ? "" : b.say.split(/\s+/).slice(0, 4).join(" ");
     if (SHOWABLE.has(b.kind) && b.query) {
       const query = b.kind === "product" && brandWord && !b.query.toLowerCase().startsWith(brandWord.toLowerCase()) ? `${brandWord} ${b.query}` : b.query;
       // the product / how it's used → Google Images; the pain / win / proof as a scene → Pixabay
       const about = b.kind === "product" || b.kind === "how" ? "product" as const : "story" as const;
-      plan.broll.push({ at: b.at, ...(b.to !== undefined ? { to: b.to } : {}), layout: "pip", kind: "photo", about, query, ...(label ? { label } : {}), candidates: [] });
+      // an alert beat: the picture fills the screen and is pinned (a headline there moves off it)
+      plan.broll.push({ at: b.at, ...(b.to !== undefined ? { to: b.to } : {}), layout: alert ? "full" : "pip", kind: "photo", about, query, ...(label ? { label } : {}), candidates: [], ...(alert ? { must: true } : {}) });
+      pics.push([s - 0.2, s + 2.2]);
     } else if (b.say) {
       const sticker: MotionItem = b.kind === "objection" ? { t: "check", text: b.say.split(/\s+/).slice(0, 4).join(" "), mark: "check", zone: "bottom", at: b.at }
         : b.kind === "urgency" ? { t: "stamp", text: b.say.split(/\s+/).slice(0, 2).join(" "), zone: "middle", at: b.at }
