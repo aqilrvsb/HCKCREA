@@ -1022,8 +1022,20 @@ export async function directEdit(opts: {
     const s = cueT(b.at, words);
     plan.overlays.push({ t: "tape", text: b.say.split(/\s+/).slice(0, 4).join(" "), zone: "top", at: b.at, to: Math.round((s + 2) * 100) / 100 });
   }
-  // the ingredient shots are pinned; any other B-roll at their time gives way
+  // the ingredient shots are pinned; any other B-roll at their time gives way — and so does any sticker / side text
+  // there (the shot carries its own label; the director once wrote a misheard name on a tag over it)
   const allBroll = withIngredientShots(dedupedBroll, ingShots, words) as BRollPlan[];
+  if (ingShots.length) {
+    const wins = ingShots.map((s) => [cueT(s.at, words) - 0.2, cueT(s.to, words, true) + 0.2] as const);
+    const free = (at: Cue | undefined, to: Cue | undefined, len: number) => {
+      if (at === undefined) return true;
+      const s = cueT(at, words), e = to !== undefined ? Math.max(s + 0.4, cueT(to, words, true)) : s + len;
+      return !wins.some(([a, z]) => s < z && e > a);
+    };
+    plan.overlays = plan.overlays.filter((o) => free(o.at, o.to, 1.6));
+    const d = plan.direction as Record<string, any> | undefined;
+    if (d) for (const k of ["side", "banner", "behind"]) if (Array.isArray(d[k])) d[k] = d[k].filter((x: any) => free(x?.at, x?.to, 2));
+  }
   return { ...plan, director, broll: allBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts, headlines: finalHeads };
 }
 

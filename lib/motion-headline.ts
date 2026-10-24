@@ -338,10 +338,22 @@ async function toStockQuery(text: string, topic: string): Promise<string> {
  *  first, for a full-frame shot: stock photos → web pictures, the vision pick (the speaker named it, so it IS the
  *  subject; nothing watermarked or branded), kept on our storage. Null when nothing clean shows it. */
 export async function pickPhoto(query: string, label: string, topic: string): Promise<string | null> {
-  const f = await findBroll("pip", query, label, topic, { keep: true, asked: true, photosOnly: true }).catch(() => null);
-  const url = f?.candidates[0];
-  if (!url) return null;
-  const kept = /^https:\/\/peninglab-content\.s3\./.test(url) ? url : await keepPhoto(url);
+  // a named thing needs the real one: web pictures (specific — "astragalus root" finds the herb) beside free stock
+  // photos (a stock library may only hold a lookalike), judged together with an identity check
+  const ok = (u: string) => /^https:\/\//.test(u) && !WATERMARKED.test(u) && !SOCIAL.test(u);
+  const noSites = excludeOperators((await getSitePrefs().catch(() => ({ exclude: [] as string[] }))).exclude);
+  const [web, stock] = await Promise.all([
+    searchImages(`${query} ${noSites}`.trim()).then((r) => r.hits).catch(() => []),
+    searchPhotos(query).catch(() => []),
+  ]);
+  const pool = [
+    ...web.filter((x) => ok(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))).slice(0, 5),
+    ...stock.filter((x) => ok(x.url)).slice(0, 3),
+  ].map((x) => ({ url: x.url, thumb: (x as { thumb?: string }).thumb || undefined }));
+  if (!pool.length) return null;
+  const k = await pickClean(query, label, pool, topic, true, label);
+  if (k < 0) return null;
+  const kept = await keepPhoto(pool[k].url);
   return /^https:\/\/peninglab-content\.s3\./.test(kept) ? kept : null;
 }
 
@@ -372,13 +384,15 @@ export async function pickHeadlineBroll(o: { kind: "split" | "pip"; want?: strin
 
 /** Web pictures for a headline panel get the same eye as the B-roll: the cleanest literal match — no watermark, no
  *  screenshot / meme / text-heavy poster, no other brand's ad — or none (-1: the panel uses the look's surface). */
-async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[], topic = "", asked = false): Promise<number> {
+async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[], topic = "", asked = false, exact = ""): Promise<number> {
   const r = await orChatVision({
     modelKey: "model_motion",
     systemPrompt: "You pick a background picture (a photo, or a still of a stock video) for a TikTok split-screen headline panel. Choose the image that most literally shows the query's main thing as a clean, real shot (a scene, an object, a place, people doing it) — an image of something else (a flower for 'cooking oil') does NOT fit. REJECT any image with a visible watermark or stock-site stamp, a screenshot of an app / social post / website, a meme, a poster or graphic full of text, a collage, a price tag or another brand's ad. REJECT any image whose subject is a branded product — a box, pack, bottle, jar or label with a readable brand name or logo (it would advertise someone else's product in the seller's video); plain unbranded things (a glass of drink, a coffee cup, a patch on skin, a person) are fine. Answer ONLY JSON: {\"pick\": n} (0-based) or {\"pick\": -1} when none is clean.",
     // the seller typed what to show: that IS the subject (a diet-drink seller asking for "sabun mandi" gets soap) —
     // the clean-picture rules still hold
-    textPrompt: `${asked
+    textPrompt: `${exact
+      ? `IDENTITY CHECK — the picture must truly show "${exact}" (${query}) itself, recognisably. A different thing that merely looks alike is WRONG: ginger, turmeric or ginseng are not astragalus root; a generic green leaf is not a mulberry leaf. Pick the clearest true one; -1 when none of them truly is it.\n`
+      : ""}${asked
       ? `THE SELLER ASKED FOR THIS PICTURE (their own words) — it fits their video by definition; pick the cleanest image that literally shows the query.\n${topic ? `(The video, for context only: ${topic.slice(0, 300)})\n` : ""}`
       : topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}Query: "${query}" (headline word: "${big}"). Images #0..#${hits.length - 1} attached in order.`,
     images: hits.map((h) => h.thumb || h.url),
