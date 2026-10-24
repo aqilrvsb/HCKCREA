@@ -43,7 +43,7 @@ const keepPhoto = (url: string) => keepMedia(url, false);
 
 export type Cue = string | number;
 /** bumped when the headline logic changes: a cached polish from before is made again */
-export const HEADLINE_VERSION = 14;
+export const HEADLINE_VERSION = 15;
 // web images from these carry watermarks / licence terms: never on a headline
 const WATERMARKED = /shutterstock|istockphoto|gettyimages|alamy|dreamstime|123rf|depositphotos|ftcdn|adobestock|stock\.adobe|bigstock|canstock|vecteezy|freepik|pond5|storyblocks|agefotostock|pixta|envato|dissolve\.com|wallpaper|pinimg|pinterest/i;
 // social / marketplace pictures are screenshots, collages or someone else's post
@@ -96,14 +96,17 @@ function wordAt(words: { t: number }[], sec: number) {
   return best;
 }
 
-const STOP = new Set(["yang", "dan", "ini", "itu", "dia", "kita", "saya", "aku", "kau", "korang", "awak", "dengan", "untuk", "dalam", "pada", "tapi", "kalau", "sebab", "macam", "dah", "nak", "tak", "ada", "lah", "kan", "pun", "jadi", "the", "and", "that", "this", "with", "for", "you", "kat", "dekat", "sangat", "boleh", "memang", "betul", "okay", "okey"]);
+const STOP = new Set(["yang", "dan", "ini", "itu", "dia", "kita", "saya", "aku", "kau", "korang", "awak", "dengan", "untuk", "dalam", "pada", "tapi", "kalau", "sebab", "macam", "dah", "nak", "tak", "ada", "lah", "kan", "pun", "jadi", "the", "and", "that", "this", "with", "for", "you", "kat", "dekat", "sangat", "boleh", "memang", "betul", "okay", "okey",
+  // function words that are never the punch ("Allah dia ni / SEBAGAI / rawatan")
+  "sebagai", "adalah", "ialah", "kerana", "juga", "lagi", "sahaja", "saja", "semua", "setiap", "selepas", "sebelum", "apabila",
+  "bila", "tentang", "daripada", "kepada", "bagaimana", "kenapa", "mana", "punya", "seperti", "macam", "nanti", "sekarang", "tengok"]);
 /** Words for a headline when the AI wrote none, from what the speaker says right there: the strongest word is the
  *  punch, the words before it the lead-in, the words after it the payoff (else the hook / title). */
 // spoken fillers that make no headline lead-in ("Sini Okay / KEGUNAAN")
 const FILLER = new Set(["okay", "okey", "ok", "so", "haa", "ha", "hah", "eh", "erm", "um", "ya", "yes", "haah", "lah", "tau", "kan",
   // greetings / praise said to a live audience: no headline punch
   "assalamualaikum", "waalaikumsalam", "walaikumsalam", "alhamdulillah", "masyaallah", "mashaallah", "tabarakallah", "insyaallah",
-  "inshaallah", "subhanallah", "terima", "kasih", "thank", "thanks", "welcome", "hello", "hai", "madam", "sis", "kak", "akak"]);
+  "inshaallah", "subhanallah", "insya", "allah", "terima", "kasih", "thank", "thanks", "welcome", "hello", "hai", "madam", "sis", "kak", "akak"]);
 function spokenText(words: { w: string; t: number }[], t: number, source: string, n: number) {
   const near = words.filter((w) => w.t >= t - 1.5 && w.t <= t + 4)
     .map((w) => ({ w: w.w.replace(/[^\p{L}\p{N}%-]/gu, ""), end: /[.?!]["')\]]*$/.test(w.w) })).filter((x) => x.w);
@@ -207,7 +210,21 @@ function numbersSaid(text: string, ok: Set<string>, units: Set<string>): boolean
  *  "split" — placed after the hook, the over around the first third, the splits around the middle / last third.
  *  A headline showing a number the speaker doesn't say (nor the client wrote: `extra`) is dropped and made again
  *  from the speaker's own words there. */
-export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], duration: number, fallback: string, extra = ""): HeadlinePlan[] {
+export type HeadBeat = { t: number; say: string; query?: string; about?: "product" | "story" };
+
+/** A selling beat's short line ("Rawatan sokongan sahaja") as a headline: its strongest word the punch. */
+function beatText(say: string): { lead: string; big: string; box: string } | null {
+  const ws = say.replace(/[^\p{L}\p{N}\s%-]/gu, " ").split(/\s+/).filter(Boolean);
+  let bi = -1;
+  ws.forEach((w, i) => { const l = w.toLowerCase(); if (!STOP.has(l) && !FILLER.has(l) && w.length >= 3 && (bi < 0 || w.length > ws[bi].length)) bi = i; });
+  if (bi < 0) return null;
+  const lead = ws.slice(0, bi).join(" ");
+  return { lead: lead ? (lead[0].toUpperCase() + lead.slice(1)).slice(0, 34) : "", big: ws[bi].toUpperCase().slice(0, 16), box: ws.slice(bi + 1).join(" ").slice(0, 34) };
+}
+
+export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], duration: number, fallback: string, extra = "",
+  /** the closing director's selling beats: a slot the AI left empty takes the nearest one's line + picture search */
+  beats: HeadBeat[] = []): HeadlinePlan[] {
   const n = words.length;
   const said = spokenNumbers(words, extra);
   const units = unitsSaid(words, extra);
@@ -247,10 +264,28 @@ export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], 
     : duration < 45 ? [["over", 0.18], ["split", 0.45], ["pip", 0.72]]
     : [["over", 0.14], ["split", 0.36], ["pip", 0.58], ["split", 0.8]];
   const out: HeadlinePlan[] = [];
+  const usedBeats = new Set<HeadBeat>();
+  const taken = (t: number) => [...got, ...out].some((h) => {
+    const m = typeof h.at === "string" ? W_CUE.exec(h.at) : null;
+    const ht = typeof h.at === "number" ? h.at : m ? words[Number(m[1])]?.t ?? -99 : -99;
+    return Math.abs(ht - t) < 4;
+  });
   for (const [kind, frac] of want) {
     const have = got.filter((h) => h.kind === kind && !out.includes(h));
     if (have.length) { out.push(have[0]); continue; }
     const t = Math.max(3, Math.min(duration - 4.5, duration * frac));
+    // the nearest selling beat (its own line, its own picture search) — the speaker's words there otherwise
+    const beat = beats
+      .filter((b) => !usedBeats.has(b) && b.t >= 3 && b.t <= duration - 4.5 && !taken(b.t) && beatText(b.say))
+      .sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
+    if (beat && Math.abs(beat.t - t) <= Math.max(6, duration * 0.2)) {
+      usedBeats.add(beat);
+      out.push({
+        kind, at: `w${wordAt(words, beat.t)}`, ...beatText(beat.say)!,
+        ...(kind !== "over" ? { query: beat.query ?? "", media: beat.about === "product" ? "photo" as const : "video" as const, ...(beat.about ? { about: beat.about } : {}) } : {}),
+      });
+      continue;
+    }
     const txt = spokenText(words, t, fallback, out.length);
     out.push({ kind, at: `w${wordAt(words, t)}`, ...txt, ...(kind !== "over" ? { query: "", media: "video" as const } : {}) });
   }
@@ -260,7 +295,15 @@ export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], 
 /** The B-roll of the split / pip layouts: stock clips for the query (Pexels → Pixabay), else photos, else clean web
  *  pictures — each set judged by a vision pick (the one that really shows the query; none when nothing does).
  *  Fail-soft: a layout with no pictures is drawn on the look's own surface. */
-export async function enrichHeadlines(heads: HeadlinePlan[], context: string): Promise<HeadlinePlan[]> {
+export async function enrichHeadlines(heads: HeadlinePlan[], context: string,
+  /** the speaker's words: each panel's picture is checked against what is said right there */
+  words: { w: string; t: number }[] = []): Promise<HeadlinePlan[]> {
+  const saidAt = (h: HeadlinePlan) => {
+    if (!words.length) return "";
+    const m = typeof h.at === "string" ? W_CUE.exec(h.at) : null;
+    const t = typeof h.at === "number" ? h.at : m ? words[Number(m[1])]?.t ?? 0 : 0;
+    return words.filter((w) => w.t >= t - 1.5 && w.t <= t + 3.5).slice(0, 16).map((w) => w.w).join(" ");
+  };
   // a headline the AI didn't write borrows another one's search (stock libraries read English keywords, not the title)
   const shared = heads.find((x) => x.kind !== "over" && x.query)?.query || "";
   const topic = context.replace(/\s+/g, " ").trim().slice(0, 400);
@@ -278,7 +321,8 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
     if (!q) return h;
     try {
       // the picture is checked against the whole headline on screen (what the moment says), not one word
-      const found = await findBroll(h.kind, q, [h.lead, h.big, h.box].filter(Boolean).join(" "), topic, { page: nth[hi], ...(h.about === "product" ? { source: "google" as const } : h.about === "story" ? { source: "stock" as const } : {}) });
+      const found = await findBroll(h.kind, q, [h.lead, h.big, h.box].filter(Boolean).join(" "), topic, {
+        said: saidAt(h), page: nth[hi], ...(h.about === "product" ? { source: "google" as const } : h.about === "story" ? { source: "stock" as const } : {}) });
       return found ? { ...h, query: q, ...found } : { ...h, query: q, candidates: [] };
     } catch {
       return h;
@@ -293,7 +337,7 @@ export async function enrichHeadlines(heads: HeadlinePlan[], context: string): P
  *  reads further down the results; `skip`: pictures already shown are left out (asking again gives the next one);
  *  `keep`: a stock clip is copied to our storage too (a client's pick must render the same days later). */
 async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
-  o: { page?: number; skip?: Set<string>; keep?: boolean; asked?: boolean; photosOnly?: boolean; source?: "google" | "stock" } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
+  o: { page?: number; skip?: Set<string>; keep?: boolean; asked?: boolean; photosOnly?: boolean; source?: "google" | "stock"; said?: string } = {}): Promise<{ media: "video" | "photo"; candidates: string[] } | null> {
   const land = (c: { width: number; height: number }) => Number(c.width >= c.height);
   const order = <T extends { width: number; height: number }>(xs: T[]) => xs.sort((a, b) => (kind === "split" ? land(b) - land(a) : land(a) - land(b)));
   const seen = (u: string) => !!o.skip?.size && (o.skip.has(u) || o.skip.has(sha1(u)));
@@ -307,7 +351,7 @@ async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
   const firstFit = async (xs: { url: string; thumb?: string }[]) => {
     const top = page(xs.filter((x) => ok(x.url)), 5);
     if (!top.length) return null;
-    const k = await pickClean(q, big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic, o.asked);
+    const k = await pickClean(q, big, top.map((x) => ({ url: x.url, thumb: x.thumb || undefined })), topic, o.asked, "", o.said);
     return k >= 0 ? [top[k].url, ...top.filter((_, i) => i !== k).map((x) => x.url)].slice(0, 3) : null;
   };
   // the owner's sourcing rule: the product's own story → Google Images only; a new story scene → Pixabay stock only
@@ -321,7 +365,7 @@ async function findBroll(kind: HeadKind, q: string, big: string, topic: string,
   const noSites = excludeOperators((await getSitePrefs()).exclude);
   const hits = page((await searchImages(`${q} ${noSites}`.trim())).hits
     .filter((x) => ok(x.url) && !SOCIAL.test(x.url) && !WATERMARKED.test(String((x as { source?: string }).source ?? "")) && !SOCIAL.test(String((x as { source?: string }).source ?? ""))), 4);
-  const pick = hits.length ? await pickClean(q, big, hits, topic, o.asked) : -1;
+  const pick = hits.length ? await pickClean(q, big, hits, topic, o.asked, "", o.said) : -1;
   return pick >= 0 ? { media: "photo", candidates: [await keepPhoto(hits[pick].url), ...hits.filter((_, i) => i !== pick).map((x) => x.url)].slice(0, 3) } : null;
 }
 
@@ -393,7 +437,7 @@ export async function pickHeadlineBroll(o: { kind: "split" | "pip"; want?: strin
 
 /** Web pictures for a headline panel get the same eye as the B-roll: the cleanest literal match — no watermark, no
  *  screenshot / meme / text-heavy poster, no other brand's ad — or none (-1: the panel uses the look's surface). */
-async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[], topic = "", asked = false, exact = ""): Promise<number> {
+async function pickClean(query: string, big: string, hits: { url: string; thumb?: string }[], topic = "", asked = false, exact = "", said = ""): Promise<number> {
   const r = await orChatVision({
     modelKey: "model_motion",
     systemPrompt: "You pick a background picture (a photo, or a still of a stock video) for a TikTok split-screen headline panel. Choose the image that most literally shows the query's main thing as a clean, real shot (a scene, an object, a place, people doing it) — an image of something else (a flower for 'cooking oil') does NOT fit. REJECT any image with a visible watermark or stock-site stamp, a screenshot of an app / social post / website, a meme, a poster or graphic full of text, a collage, a price tag or another brand's ad. REJECT any image whose subject is a branded product — a box, pack, bottle, jar or label with a readable brand name or logo (it would advertise someone else's product in the seller's video); plain unbranded things (a glass of drink, a coffee cup, a patch on skin, a person) are fine. Answer ONLY JSON: {\"pick\": n} (0-based) or {\"pick\": -1} when none is clean.",
@@ -403,7 +447,8 @@ async function pickClean(query: string, big: string, hits: { url: string; thumb?
       ? `IDENTITY CHECK — the picture must truly show "${exact}" (${query}) itself, recognisably. A different thing that merely looks alike is WRONG: ginger, turmeric or ginseng are not astragalus root; a generic green leaf is not a mulberry leaf. Pick the clearest true one; -1 when none of them truly is it.\n`
       : ""}${asked
       ? `THE SELLER ASKED FOR THIS PICTURE (their own words) — it fits their video by definition; pick the cleanest image that literally shows the query.\n${topic ? `(The video, for context only: ${topic.slice(0, 300)})\n` : ""}`
-      : topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}Query: "${query}" (on screen: "${big}") — the picture must show what that line means, in the video's sense; a related-but-different thing is WRONG (candy or chocolate for sugar in a drink). Images #0..#${hits.length - 1} attached in order.`,
+      : topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}${said ? `THE SPEAKER SAYS RIGHT THERE: "${said}"
+` : ""}Query: "${query}" (on screen: "${big}") — the picture must show what that line and those words mean, in the video's sense — literally, never a metaphor or a mood picture; a related-but-different thing is WRONG (candy or chocolate for sugar in a drink). Images #0..#${hits.length - 1} attached in order.`,
     images: hits.map((h) => h.thumb || h.url),
     temperature: 0.1,
     maxTokens: 60,

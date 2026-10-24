@@ -92,7 +92,7 @@ export async function POST(req: Request) {
   ]).then(async ([p, fixes, ing]) => {
     const raw = words.map((w) => w.w);
     const fixedHeads = fixHeadlineWords(p.headlines, raw, fixes);
-    const headlines = await enrichHeadlines(fixedHeads, context || String(b?.title ?? "")).catch(() => fixedHeads);
+    const headlines = await enrichHeadlines(fixedHeads, context || String(b?.title ?? ""), words.map((w, i) => ({ w: fixes.find((f) => f[0] === i)?.[1] ?? w.w, t: w.t }))).catch(() => fixedHeads);
     const shots = ing.map((s) => ({ at: s.at, to: s.to, label: s.label, query: s.query, candidates: s.candidates }));
     return { words: raw, keywords: p.keywords, zooms: p.zooms, headlines, fixes, shots, hv: HEADLINE_VERSION, at: Date.now() };
   });

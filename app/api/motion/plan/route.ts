@@ -37,7 +37,7 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
   const keywords = !polish ? [] : reused?.keywords.length ? reused.keywords : fresh?.keywords ?? [];
   const zooms = !polish ? [] : reused?.zooms.length ? reused.zooms : fresh?.zooms ?? [];
   const picked = reused?.headlines.length ? reused.headlines
-    : await enrichHeadlines(fresh?.headlines ?? [], input.clip?.topic || input.clip?.title || "").catch(() => fresh?.headlines ?? []);
+    : await enrichHeadlines(fresh?.headlines ?? [], input.clip?.topic || input.clip?.title || "", words).catch(() => fresh?.headlines ?? []);
   // the client's own overlay (Studio "🎬 Overlay"): corrected words and / or their B-roll in place of the AI's
   const own = input.clip?.broll_fix ?? [];
   const headlines = picked.map((h, i) => {

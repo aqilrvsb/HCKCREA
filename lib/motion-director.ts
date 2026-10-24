@@ -994,13 +994,16 @@ export async function directEdit(opts: {
   const headSource = [plan.hook?.text, input.product].filter(Boolean).join(" ");
   // numbers on a headline: said by the speaker, or written by the client (product name, brief, own hook / CTA)
   const headNums = [input.product, input.instructions, input.locks?.hook, input.locks?.cta].filter(Boolean).join(" ");
-  plan.headlines = cleanHeadlines(raw?.headlines, words, duration, headSource, headNums);
+  // the closing director's selling beats: a headline slot the AI left empty takes the nearest one (its line, its picture search)
+  const beatsAll = cleanBeats(raw?.beats, words, duration);
+  const headBeats = beatsAll.filter((b) => b.kind !== "cta" && b.kind !== "ingredient" && b.say)
+    .map((b) => ({ t: cueT(b.at, words), say: b.say, query: b.query, about: b.kind === "product" || b.kind === "how" ? "product" as const : "story" as const }));
+  plan.headlines = cleanHeadlines(raw?.headlines, words, duration, headSource, headNums, headBeats);
   if (input.guard) {
-    plan.headlines = cleanHeadlines(plan.headlines.filter((h) => !guardHits([h.lead, h.big, h.box].join(" ")).length), words, duration, headSource, headNums);
+    plan.headlines = cleanHeadlines(plan.headlines.filter((h) => !guardHits([h.lead, h.big, h.box].join(" ")).length), words, duration, headSource, headNums, headBeats.filter((b) => !guardHits(b.say).length));
   }
   // only numbers the speaker says (or the client wrote) reach the screen; nothing that sits on the speaker hides inside a scene
   // CLOSING: a selling beat the plan left on the talking head gets a picture / sticker (grounded + guarded below)
-  const beatsAll = cleanBeats(raw?.beats, words, duration);
   const beatFills = hitBeats(plan, beatsAll, words, duration, String(input.product || plan.brand || ""));
   plan.beats = beatsAll.map((b) => ({ kind: b.kind, at: b.at, say: b.say, ...(beatFills.includes(b) ? { filled: true } : {}) }));
   groundPlan(plan, words, duration, [input.product, input.instructions, input.locks?.hook, input.locks?.cta].filter(Boolean).join(" "), input.locks?.scenes);
@@ -1016,7 +1019,7 @@ export async function directEdit(opts: {
       [input.product || plan.brand, plan.angle, input.instructions?.slice(0, 160)].filter(Boolean).join(" — ")), [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
-    byDeadline(enrichHeadlines(plan.headlines ?? [], [input.product || plan.brand, plan.angle, input.instructions?.slice(0, 200)].filter(Boolean).join(" — ")), plan.headlines ?? []),
+    byDeadline(enrichHeadlines(plan.headlines ?? [], [input.product || plan.brand, plan.angle, input.instructions?.slice(0, 200)].filter(Boolean).join(" — "), words), plan.headlines ?? []),
     // every ingredient the speaker names gets its picture on that word (required; off only with B-roll off)
     input.broll === false ? Promise.resolve([] as IngredientShot[])
       : byDeadline(ingredientShots(words, [input.product || plan.brand, input.instructions?.slice(0, 200)].filter(Boolean).join(" — "), { uploads }), [] as IngredientShot[]),
