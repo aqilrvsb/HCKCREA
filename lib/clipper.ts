@@ -330,12 +330,27 @@ function partsOf(ls: Line[], partSec = 1500, overlap = 60): { a: number; b: numb
   return out;
 }
 
-/** A new clip that reuses a moment already taken (overlaps one by > 2 s, or covers most of a short one). */
+/** A new clip that reuses a moment already taken (any real overlap — a shared half-second at a boundary is fine). */
 export function overlapsTaken(c: { start: number; end: number }, taken: { start: number; end: number }[]): boolean {
-  return taken.some((t) => {
-    const o = Math.min(c.end, t.end) - Math.max(c.start, t.start);
-    return o > 2 || (o > 0 && o >= 0.5 * Math.min(c.end - c.start, t.end - t.start));
-  });
+  return taken.some((t) => Math.min(c.end, t.end) - Math.max(c.start, t.start) > 0.5);
+}
+
+// words that say nothing about a title's topic (Malay / Indonesian / English)
+const TITLE_STOP = new Set(["yang", "dan", "ini", "itu", "dia", "kena", "tak", "tidak", "nak", "boleh", "dengan", "untuk", "dalam", "pada", "kalau",
+  "dari", "daripada", "sebab", "macam", "lagi", "je", "jer", "pun", "ada", "akan", "the", "and", "for", "you", "your", "this", "that", "with", "how", "why", "what"]);
+const titleWords = (t: string) => new Set(t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/)
+  .filter((w) => w.length > 2 && !TITLE_STOP.has(w)));
+/** Two titles about the same thing (word overlap ≥ 60 %) — e.g. the same pitch told again later in a LIVE. */
+export function similarTitle(a: string, b: string): boolean {
+  const x = titleWords(a), y = titleWords(b);
+  if (!x.size || !y.size) return false;
+  let both = 0;
+  for (const w of x) if (y.has(w)) both++;
+  return both / (x.size + y.size - both) >= 0.6;
+}
+/** A clip that is new: not on a taken moment, and not the same story under a near-identical title. */
+export function isFreshClip(c: { start: number; end: number; title?: string }, taken: { start: number; end: number; title?: string }[]): boolean {
+  return !overlapsTaken(c, taken) && !taken.some((t) => t.title && c.title && similarTitle(t.title, c.title));
 }
 
 export async function directClips(opts: {
@@ -349,7 +364,13 @@ export async function directClips(opts: {
 }): Promise<{ summary: string; clips: ClipperClip[]; director: string | null; fallback: boolean }> {
   const { meta, heatmap, lines, options: o } = opts;
   const taken = (opts.exclude ?? []).filter((t) => Number.isFinite(t.start) && Number.isFinite(t.end) && t.end > t.start);
-  const fresh = (cs: ClipperClip[]) => (taken.length ? cs.filter((c) => !overlapsTaken(c, taken)) : cs);
+  // "➕ Cari lagi klip": off a taken moment, not a taken story again, and within the round no story twice either
+  const fresh = (cs: ClipperClip[]) => {
+    if (!taken.length) return cs;
+    const out: ClipperClip[] = [];
+    for (const c of cs) if (isFreshClip(c, taken) && isFreshClip(c, out)) out.push(c);
+    return out;
+  };
   const lang = (o.language !== "auto" ? o.language : meta.language) || "ms";
   const langName = LANG_NAME[lang] ?? `the video's own language (code "${lang}")`;
   const cnt = countTarget(o, meta.duration);
@@ -366,7 +387,7 @@ export async function directClips(opts: {
     const here = taken.filter((t) => t.end > a - 60 && t.start < b + 60)
       .map((t) => `L${lineIdAt(t.start, "start")}–L${lineIdAt(t.end, "end")}${t.title ? ` "${t.title}"` : ""}`);
     const titles = taken.map((t) => t.title).filter(Boolean).slice(0, 60);
-    return `\nALREADY CLIPPED — the client has these clips. Find OTHER moments: never reuse or overlap these lines, and prefer topics / angles not covered by the titles below.${here.length ? `\nTaken in this part: ${here.join("; ")}` : ""}${titles.length ? `\nTitles already used: ${titles.map((x) => `"${x}"`).join(", ")}` : ""}`;
+    return `\nALREADY CLIPPED — the client has these clips. Find OTHER moments: never reuse, overlap or lead into these lines (not the setup just before one, not its continuation just after), and never the same story / pitch again when the speaker repeats it at another time — new topics and angles only, not covered by the titles below.${here.length ? `\nTaken in this part: ${here.join("; ")}` : ""}${titles.length ? `\nTitles already used: ${titles.map((x) => `"${x}"`).join(", ")}` : ""}`;
   };
   const head = `VIDEO: "${meta.title || "(no title)"}"${meta.channel ? ` — channel / host: ${meta.channel}` : ""}. Length ${Math.round(meta.duration)} s.${o.range ? ` Only use ${Math.round(o.range.start)}–${Math.round(o.range.end)} s.` : ""}`;
   const partDeadline = opts.deadline ? opts.deadline - 85_000 : undefined;

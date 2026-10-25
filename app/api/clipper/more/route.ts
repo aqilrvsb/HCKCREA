@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { withDeadline } from "@/lib/openrouter";
 import {
-  MAX_ANALYSIS_CLIPS, cleanOptions, directClips, overlapsTaken,
+  MAX_ANALYSIS_CLIPS, cleanOptions, directClips, isFreshClip,
   type ClipperAnalysis, type ClipperClip, type HeatPoint, type Line,
 } from "@/lib/clipper";
 
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
     const added: ClipperClip[] = [];
     for (const c of res.clips) {
       if (cur.length + added.length >= MAX_ANALYSIS_CLIPS) break;
-      if (overlapsTaken(c, [...cur, ...added])) continue;
+      if (!isFreshClip(c, [...cur, ...added])) continue;
       added.push({ ...c, batch });
     }
     const meta = now?.metadata || row.metadata || {};
