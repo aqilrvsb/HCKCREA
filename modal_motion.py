@@ -468,7 +468,20 @@ def _render_parallel(comp: str, props: dict, d: Path, out: Path, scale: float, p
 
 
 
-@app.function(image=render_image, cpu=8.0, memory=16384, timeout=1500, volumes={JOBS_ROOT: JOBS})
+# ── No paying for idle (2026-10-26) ─────────────────────────────────────────────
+# Modal bills a container from start until it scales down, at max(request, usage) for CPU and memory.
+# • Idle tail: a container stays up `scaledown_window` s after its last input (default 60 s, billed) → short windows;
+#   a burst still reuses warm containers, a lone job doesn't pay a minute (GPU: three) of nothing.
+# • Reservation: cpu=(request, limit) / memory=(request, limit) — while a job only waits (the LLM plan, the GPU, a
+#   download) it pays the request; it still bursts up to the limit when it works (CPU above the request = whatever the
+#   host has free; memory past the limit = OOM, so the limits stay what they were).
+IDLE_CHUNK = 10   # render chunks: spawned in bursts, each one runs once
+IDLE_JOB = 15     # orchestrators / CPU helpers
+IDLE_GPU = 30     # GPU functions: a clip batch's calls land within seconds of each other
+
+
+@app.function(image=render_image, cpu=(4.0, 8.0), memory=(4096, 16384), timeout=1500, volumes={JOBS_ROOT: JOBS},
+              scaledown_window=IDLE_CHUNK)
 def render_chunk(job: str, comp: str, start: int, end: int, idx: int, scale: float) -> dict:
     """Render frames [start, end] of a prepared job: muted video + the same
     range's audio (WAV) in parallel; return both as bytes."""
@@ -505,6 +518,9 @@ def render_chunk(job: str, comp: str, start: int, end: int, idx: int, scale: flo
 # them. Chunk containers are started before planning so their cold start
 # overlaps it; they wait for the plan on the Volume.
 HF_MAX_CHUNKS = 32
+# every chunk container pays its own start-up (~3 s Chrome boot + plan copy + idle tail): 1-s chunks paid it 20–30×
+# per clip; 3-s chunks cut the containers per clip ~3× for ~15 s more render time
+HF_MIN_CHUNK_SEC = 3
 HF_PLAN = "hfplan"
 HF_READY = "hfplan.ready"
 _LOCAL_URL = re.compile(r"http://127\.0\.0\.1:\d+/([^\"?#\\]+)")
@@ -529,12 +545,13 @@ def _hf_node(args: list, what: str, timeout: int = 900) -> dict:
 
 def _hf_chunk_frames(total: int) -> int:
     """Frames per chunk: whole seconds (HyperFrames lags the footage one frame in
-    a chunk that starts mid-second — see motion-hf/build/dist.mjs), at most
-    HF_MAX_CHUNKS chunks."""
-    return 30 * max(1, math.ceil(total / (30 * HF_MAX_CHUNKS)))
+    a chunk that starts mid-second — see motion-hf/build/dist.mjs), at least
+    HF_MIN_CHUNK_SEC each, at most HF_MAX_CHUNKS chunks."""
+    return 30 * max(HF_MIN_CHUNK_SEC, math.ceil(total / (30 * HF_MAX_CHUNKS)))
 
 
-@app.function(image=hf_render_image, cpu=4.0, memory=8192, timeout=900, volumes={JOBS_ROOT: JOBS})
+@app.function(image=hf_render_image, cpu=4.0, memory=(4096, 8192), timeout=900, volumes={JOBS_ROOT: JOBS},
+              scaledown_window=IDLE_CHUNK)
 def hf_chunk(job: str, idx: int) -> dict:
     """Render chunk `idx` of a job's HyperFrames plan (waits for the plan to land on the Volume)."""
     import shutil
@@ -807,7 +824,8 @@ def _gather_chunks(job: str, count: int, calls: list, limit: float = 900) -> dic
     return got
 
 
-@app.function(image=hf_render_image, cpu=4.0, memory=8192, timeout=1800, volumes={JOBS_ROOT: JOBS})
+@app.function(image=hf_render_image, cpu=(2.0, 4.0), memory=(4096, 8192), timeout=1800, volumes={JOBS_ROOT: JOBS},
+              scaledown_window=IDLE_JOB)
 def render_project(job: str, project: str = "ws/video", out_name: str = "render.mp4") -> dict:
     """Render a whole HyperFrames project from the jobs Volume across hf_chunk containers — the parallel renderer
     Default uses — into <job>/<out_name>. Custom Style's `pl-render` (modal_vgc.py) calls it: its workspace's
@@ -1478,7 +1496,8 @@ def _ocr_lines(eng, img) -> list:
     return [(b, str(t), float(s)) for b, t, s in zip(r.boxes.tolist(), r.txts, r.scores)]
 
 
-@app.function(image=guard_image, cpu=4.0, memory=4096, timeout=600, volumes={JOBS_ROOT: JOBS})
+@app.function(image=guard_image, cpu=4.0, memory=(2048, 4096), timeout=600, volumes={JOBS_ROOT: JOBS},
+              scaledown_window=IDLE_CHUNK)
 def guard_scan(job: str, start: float, length: float, fps: float, j0: int, name: str = "video.mp4") -> dict:
     """OCR the sampled frames of [start, start+length) of the job's video.
     Each detection: j (global sample index), t, box (1080x1920 px), text, score."""
@@ -1504,7 +1523,7 @@ def guard_scan(job: str, start: float, length: float, fps: float, j0: int, name:
     return {"ok": True, "dets": dets, "frames": k}
 
 
-@app.function(image=guard_image, cpu=4.0, memory=4096, timeout=300)
+@app.function(image=guard_image, cpu=4.0, memory=(2048, 4096), timeout=300, scaledown_window=IDLE_JOB)
 def guard_ocr_images(images: list) -> dict:
     """[(name, bytes)] → {name: [{"q": quad in image px, "x": text, "s": score}]}."""
     import io
@@ -2630,7 +2649,8 @@ def _final_check(d: Path, out: Path, dur: float, p: dict, props: dict) -> dict:
             "patched": bool(tracks)}
 
 
-@app.function(image=matte_image, gpu=["L40S", "L4"], cpu=8.0, memory=16384, timeout=600, volumes={JOBS_ROOT: JOBS})
+@app.function(image=matte_image, gpu=["L40S", "L4"], cpu=(2.0, 8.0), memory=(8192, 16384), timeout=600,
+              volumes={JOBS_ROOT: JOBS}, scaledown_window=IDLE_GPU)
 def matte_windows(job: str, windows: list) -> list:
     """Cut the subject out of video.mp4 for each [first, end) frame window → {"webm": VP9-with-alpha bytes (same
     1080x1920 / 30 fps timing, frame 0 = the window's first frame), "top": the top of the subject's head (px, median
@@ -2741,7 +2761,8 @@ def matte_windows(job: str, windows: list) -> list:
 
 
 # ── job + endpoints ───────────────────────────────────────────────────────────
-@app.function(image=hf_render_image, cpu=8.0, memory=16384, timeout=2400, secrets=SECRETS, volumes={JOBS_ROOT: JOBS})
+@app.function(image=hf_render_image, cpu=(4.0, 8.0), memory=(8192, 16384), timeout=2400, secrets=SECRETS,
+              volumes={JOBS_ROOT: JOBS}, scaledown_window=IDLE_JOB)
 def run_job(payload: dict) -> dict:
     import shutil
     t0 = time.time()
@@ -2986,7 +3007,7 @@ def _yt_blocked(msg: str) -> bool:
             or "requested format is not available" in m or "http error 403" in m)
 
 
-@app.function(image=yt_image, cpu=2.0, memory=4096, timeout=1800, region=YT_REGION)
+@app.function(image=yt_image, cpu=(1.0, 2.0), memory=(2048, 4096), timeout=1800, region=YT_REGION, scaledown_window=IDLE_JOB)
 def yt_task(kind: str, url: str, args: dict) -> dict:
     """kind "info": title / heatmap / captions (lines); "segment": one clip as MP4 bytes; "audio": the soundtrack (Opus)."""
     import shutil
@@ -3130,7 +3151,8 @@ def yt_mirror(url: str, key: str) -> dict:
     return last
 
 
-@app.function(image=yt_image.pip_install("boto3==1.34.0"), cpu=2.0, memory=4096, timeout=3600, secrets=SECRETS, region=YT_REGION)
+@app.function(image=yt_image.pip_install("boto3==1.34.0"), cpu=(1.0, 2.0), memory=(2048, 4096), timeout=3600, secrets=SECRETS,
+              region=YT_REGION, scaledown_window=IDLE_JOB)
 def yt_mirror_try(url: str, key: str, fresh: bool, via: str) -> dict:
     import shutil
     global _YT_AUTH
@@ -3555,7 +3577,8 @@ def _detect_language(wav: Path) -> str | None:
         return None
 
 
-@app.function(image=hf_render_image, cpu=8.0, memory=8192, timeout=1800, volumes={JOBS_ROOT: JOBS})
+@app.function(image=hf_render_image, cpu=8.0, memory=(4096, 8192), timeout=1800, volumes={JOBS_ROOT: JOBS},
+              scaledown_window=IDLE_JOB)
 def clip_asr(rel: str, language: str | None, offset: float, keep_from: float, keep_to: float) -> list:
     """Whisper on one chunk of a long source (on the jobs Volume); words in source time, only [keep_from, keep_to)."""
     JOBS.reload()
@@ -3609,8 +3632,8 @@ except Exception as _e:  # noqa: BLE001
 
 
 # L4 first; when Modal is short of L4s, an A10G / L40S (same CUDA build, ≥ 24 GB) rather than a queue
-@app.function(image=audio_image, gpu=["L4", "A10G", "L40S"], cpu=8.0, memory=16384, timeout=1800, secrets=[modal.Secret.from_name("lh-hf")],
-              volumes={JOBS_ROOT: JOBS}, scaledown_window=180)
+@app.function(image=audio_image, gpu=["L4", "A10G", "L40S"], cpu=(2.0, 8.0), memory=(8192, 16384), timeout=1800,
+              secrets=[modal.Secret.from_name("lh-hf")], volumes={JOBS_ROOT: JOBS}, scaledown_window=IDLE_GPU)
 def clip_audio(rel: str | None, data: bytes | None, language: str | None, hint: str | None, stages: list) -> dict:
     """The audio engine on one file: a jobs-Volume path (a whole podcast) or bytes (a clip). → words / turns / events."""
     if "/app/clipper-asd" not in sys.path:
@@ -4018,7 +4041,7 @@ asd_image = (
 _ASD_NET = None
 
 
-@app.function(image=asd_image, cpu=4.0, memory=6144, timeout=900)
+@app.function(image=asd_image, cpu=4.0, memory=(3072, 6144), timeout=900, scaledown_window=IDLE_JOB)
 def clip_asd(video: bytes) -> dict:
     """Who is talking in a clip: face tracks with a speaking score per frame (25 fps)."""
     import sys
@@ -4442,7 +4465,7 @@ def _clip_watermark(video: Path, wm: dict, d: Path) -> None:
     out.replace(video)
 
 
-@app.function(image=hf_render_image, cpu=2.0, memory=4096, timeout=180, scaledown_window=300)
+@app.function(image=hf_render_image, cpu=2.0, memory=(2048, 4096), timeout=180, scaledown_window=60)
 def clip_faces(url: str, start: float, end: float) -> dict:
     """CLIPPER Studio preview: the largest face 4× a second over one clip of the source (YuNet, source-normalised
     0..1, clip seconds), so the preview keeps captions / the hook clear of the face and frames the speaker the way
@@ -4481,7 +4504,8 @@ def clip_faces(url: str, start: float, end: float) -> dict:
 
 
 # image = upload_image's spec (that name is defined further down)
-@app.function(image=web_image.apt_install("ffmpeg").pip_install("boto3==1.34.0"), secrets=SECRETS, timeout=900)
+@app.function(image=web_image.apt_install("ffmpeg").pip_install("boto3==1.34.0"), secrets=SECRETS, timeout=900,
+              scaledown_window=IDLE_JOB)
 def clip_zip(items: list, key: str) -> str:
     """The client's rendered clips in one ZIP on B2 (stored, not compressed: MP4s don't shrink)."""
     import shutil

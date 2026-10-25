@@ -19,7 +19,8 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
   const { data: row } = await admin.from("history").select("id, tab, status, metadata").eq("id", id).maybeSingle();
-  if (!row || row.tab !== "motion" || !tokenMatches(token, row.metadata?.plan_token)) {
+  // CLIPPER clips run the same render (headlines, B-roll, stickers) — their QA stills were rendered and then refused
+  if (!row || (row.tab !== "motion" && row.tab !== "clipper") || !tokenMatches(token, row.metadata?.plan_token)) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
   if (row.status !== "pending") return NextResponse.json({ ok: false, error: "row not pending" }, { status: 409 });
