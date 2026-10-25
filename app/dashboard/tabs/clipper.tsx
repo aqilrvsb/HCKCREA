@@ -5,16 +5,21 @@
 //      link (≤ 12 GB, server to server) or an upload (≤ 1 GB).
 //   2. Analisa: a Modal job reads the transcript + "most replayed" (or the voice-energy curve), the master director
 //      (Sonnet 5.5) picks the clips (title, hook, score, caption, hashtags) — /api/clipper/*, lib/clipper.ts.
-//   3. Studio: tick clips, edit their title / hook / timing, pick how they're made (captions only, the full AI edit,
-//      or one of the 40 styles) and render. Each clip is a History card below (Motion engine: 9:16 reframe around the
-//      speaker, captions, HyperFrames). Finished clips download one by one or as a ZIP.
+//   3. Studio: tick clips (≤ 50 at once), edit their title / hook / timing, pick how they're made — "Klip + caption",
+//      one of the 40 styles, or "🎲 Rawak" (every clip a different style) — and render. Each clip is a History card
+//      below (Motion engine: 9:16 reframe around the speaker, captions, HyperFrames). Finished clips download one by
+//      one or as a ZIP. "➕ Cari lagi klip" asks the director for more clips from other moments of the same video.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, Download, Flame, Link2, Loader2, Play, Radio, ScissorsLineDashed, Search, Trash2, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, Flame, Link2, Loader2, Play, Plus, Radio, ScissorsLineDashed, Search, Trash2, Upload, X } from "lucide-react";
 import ClipPreview, { ClipBrollEditor, ClipCaptionEditor, type BrollFix, type CapFix } from "./clipper-preview";
 import { clipKey } from "@/lib/clipper-preview";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
 import { uploadImage } from "@/lib/upload-image";
 import { withRetry } from "./motion-photo-picker";
+import MotionStylePicker from "./motion-style-picker";
+
+/** Most clips one "Jana" starts at once (the render route's MAX_RENDER_CLIPS). */
+const MAX_RENDER = 50;
 
 type SrcType = "youtube" | "gdrive" | "upload" | "tiktok";
 
@@ -40,6 +45,8 @@ type Clip = {
   capFix?: CapFix | null;
   /** the client's own B-roll per headline layout (Studio editor) */
   brollFix?: BrollFix | null;
+  /** the "➕ Cari lagi klip" round that found it (none = the first analysis) */
+  batch?: number;
 };
 type Render = { id: string; status: string; url: string | null; title: string; start: number | null };
 type Job = {
@@ -99,7 +106,7 @@ function readDuration(file: File): Promise<number> {
   });
 }
 
-function Heatmap({ a, clips, picked, onPick }: { a: NonNullable<Job["analysis"]>; clips: Clip[]; picked: Set<number>; onPick: (i: number) => void }) {
+function Heatmap({ a, clips, picked, onPick, newest }: { a: NonNullable<Job["analysis"]>; clips: Clip[]; picked: Set<number>; onPick: (i: number) => void; newest: number }) {
   const W = 1000, H = 60;
   const dur = Math.max(1, a.duration || (a.heatmap.length ? a.heatmap[a.heatmap.length - 1].end : 1));
   const pts = a.heatmap.length ? a.heatmap : [];
@@ -111,9 +118,11 @@ function Heatmap({ a, clips, picked, onPick }: { a: NonNullable<Job["analysis"]>
       {path && <path d={path} fill="rgba(168,85,247,0.35)" stroke="#a855f7" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
       {clips.map((c, i) => (
         <rect key={i} x={(c.start / dur) * W} y={0} width={Math.max(3, ((c.end - c.start) / dur) * W)} height={H}
-          fill={picked.has(i) ? "rgba(236,72,153,0.45)" : "rgba(255,255,255,0.12)"} stroke={picked.has(i) ? "#ec4899" : "none"}
+          // ticked = pink; the latest "➕ Cari lagi klip" round = green; the rest = faint
+          fill={picked.has(i) ? "rgba(236,72,153,0.45)" : newest && c.batch === newest ? "rgba(34,197,94,0.30)" : "rgba(255,255,255,0.12)"}
+          stroke={picked.has(i) ? "#ec4899" : newest && c.batch === newest ? "#22c55e" : "none"}
           style={{ cursor: "pointer" }} onClick={() => onPick(i)}>
-          <title>{`${i + 1}. ${c.title} (${fmt(c.start)}–${fmt(c.end)})`}</title>
+          <title>{`${i + 1}. ${c.title} (${fmt(c.start)}–${fmt(c.end)})${newest && c.batch === newest ? " · BARU" : ""}`}</title>
         </rect>
       ))}
     </svg>
@@ -172,6 +181,14 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const [rate, setRate] = useState<number | null>(null);
   const [rendering, setRendering] = useState(false);
   const [zipping, setZipping] = useState<string | null>(null);
+  // the look: "Klip + caption" | one of the 40 styles for every clip | a different style per clip
+  const [styleMode, setStyleMode] = useState<"none" | "one" | "random">("none");
+  const [styleId, setStyleId] = useState<string | undefined>();
+  // "➕ Cari lagi klip": the analysis being searched, how many to ask for
+  const [moreBusy, setMoreBusy] = useState<string | null>(null);
+  const [moreCount, setMoreCount] = useState<5 | 10 | 20>(10);
+  // messages about the open analysis (shown by the Jana bar, which stays on screen)
+  const [jobMsg, setJobMsg] = useState<{ err?: boolean; text: string } | null>(null);
 
   // the studio choices come back next time
   useEffect(() => {
@@ -191,13 +208,15 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
         if (typeof p.wmText === "string") setWmText(p.wmText);
         if (typeof p.wmImage === "string") setWmImage(p.wmImage);
         if (["15", "30", "60", "auto"].includes(p.duration)) setDuration(p.duration);
+        if (["none", "one", "random"].includes(p.styleMode)) setStyleMode(p.styleMode);
+        if (typeof p.styleId === "string") setStyleId(p.styleId);
       }
     } catch { /* private mode */ }
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => setRate(Number(d?.rate) || null)).catch(() => undefined);
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration })); } catch { /* private mode */ }
-  }, [frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration]);
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration, styleMode, styleId })); } catch { /* private mode */ }
+  }, [frame, captions, captionLook, captionPos, hookOn, music, sfx, jumpcut, coldOpen, polish, wmText, wmImage, duration, styleMode, styleId]);
 
   // ── the analyses list (polled while something runs) ──
   const load = useCallback(async () => {
@@ -348,11 +367,23 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const clips = job ? clipsOf(job) : [];
   const pickSet = new Set(job ? picked[job.id] ?? [] : []);
   const editClip = (i: number, patch: Partial<Clip>) => job && setEdits((e) => ({ ...e, [job.id]: { ...(e[job.id] ?? {}), [i]: { ...(e[job.id]?.[i] ?? {}), ...patch } } }));
-  const togglePick = (i: number) => job && setPicked((p) => {
-    const cur = new Set(p[job.id] ?? []);
-    if (cur.has(i)) cur.delete(i); else cur.add(i);
-    return { ...p, [job.id]: [...cur].sort((a, b) => a - b) };
-  });
+  const togglePick = (i: number) => {
+    if (!job) return;
+    const cur = new Set(picked[job.id] ?? []);
+    if (cur.has(i)) cur.delete(i);
+    else if (cur.size >= MAX_RENDER) return setJobMsg({ err: true, text: `Maksimum ${MAX_RENDER} klip sekali jana — nyahpilih satu dulu.` });
+    else cur.add(i);
+    setPicked((p) => ({ ...p, [job.id]: [...cur].sort((a, b) => a - b) }));
+  };
+  // "Pilih semua": every clip, or the 50 best when the analysis has more
+  const pickAll = () => {
+    if (!job) return;
+    const all = clips.map((c, i) => ({ i, s: c.score })).sort((a, b) => b.s - a.s).slice(0, MAX_RENDER).map((x) => x.i).sort((a, b) => a - b);
+    setPicked((p) => ({ ...p, [job.id]: all }));
+    if (clips.length > MAX_RENDER) setJobMsg({ text: `${MAX_RENDER} klip terbaik dipilih (maksimum sekali jana).` });
+  };
+  // the latest "➕ Cari lagi klip" round of the open analysis (0 = none yet)
+  const newest = Math.max(0, ...clips.map((c) => Number(c.batch) || 0));
   const nudge = (i: number, which: "start" | "end", by: number) => {
     const c = clips[i];
     const dur = job?.analysis?.duration || Infinity;
@@ -371,7 +402,10 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
     if (!job) return;
     setError(null);
     setNotice(null);
-    if (!selClips.length) return setError("Tick sekurang-kurangnya satu klip.");
+    setJobMsg(null);
+    if (!selClips.length) return setJobMsg({ err: true, text: "Tick sekurang-kurangnya satu klip." });
+    if (selClips.length > MAX_RENDER) return setJobMsg({ err: true, text: `Maksimum ${MAX_RENDER} klip sekali jana.` });
+    if (styleMode === "one" && !styleId) return setJobMsg({ err: true, text: "Pilih satu style dulu (atau 🎲 Rawak)." });
     setRendering(true);
     try {
       const r = await fetch("/api/clipper/render", {
@@ -389,18 +423,39 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
             ...(c.brollFix && c.brollFix.key === clipKey(c.start, c.end)
               ? { broll_fix: Object.entries(c.brollFix.items).map(([k, v]) => ({ i: Number(k), ...v })) } : {}),
           })),
-          settings: { mode, frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, cta, auto_editor: autoEditor, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
+          settings: { mode, style_mode: styleMode, ...(styleMode === "one" ? { style_id: styleId } : {}),
+            frame, captions, captionLook, captionPos, hook: hookOn, music, sfx, jumpcut, coldOpen, polish, cta, auto_editor: autoEditor, watermark: { text: wmText.trim() || undefined, image: wmImage || undefined } },
         }),
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal mula render");
-      setNotice(`🎬 ${d.ids.length} klip sedang dijana serentak${d.failed?.length ? ` (${d.failed.length} gagal dimulakan)` : ""} — setiap klip boleh dimainkan terus di kadnya bila siap.${d.notice ? ` ${d.notice}` : ""}`);
+      const styled = styleMode === "random" ? " · setiap klip style berbeza" : styleMode === "one" ? " · dalam style pilihan anda" : "";
+      setJobMsg({ text: `🎬 ${d.ids.length} klip sedang dijana serentak${styled}${d.failed?.length ? ` (${d.failed.length} gagal dimulakan)` : ""} — setiap klip boleh dimainkan terus di kadnya bila siap.${d.notice ? ` ${d.notice}` : ""}` });
       window.dispatchEvent(new CustomEvent("history:refresh"));
       await load();
     } catch (e: any) {
-      setError(e?.message || "Gagal mula render");
+      setJobMsg({ err: true, text: e?.message || "Gagal mula render" });
     } finally {
       setRendering(false);
+    }
+  }
+
+  // "➕ Cari lagi klip": the director reads the same video again for other moments (1–4 min); the new clips join the list
+  async function findMore(j: Job) {
+    setJobMsg(null);
+    setMoreBusy(j.id);
+    try {
+      const r = await fetch("/api/clipper/more", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: j.id, count: moreCount }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal cari klip baru — cuba lagi.");
+      setJobMsg(d.added
+        ? { text: `✨ ${d.added} klip baru ditambah (tanda BARU, hijau pada graf) — momen lain daripada klip sebelum ini.` }
+        : { text: d.notice || "AI tidak jumpa momen kuat lain dalam video ini." });
+      await load();
+    } catch (e: any) {
+      setJobMsg({ err: true, text: e?.message || "Gagal cari klip baru — cuba lagi." });
+    } finally {
+      setMoreBusy(null);
     }
   }
 
@@ -550,7 +605,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
           <div>
             <label className={label}>Bilangan klip</label>
             <div className="flex flex-wrap gap-1.5">
-              {(["auto", 3, 5, 8, 10, 15] as const).map((n) => (
+              {(["auto", 3, 5, 8, 10, 15, 20, 30, 50] as const).map((n) => (
                 <Chip key={String(n)} active={count === n} onClick={() => setCount(n)}>{n === "auto" ? "✨ Auto" : n}</Chip>
               ))}
             </div>
@@ -667,7 +722,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                   <span className={label} style={{ marginBottom: 0 }}>{!job.analysis.heatmap.length ? "Klip AI" : job.source?.type === "youtube" ? "Paling ramai tonton semula + klip AI" : "Tenaga suara + klip AI"}</span>
                   <span className="text-[10px] text-[var(--color-text-muted)]">klik jalur untuk pilih</span>
                 </div>
-                <Heatmap a={job.analysis} clips={clips} picked={pickSet} onPick={togglePick} />
+                <Heatmap a={job.analysis} clips={clips} picked={pickSet} onPick={togglePick} newest={newest} />
               </div>
 
               {/* ── studio: the look first, previewed live on a clip — then tick the clips and render ── */}
@@ -681,11 +736,31 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                         settings={{ frame, captions, captionLook, captionPos, hookOn, jumpcut, coldOpen, polish, wmText, wmImage, cta }} theme={THEME} />
                     </div>
                     <div className="lg:order-1 space-y-4 min-w-0">
-                      <div className="px-3 py-2.5 rounded-xl" style={on}>
-                        <span className="block text-xs font-extrabold">⚡ Klip + caption</span>
-                        <span className="block text-[10px] leading-snug mt-0.5" style={{ color: "rgba(255,255,255,0.88)" }}>
-                          Kamera ikut muka penutur, caption animasi, kata kunci berwarna, zoom &amp; hook.
-                        </span>
+                      <div>
+                        <label className={label}>Style motion</label>
+                        <div className="grid sm:grid-cols-3 gap-2">
+                          {([
+                            ["none", "⚡ Klip + caption", "Kamera ikut muka penutur, caption animasi, kata kunci berwarna, zoom & hook. Paling laju."],
+                            ["one", "🎨 Pilih 1 style", "Semua klip diedit AI dalam satu style pilihan anda (40 style)."],
+                            ["random", "🎲 Rawak 40 style", "Setiap klip dapat style berbeza — 50 klip pun tak nampak sama."],
+                          ] as const).map(([k, t, d]) => (
+                            <button key={k} type="button" onClick={() => setStyleMode(k)} className="px-3 py-2.5 rounded-xl text-left transition-all" style={styleMode === k ? on : off}>
+                              <span className="block text-xs font-extrabold">{t}</span>
+                              <span className="block text-[10px] leading-snug mt-0.5" style={{ color: styleMode === k ? "rgba(255,255,255,0.88)" : "var(--color-text-muted)" }}>{d}</span>
+                            </button>
+                          ))}
+                        </div>
+                        {styleMode !== "none" && (
+                          <p className="text-[10px] text-[var(--color-text-secondary)] leading-snug mt-2">
+                            Dengan style, AI director (Sonnet 5.5) edit penuh setiap klip ikut style itu — skrin grafik, B-roll, warna, font &amp; kesan.
+                            Lebih lama (~4–6 minit sekali klip, semua jalan serentak). Pratonton di sebelah tunjuk versi caption sahaja.
+                          </p>
+                        )}
+                        {styleMode === "one" && (
+                          <div className="mt-2">
+                            <MotionStylePicker value={styleId} onChange={(id) => setStyleId(id)} />
+                          </div>
+                        )}
                       </div>
     
                       <div className="grid sm:grid-cols-2 gap-4">
@@ -792,9 +867,20 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={label} style={{ marginBottom: 0 }}>{clips.length} klip · {pickSet.size} dipilih</span>
                 <button type="button" className="text-[11px] font-bold underline" style={{ color: THEME.primary }}
-                  onClick={() => setPicked((p) => ({ ...p, [job.id]: pickSet.size === clips.length ? [] : clips.map((_, i) => i) }))}>
-                  {pickSet.size === clips.length ? "Nyahpilih semua" : "Pilih semua"}
+                  onClick={() => (pickSet.size && (pickSet.size === clips.length || pickSet.size === MAX_RENDER) ? setPicked((p) => ({ ...p, [job.id]: [] })) : pickAll())}>
+                  {pickSet.size && (pickSet.size === clips.length || pickSet.size === MAX_RENDER) ? "Nyahpilih semua" : clips.length > MAX_RENDER ? `Pilih ${MAX_RENDER} terbaik` : "Pilih semua"}
                 </button>
+                <span className="inline-flex items-center gap-1 flex-wrap">
+                  <button type="button" onClick={() => void findMore(job)} disabled={!!moreBusy}
+                    title="AI director cari lagi klip daripada bahagian lain video ini — bukan momen yang sudah diambil"
+                    className="px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold inline-flex items-center gap-1.5 disabled:opacity-60" style={on}>
+                    {moreBusy === job.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    {moreBusy === job.id ? "AI cari momen lain… (1–4 minit)" : "Cari lagi klip berbeza"}
+                  </button>
+                  {moreBusy !== job.id && ([5, 10, 20] as const).map((n) => (
+                    <Chip key={n} active={moreCount === n} onClick={() => setMoreCount(n)} title={`Minta ${n} klip baru`}>{n}</Chip>
+                  ))}
+                </span>
                 {doneRenders.length > 0 && (
                   <button type="button" onClick={() => void zip(job)} disabled={zipping === job.id} className="ml-auto px-3 py-1.5 rounded-xl text-[11px] font-extrabold inline-flex items-center gap-1.5" style={off}>
                     {zipping === job.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Muat turun {doneRenders.length} klip (ZIP)
@@ -819,6 +905,9 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                               style={{ background: c.score >= 85 ? "#ef4444" : c.score >= 70 ? "#f59e0b" : "#64748b" }}>
                               <Flame className="w-3 h-3" />{c.score}
                             </span>
+                            {newest > 0 && c.batch === newest && (
+                              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md text-white" style={{ background: "#22c55e" }} title="Dijumpai oleh 'Cari lagi klip' yang terakhir">BARU</span>
+                            )}
                             <span className="text-[11px] font-bold text-[var(--color-text-secondary)]">#{i + 1} · {fmt(c.start)}–{fmt(c.end)} · {Math.round(c.end - c.start)}s</span>
                             {typeof c.interest === "number" && c.interest > 0 && <span className="text-[10px] text-[var(--color-text-muted)]">{job.source?.type === "youtube" ? "replay" : "tenaga"} {Math.round(c.interest * 100)}%</span>}
                             {c.scores && (
@@ -907,7 +996,14 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                 })}
               </div>
               {clips.length > 0 && (
-                <div className="sticky bottom-3 z-10">
+                <div className="sticky bottom-3 z-10 space-y-1.5">
+                    {jobMsg && (
+                      <div className="flex items-start gap-2 px-3 py-2 rounded-xl text-[11px] font-bold shadow-lg"
+                        style={{ background: "var(--color-bg)", border: `1px solid ${jobMsg.err ? "rgba(239,68,68,0.6)" : THEME.soft}`, color: jobMsg.err ? "#f87171" : THEME.primary }}>
+                        <span className="flex-1">{jobMsg.text}</span>
+                        <button type="button" onClick={() => setJobMsg(null)} aria-label="Tutup"><X className="w-3.5 h-3.5" /></button>
+                      </div>
+                    )}
                     <button type="button" onClick={() => void render()} disabled={rendering || !selClips.length}
                       className="w-full py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-2" style={{ background: THEME.gradient }}>
                       {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScissorsLineDashed className="w-4 h-4" />}

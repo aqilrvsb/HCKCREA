@@ -4,20 +4,37 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
-import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
-import { CLIPPER_JOB_TAB, CLIPPER_TAB, clipContext, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
+import { LOCK_CAPTION_LOOKS, type LockCaptionLook, type MotionLocks } from "@/lib/motion-manual";
+import { CLIPPER_JOB_TAB, CLIPPER_TAB, MAX_RENDER_CLIPS, clipContext, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
 import { clipFlash, clipKey, clipSeed, type PolishRef } from "@/lib/clipper-preview";
 import { HEADLINE_VERSION } from "@/lib/motion-headline";
+import { vgcStyle, vgcVault } from "@/lib/vgc-styles";
 
 // POST /api/clipper/render { job_id, clips: [{start, end, title, hook}], settings, project_id? } — CLIPPER step 2:
-// every chosen clip becomes a History row (tab "clipper") rendered by the Motion engine (modal_motion.py flow
-// "clip"): segment → 9:16 reframe around the speaker → captions + hook ("Klip + caption" is the only mode).
+// every chosen clip (≤ 50 at once) becomes a History row (tab "clipper") rendered by the Motion engine
+// (modal_motion.py flow "clip"): segment → 9:16 reframe around the speaker → then either
+//   "Klip + caption" (settings.style_mode "none"): captions + hook + the preview's polish, no AI edit plan, or
+//   a style (style_mode "one" | "random"): the master director edits the clip in one of the 40 styles (scenes,
+//   graphics, B-roll, the style's look) — "random" gives every clip of the batch a different style.
 // Charged like a Motion edit: the clip's seconds × the Motion rate (held now, trued up on the real length).
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const MAX_CLIPS = 20;
+const MAX_CLIPS = MAX_RENDER_CLIPS;
+
+/** The 40 styles in a new random order (Fisher–Yates) — a batch walks through it, so no style repeats until all are used. */
+function shuffled<T>(list: T[]): T[] {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/** A hook short enough for the director's hook lock (≤ 40 chars), cut at a word. */
+const hookLock = (h: string) => (h.length <= 40 ? h : h.slice(0, 41).replace(/\s+\S*$/, "").trim());
 // the client's own B-roll is accepted only from our own storage (uploaded through /api/motion/upload-url)
 const OWN_MEDIA = /^https:\/\/peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com\/(clipper-uploads|motion-images|motion-uploads|motion-broll)\/[^\s?#]+$/; // motion-broll: an AI re-pick ("🔄 Cari gambar lain")
 
@@ -41,8 +58,20 @@ export async function POST(req: Request) {
 
   // settings
   const s = b?.settings ?? {};
-  // CLIPPER renders "Klip + caption" only (2026-10-22) — an old client asking for "auto" / "style" gets captions too
-  const mode = "captions" as const;
+  // the look: "Klip + caption", one of the 40 styles for every clip, or a different style per clip (the owner's
+  // request, 2026-10-26: 50 clips of one video must not all look the same)
+  const styleMode = s.style_mode === "one" || s.style_mode === "random" ? s.style_mode : "none";
+  let styles: { id: string; name: string }[] = [];
+  if (styleMode === "one") {
+    const st = await vgcStyle(String(s.style_id || ""));
+    if (!st) return NextResponse.json({ error: "Pilih satu style dulu." }, { status: 400 });
+    styles = [{ id: st.id, name: st.name }];
+  } else if (styleMode === "random") {
+    const v = await vgcVault().catch(() => null);
+    styles = shuffled((v?.styles ?? []).map((x) => ({ id: x.id, name: x.name })));
+    if (!styles.length) return NextResponse.json({ error: "Senarai style tidak dapat dimuat — cuba lagi." }, { status: 503 });
+  }
+  const mode: "captions" | "style" = styles.length ? "style" : "captions";
   const frame = ["face", "fit", "center", "split"].includes(s.frame) ? s.frame : "face";
   const captions = s.captions !== false;
   const captionLook = LOCK_CAPTION_LOOKS.some((c) => c.id === s.captionLook) ? String(s.captionLook) : undefined;
@@ -114,11 +143,19 @@ export async function POST(req: Request) {
   type Prepared = { c: (typeof clips)[number]; rowId: string; estimate: number; input: EditInput; planToken: string };
   let short: number | null = null;
   let skipped = 0; // clips the credit didn't cover
-  const ready = await Promise.all(clips.map(async (c: (typeof clips)[number]): Promise<Prepared | null> => {
+  const ready = await Promise.all(clips.map(async (c: (typeof clips)[number], k: number): Promise<Prepared | null> => {
     const len = c.end - c.start;
     const estimate = round2(costFor(len, rate));
     const planToken = newPlanToken();
     const seed = clipSeed(job.id, c.start, c.end);
+    // this clip's style (random: the k-th of the shuffled 40, so a batch of ≤ 40 never repeats one)
+    const style = styles.length ? styles[k % styles.length] : null;
+    const locks: MotionLocks = {
+      ...(style ? { styleId: style.id, styleName: style.name } : {}),
+      ...(captionLook ? { captionLook: captionLook as LockCaptionLook } : {}),
+      // a styled clip is a full AI edit: the Studio's choices stay rules — the music, the clip's hook, the caption spot
+      ...(style ? { music, captionPos, ...(hookOn && c.hook ? { hook: hookLock(c.hook) } : {}) } : {}),
+    };
     // (the headlines in it are required, so the cache is handed over even when the keyword polish is off)
     const ref = previews[clipKey(c.start, c.end)];
     const input: EditInput = {
@@ -136,11 +173,12 @@ export async function POST(req: Request) {
       style: "gempak",
       resolution: "1080",
       jumpcut: false,
-      broll: false,
+      // a styled clip may cut to pictures / stock (the style decides); "Klip + caption" keeps to the speaker
+      broll: mode === "style",
       facts: false,
       guard: false,
       auto: true,
-      ...(captionLook ? { locks: { captionLook: captionLook as any } } : {}),
+      ...(Object.keys(locks).length ? { locks } : {}),
       engine: "laju",
       ...(ctaKind ? { ctaKind } : {}),
       ...(autoEditor ? { autoEditor: true } : {}),
@@ -171,7 +209,8 @@ export async function POST(req: Request) {
       metadata: {
         feature: "motion-edit", model: "clipper", stage: "queued", rate, reserved: estimate, input, plan_token: planToken, aspectRatio: "9:16",
         renderer: "hyperframes",
-        clipper: { job_id: job.id, start: c.start, end: c.end, title: c.title, hook: c.hook, mode, frame, source_title: a.title ?? null },
+        clipper: { job_id: job.id, start: c.start, end: c.end, title: c.title, hook: c.hook, mode, frame, source_title: a.title ?? null,
+          ...(style ? { style: style.name, style_id: style.id } : {}) },
       },
     }).select("id").single();
     if (error || !row) { failed.push(c.title); return null; }

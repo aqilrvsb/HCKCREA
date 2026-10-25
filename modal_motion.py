@@ -478,10 +478,16 @@ def _render_parallel(comp: str, props: dict, d: Path, out: Path, scale: float, p
 IDLE_CHUNK = 10   # render chunks: spawned in bursts, each one runs once
 IDLE_JOB = 15     # orchestrators / CPU helpers
 IDLE_GPU = 30     # GPU functions: a clip batch's calls land within seconds of each other
+# A Starter workspace runs ≤ 100 containers / 10 GPUs at once. A 50-clip CLIPPER batch would want ~550: without caps
+# the orchestrators (each waiting on its chunks / GPU) could fill every slot and starve the helpers they wait for.
+# Caps keep room for each kind of work; anything past a cap waits in Modal's queue and starts as slots free up.
+MAX_JOBS = 36     # run_job orchestrators per workspace
+MAX_CHUNKS = 40   # HyperFrames render chunks per workspace
+MAX_HELPERS = 8   # CPU helpers (speaker detection, OCR guard, Remotion / Editor renders)
 
 
 @app.function(image=render_image, cpu=(4.0, 8.0), memory=(4096, 16384), timeout=1500, volumes={JOBS_ROOT: JOBS},
-              scaledown_window=IDLE_CHUNK)
+              scaledown_window=IDLE_CHUNK, max_containers=MAX_HELPERS)
 def render_chunk(job: str, comp: str, start: int, end: int, idx: int, scale: float) -> dict:
     """Render frames [start, end] of a prepared job: muted video + the same
     range's audio (WAV) in parallel; return both as bytes."""
@@ -551,7 +557,7 @@ def _hf_chunk_frames(total: int) -> int:
 
 
 @app.function(image=hf_render_image, cpu=4.0, memory=(4096, 8192), timeout=900, volumes={JOBS_ROOT: JOBS},
-              scaledown_window=IDLE_CHUNK)
+              scaledown_window=IDLE_CHUNK, max_containers=MAX_CHUNKS)
 def hf_chunk(job: str, idx: int) -> dict:
     """Render chunk `idx` of a job's HyperFrames plan (waits for the plan to land on the Volume)."""
     import shutil
@@ -825,7 +831,7 @@ def _gather_chunks(job: str, count: int, calls: list, limit: float = 900) -> dic
 
 
 @app.function(image=hf_render_image, cpu=(2.0, 4.0), memory=(4096, 8192), timeout=1800, volumes={JOBS_ROOT: JOBS},
-              scaledown_window=IDLE_JOB)
+              scaledown_window=IDLE_JOB, max_containers=MAX_HELPERS)
 def render_project(job: str, project: str = "ws/video", out_name: str = "render.mp4") -> dict:
     """Render a whole HyperFrames project from the jobs Volume across hf_chunk containers — the parallel renderer
     Default uses — into <job>/<out_name>. Custom Style's `pl-render` (modal_vgc.py) calls it: its workspace's
@@ -1497,7 +1503,7 @@ def _ocr_lines(eng, img) -> list:
 
 
 @app.function(image=guard_image, cpu=4.0, memory=(2048, 4096), timeout=600, volumes={JOBS_ROOT: JOBS},
-              scaledown_window=IDLE_CHUNK)
+              scaledown_window=IDLE_CHUNK, max_containers=MAX_HELPERS)
 def guard_scan(job: str, start: float, length: float, fps: float, j0: int, name: str = "video.mp4") -> dict:
     """OCR the sampled frames of [start, start+length) of the job's video.
     Each detection: j (global sample index), t, box (1080x1920 px), text, score."""
@@ -1523,7 +1529,7 @@ def guard_scan(job: str, start: float, length: float, fps: float, j0: int, name:
     return {"ok": True, "dets": dets, "frames": k}
 
 
-@app.function(image=guard_image, cpu=4.0, memory=(2048, 4096), timeout=300, scaledown_window=IDLE_JOB)
+@app.function(image=guard_image, cpu=4.0, memory=(2048, 4096), timeout=300, scaledown_window=IDLE_JOB, max_containers=MAX_HELPERS)
 def guard_ocr_images(images: list) -> dict:
     """[(name, bytes)] → {name: [{"q": quad in image px, "x": text, "s": score}]}."""
     import io
@@ -2762,7 +2768,7 @@ def matte_windows(job: str, windows: list) -> list:
 
 # ── job + endpoints ───────────────────────────────────────────────────────────
 @app.function(image=hf_render_image, cpu=(4.0, 8.0), memory=(8192, 16384), timeout=2400, secrets=SECRETS,
-              volumes={JOBS_ROOT: JOBS}, scaledown_window=IDLE_JOB)
+              volumes={JOBS_ROOT: JOBS}, scaledown_window=IDLE_JOB, max_containers=MAX_JOBS)
 def run_job(payload: dict) -> dict:
     import shutil
     t0 = time.time()
@@ -3007,7 +3013,7 @@ def _yt_blocked(msg: str) -> bool:
             or "requested format is not available" in m or "http error 403" in m)
 
 
-@app.function(image=yt_image, cpu=(1.0, 2.0), memory=(2048, 4096), timeout=1800, region=YT_REGION, scaledown_window=IDLE_JOB)
+@app.function(image=yt_image, cpu=(1.0, 2.0), memory=(2048, 4096), timeout=1800, region=YT_REGION, scaledown_window=IDLE_JOB, max_containers=MAX_HELPERS)
 def yt_task(kind: str, url: str, args: dict) -> dict:
     """kind "info": title / heatmap / captions (lines); "segment": one clip as MP4 bytes; "audio": the soundtrack (Opus)."""
     import shutil
@@ -3132,7 +3138,7 @@ def _yt_call(kind: str, url: str, args: dict | None = None, auth: dict | None = 
     raise RuntimeError(str(last.get("error") or "YouTube gagal")[:400])
 
 
-@app.function(image=yt_image, cpu=0.25, memory=512, timeout=3 * 3600)
+@app.function(image=yt_image, cpu=0.25, memory=512, timeout=3 * 3600, scaledown_window=IDLE_JOB, max_containers=MAX_HELPERS)
 def yt_mirror(url: str, key: str) -> dict:
     """CLIPPER, a YouTube source: the whole video (≤ 1080p) copied to B2 in the background while the analysis runs,
     so the clip renders cut their segments from our copy — no YouTube call (and no bot-check) at render time.
@@ -3152,7 +3158,7 @@ def yt_mirror(url: str, key: str) -> dict:
 
 
 @app.function(image=yt_image.pip_install("boto3==1.34.0"), cpu=(1.0, 2.0), memory=(2048, 4096), timeout=3600, secrets=SECRETS,
-              region=YT_REGION, scaledown_window=IDLE_JOB)
+              region=YT_REGION, scaledown_window=IDLE_JOB, max_containers=MAX_HELPERS)
 def yt_mirror_try(url: str, key: str, fresh: bool, via: str) -> dict:
     import shutil
     global _YT_AUTH
@@ -3578,7 +3584,7 @@ def _detect_language(wav: Path) -> str | None:
 
 
 @app.function(image=hf_render_image, cpu=8.0, memory=(4096, 8192), timeout=1800, volumes={JOBS_ROOT: JOBS},
-              scaledown_window=IDLE_JOB)
+              scaledown_window=IDLE_JOB, max_containers=4)
 def clip_asr(rel: str, language: str | None, offset: float, keep_from: float, keep_to: float) -> list:
     """Whisper on one chunk of a long source (on the jobs Volume); words in source time, only [keep_from, keep_to)."""
     JOBS.reload()
@@ -4041,7 +4047,7 @@ asd_image = (
 _ASD_NET = None
 
 
-@app.function(image=asd_image, cpu=4.0, memory=(3072, 6144), timeout=900, scaledown_window=IDLE_JOB)
+@app.function(image=asd_image, cpu=4.0, memory=(3072, 6144), timeout=900, scaledown_window=IDLE_JOB, max_containers=MAX_HELPERS)
 def clip_asd(video: bytes) -> dict:
     """Who is talking in a clip: face tracks with a speaking score per frame (25 fps)."""
     import sys
@@ -4390,8 +4396,9 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     _progress("transcribe", 14)
     words, aligned = None, False
     if asr_call is not None:
-        # a clip never waits long for a GPU: past 150 s (no GPU free, or a slow start) the CPU transcriber takes over
-        res = _engine_get(asr_call, "clip words", 150)
+        # a clip never waits long for a GPU: past 240 s (no GPU free, or a slow start) the CPU transcriber takes over —
+        # a 50-clip batch shares the workspace's 10 GPUs (~20 s a clip, warm), so the last ones wait ~2–3 min
+        res = _engine_get(asr_call, "clip words", 240)
         if res is None:
             try:
                 asr_call.cancel()
@@ -4465,7 +4472,7 @@ def _clip_watermark(video: Path, wm: dict, d: Path) -> None:
     out.replace(video)
 
 
-@app.function(image=hf_render_image, cpu=2.0, memory=(2048, 4096), timeout=180, scaledown_window=60)
+@app.function(image=hf_render_image, cpu=2.0, memory=(2048, 4096), timeout=180, scaledown_window=60, max_containers=4)
 def clip_faces(url: str, start: float, end: float) -> dict:
     """CLIPPER Studio preview: the largest face 4× a second over one clip of the source (YuNet, source-normalised
     0..1, clip seconds), so the preview keeps captions / the hook clear of the face and frames the speaker the way
@@ -4505,7 +4512,7 @@ def clip_faces(url: str, start: float, end: float) -> dict:
 
 # image = upload_image's spec (that name is defined further down)
 @app.function(image=web_image.apt_install("ffmpeg").pip_install("boto3==1.34.0"), secrets=SECRETS, timeout=900,
-              scaledown_window=IDLE_JOB)
+              scaledown_window=IDLE_JOB, max_containers=3)
 def clip_zip(items: list, key: str) -> str:
     """The client's rendered clips in one ZIP on B2 (stored, not compressed: MP4s don't shrink)."""
     import shutil

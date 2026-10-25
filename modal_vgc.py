@@ -1397,7 +1397,7 @@ def _find_video(ws: Path, since: float) -> Path | None:
 # a run is mostly the agent waiting on its model; it pays the request (2 cores / 8 GB) while it waits and bursts to
 # 8 cores / 16 GB when it renders (Modal bills max(request, usage)); a finished container leaves after 15 s, not 60
 @app.function(image=image, cpu=(2.0, 8.0), memory=(8192, 16384), timeout=RUN_TIMEOUT + 600, secrets=SECRETS,
-              volumes={KIT_ROOT: KIT, WORK_ROOT: WORK, MJOBS_ROOT: MJOBS}, scaledown_window=15)
+              volumes={KIT_ROOT: KIT, WORK_ROOT: WORK, MJOBS_ROOT: MJOBS}, scaledown_window=15, max_containers=16)
 def run_vgc(payload: dict) -> dict:
     t0 = time.time()
     hid = re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("history_id") or f"job{int(t0)}"))[:60]

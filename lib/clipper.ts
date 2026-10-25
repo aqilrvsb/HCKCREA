@@ -57,7 +57,13 @@ export type ClipperClip = {
   speakers?: string[];
   /** the director looked at 6 frames of the clip: 0–10 + what it saw (top candidates only) */
   visual?: { score: number; note: string };
+  /** "➕ Cari lagi klip" round that found it (none = the first analysis) */
+  batch?: number;
 };
+/** Most clips one analysis can hold (the first pick + every "➕ Cari lagi klip" round). */
+export const MAX_ANALYSIS_CLIPS = 120;
+/** Most clips one Studio render can start at once (one per History row, rendered side by side). */
+export const MAX_RENDER_CLIPS = 50;
 export type ClipperAnalysis = {
   source_type: ClipSourceType;
   title?: string | null;
@@ -122,7 +128,7 @@ export function cleanSource(type: unknown, url: unknown, name?: unknown): { type
 export function cleanOptions(raw: any): ClipperOptions {
   const duration: ClipDuration = ["15", "30", "60", "auto"].includes(String(raw?.duration)) ? String(raw.duration) as ClipDuration : "30";
   const n = Number(raw?.count);
-  const count = raw?.count === "auto" || !Number.isFinite(n) ? "auto" : Math.max(1, Math.min(30, Math.round(n)));
+  const count = raw?.count === "auto" || !Number.isFinite(n) ? "auto" : Math.max(1, Math.min(MAX_RENDER_CLIPS, Math.round(n)));
   const s = Number(raw?.range?.start);
   const e = Number(raw?.range?.end);
   const range = Number.isFinite(s) && Number.isFinite(e) && e - s >= 20 && s >= 0 ? { start: s, end: e } : null;
@@ -286,7 +292,8 @@ export function validateClips(raw: any, lines: Line[], heat: HeatPoint[], o: Cli
 }
 
 /** No usable answer from the model: the most-replayed (or loudest) stretches, cut on line boundaries. */
-export function fallbackClips(lines: Line[], heat: HeatPoint[], o: ClipperOptions, dur: number, title: string): ClipperClip[] {
+export function fallbackClips(lines: Line[], heat: HeatPoint[], o: ClipperOptions, dur: number, title: string,
+  taken: { start: number; end: number }[] = []): ClipperClip[] {
   const target = o.duration === "auto" ? 40 : Number(o.duration);
   const n = o.count === "auto" ? Math.max(3, Math.min(8, Math.round(dur / 600) + 3)) : o.count;
   const scored = lines.map((l, i) => ({ i, v: (heat.length ? interestOf(heat, l.start, l.end) : 0.5) + (l.tags?.some((t) => t === "KETAWA" || t === "TEPUK") ? 0.3 : 0) }))
@@ -299,10 +306,11 @@ export function fallbackClips(lines: Line[], heat: HeatPoint[], o: ClipperOption
     let j = i;
     while (j < lines.length - 1 && lines[j].end - s < target) j++;
     if (raw.some((c) => s < c.end + 20 && lines[j].end > c.start - 20)) continue;
+    if (overlapsTaken({ start: s, end: lines[j].end }, taken)) continue;
     raw.push({ start: s, end: lines[j].end, title: `${title.split(" ").slice(0, 5).join(" ")} · Momen ${raw.length + 1}`, score: 70 - raw.length * 3,
       reason: "Bahagian paling ramai tonton semula / paling bertenaga dalam video.", hook: lines[i].text.split(" ").slice(0, 6).join(" ") });
   }
-  return validateClips({ clips: raw }, lines, heat, o, dur);
+  return validateClips({ clips: raw }, lines, heat, o, dur).filter((c) => !overlapsTaken(c, taken));
 }
 
 /** The video split into parts the director reads in parallel (~25 min each, 60 s overlap) — one pass over a 3-hour
@@ -322,14 +330,26 @@ function partsOf(ls: Line[], partSec = 1500, overlap = 60): { a: number; b: numb
   return out;
 }
 
+/** A new clip that reuses a moment already taken (overlaps one by > 2 s, or covers most of a short one). */
+export function overlapsTaken(c: { start: number; end: number }, taken: { start: number; end: number }[]): boolean {
+  return taken.some((t) => {
+    const o = Math.min(c.end, t.end) - Math.max(c.start, t.start);
+    return o > 2 || (o > 0 && o >= 0.5 * Math.min(c.end - c.start, t.end - t.start));
+  });
+}
+
 export async function directClips(opts: {
   meta: { title?: string | null; channel?: string | null; duration: number; language?: string | null };
   heatmap: HeatPoint[];
   lines: Line[];
   options: ClipperOptions;
   deadline?: number;
+  /** "➕ Cari lagi klip": the clips already found — new ones are other moments and other topics */
+  exclude?: { start: number; end: number; title?: string }[];
 }): Promise<{ summary: string; clips: ClipperClip[]; director: string | null; fallback: boolean }> {
   const { meta, heatmap, lines, options: o } = opts;
+  const taken = (opts.exclude ?? []).filter((t) => Number.isFinite(t.start) && Number.isFinite(t.end) && t.end > t.start);
+  const fresh = (cs: ClipperClip[]) => (taken.length ? cs.filter((c) => !overlapsTaken(c, taken)) : cs);
   const lang = (o.language !== "auto" ? o.language : meta.language) || "ms";
   const langName = LANG_NAME[lang] ?? `the video's own language (code "${lang}")`;
   const cnt = countTarget(o, meta.duration);
@@ -338,7 +358,16 @@ export async function directClips(opts: {
   const shown = promptLines(ranged);
   const parts = partsOf(shown);
   // per part: ~2.5× its share of the final count (min 3) — the judges cut the pool down
-  const perPart = Math.max(3, Math.min(10, Math.ceil((cnt.max * 2.5) / Math.max(1, parts.length))));
+  const perPart = Math.max(3, Math.min(16, Math.ceil((cnt.max * 2.5) / Math.max(1, parts.length))));
+  // the moments already clipped, as line IDs of this part (+ every title, so the topics differ too)
+  const lineIdAt = (t: number, key: "start" | "end") => shown.reduce((best, l, i) => (Math.abs(l[key] - t) < Math.abs(shown[best][key] - t) ? i : best), 0) + 1;
+  const takenNote = (a: number, b: number) => {
+    if (!taken.length) return "";
+    const here = taken.filter((t) => t.end > a - 60 && t.start < b + 60)
+      .map((t) => `L${lineIdAt(t.start, "start")}–L${lineIdAt(t.end, "end")}${t.title ? ` "${t.title}"` : ""}`);
+    const titles = taken.map((t) => t.title).filter(Boolean).slice(0, 60);
+    return `\nALREADY CLIPPED — the client has these clips. Find OTHER moments: never reuse or overlap these lines, and prefer topics / angles not covered by the titles below.${here.length ? `\nTaken in this part: ${here.join("; ")}` : ""}${titles.length ? `\nTitles already used: ${titles.map((x) => `"${x}"`).join(", ")}` : ""}`;
+  };
   const head = `VIDEO: "${meta.title || "(no title)"}"${meta.channel ? ` — channel / host: ${meta.channel}` : ""}. Length ${Math.round(meta.duration)} s.${o.range ? ` Only use ${Math.round(o.range.start)}–${Math.round(o.range.end)} s.` : ""}`;
   const partDeadline = opts.deadline ? opts.deadline - 85_000 : undefined;
   let director: string | null = null;
@@ -346,7 +375,7 @@ export async function directClips(opts: {
   const results = await Promise.all(parts.map(async (p, k) => {
     const block = p.ids.map((i) => lineRow(shown[i], i + 1, heatmap)).join("\n");
     const user = `${head}
-${parts.length > 1 ? `This is PART ${k + 1} of ${parts.length} (${Math.round(p.a / 60)}–${Math.round(p.b / 60)} min). Find the best clip candidates in THIS part only — up to ${perPart}, real standouts only (fewer is fine when the part is weak).` : `Find the clips: ${cnt.say}.`}
+${parts.length > 1 ? `This is PART ${k + 1} of ${parts.length} (${Math.round(p.a / 60)}–${Math.round(p.b / 60)} min). Find the best clip candidates in THIS part only — up to ${perPart}, real standouts only (fewer is fine when the part is weak).` : `Find the clips: ${cnt.say}.`}${takenNote(p.a, p.b)}
 TRANSCRIPT (ID start|end${heatmap.length ? "|interest" : ""} [speaker:] text [audio tags]):
 ---
 ${block}
@@ -369,7 +398,7 @@ JSON only.`;
         const raw = extractJson(r.content);
         director ??= `${(r as any).provider ?? "?"}/${(r as any).model ?? "?"}`;
         if (raw?.summary) summaries[k] = String(raw.summary).replace(/\s+/g, " ").trim();
-        return validateClips(raw, lines, heatmap, o, meta.duration, shown, true);
+        return fresh(validateClips(raw, lines, heatmap, o, meta.duration, shown, true));
       } catch { /* retry */ }
     }
     return [] as ClipperClip[];
@@ -379,14 +408,16 @@ JSON only.`;
   for (const c of results.flat().sort((a, z) => z.score - a.score)) {
     if (!pool.some((k) => c.start < k.end - 0.5 && c.end > k.start + 0.5)) pool.push(c);
   }
-  const short = pool.slice(0, Math.min(30, Math.max(cnt.max + 6, Math.ceil(cnt.max * 1.8))));
+  const short = pool.slice(0, Math.min(60, Math.max(cnt.max + 6, Math.ceil(cnt.max * 1.8))));
   if (!short.length) {
-    return { summary: "", clips: fallbackClips(lines, heatmap, o, meta.duration, meta.title || "Klip"), director: null, fallback: true };
+    return { summary: "", clips: fallbackClips(lines, heatmap, o, meta.duration, meta.title || "Klip", taken), director: null, fallback: true };
   }
   let ranked = short;
   if (short.length > 1 && (!opts.deadline || Date.now() < opts.deadline - 70_000)) {
     ranked = await judgeClips(short, shown, lines, heatmap, o, meta.duration, langName, opts.deadline).catch(() => short);
   }
+  // a judge's fix can stretch a clip into a moment already taken
+  ranked = fresh(ranked);
   // the final set: best first; "auto" keeps the strong ones within the count range
   ranked.sort((a, z) => z.score - a.score);
   const n = o.count === "auto"
@@ -433,8 +464,9 @@ Return ONLY JSON: {"clips": [{"c": "C…", "verdict": "ok" | "fix" | "reject", "
     systemPrompt: sys,
     userPrompt: ord.map((k) => blockOf(clips[k], k)).join("\n\n") + "\n\nJudge every candidate now. JSON only.",
     temperature: 0.2,
-    maxTokens: 6000,
-    timeoutMs: 120_000,
+    // ~100 tokens a verdict: up to 60 candidates (a 50-clip pick) fit
+    maxTokens: Math.min(12_000, 2000 + clips.length * 140),
+    timeoutMs: 150_000,
     stream: true,
     validate: (c) => { try { return Array.isArray(extractJson(c)?.clips); } catch { return false; } },
     ...(deadline ? { deadline: deadline - 8_000 } : {}),
