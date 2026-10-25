@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { clipPolish } from "@/lib/clipper-polish";
 import { getMotionConfig } from "@/lib/motion";
-import { HEADLINE_VERSION, enrichHeadlines, fixHeadlineWords } from "@/lib/motion-headline";
+import { HEADLINE_VERSION, enrichHeadlines, fixHeadlineWords, fixShownSpelling } from "@/lib/motion-headline";
 import { fixTranscript } from "@/lib/motion-captions";
 import { ingredientShots } from "@/lib/motion-ingredients";
 import { clipKey, previewWords, type PolishRef, type SrcFaces, type TLine } from "@/lib/clipper-preview";
@@ -91,7 +91,8 @@ export async function POST(req: Request) {
     ingredientShots(words, context || String(b?.title ?? ""), { deadline: Date.now() + 70_000 }).catch(() => []),
   ]).then(async ([p, fixes, ing]) => {
     const raw = words.map((w) => w.w);
-    const fixedHeads = fixHeadlineWords(p.headlines, raw, fixes);
+    // the caption fixes, then one spelling check of the headline words (a merged / misheard token never shows big)
+    const fixedHeads = await fixShownSpelling(fixHeadlineWords(p.headlines, raw, fixes), context || String(b?.title ?? ""), Date.now() + 20_000);
     const headlines = await enrichHeadlines(fixedHeads, context || String(b?.title ?? ""), words.map((w, i) => ({ w: fixes.find((f) => f[0] === i)?.[1] ?? w.w, t: w.t }))).catch(() => fixedHeads);
     const shots = ing.map((s) => ({ at: s.at, to: s.to, label: s.label, query: s.query, candidates: s.candidates }));
     return { words: raw, keywords: p.keywords, zooms: p.zooms, headlines, fixes, shots, hv: HEADLINE_VERSION, at: Date.now() };

@@ -27,7 +27,9 @@ export type DeductReason =
   | "animate"
   | "grok"
   | "scrape"
-  | "motion";
+  | "motion"
+  // CLIPPER: a video analysis / a "Cari lagi klip" round (flat fees, app_settings.clipper_pricing)
+  | "clipper";
 
 // Optional model hint to pick a per-model rate. Pass when the caller
 // knows which provider/model the generation used so priceFor can read

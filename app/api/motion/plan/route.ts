@@ -8,7 +8,7 @@ import { orChat, withDeadline } from "@/lib/openrouter";
 import { HOOK_SOUND_COUNT } from "@/lib/motion-hook-sounds";
 import { clipPolish } from "@/lib/clipper-polish";
 import { alignWords, clipPicks, reusePolish, userCaptionFixes } from "@/lib/clipper-preview";
-import { enrichHeadlines } from "@/lib/motion-headline";
+import { enrichHeadlines, fixPlanText, fixShownSpelling } from "@/lib/motion-headline";
 import { ingredientShots, type IngredientShot } from "@/lib/motion-ingredients";
 
 type PlanWord = { i: number; w: string; t: number; e?: number };
@@ -36,8 +36,10 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
     .map((s) => ({ at: s.at, ...(s.to ? { to: s.to } : {}), layout: "full" as const, kind: "photo" as const, label: s.label, query: s.query ?? s.label, candidates: s.candidates, must: true }));
   const keywords = !polish ? [] : reused?.keywords.length ? reused.keywords : fresh?.keywords ?? [];
   const zooms = !polish ? [] : reused?.zooms.length ? reused.zooms : fresh?.zooms ?? [];
+  // fresh headlines (no Studio preview to reuse): their spelling checked like the preview's, before the pictures
+  const freshHeads = reused?.headlines.length ? [] : await fixShownSpelling(fresh?.headlines ?? [], input.clip?.topic || input.clip?.title || "", deadline + 15_000);
   const picked = reused?.headlines.length ? reused.headlines
-    : await enrichHeadlines(fresh?.headlines ?? [], input.clip?.topic || input.clip?.title || "", words).catch(() => fresh?.headlines ?? []);
+    : await enrichHeadlines(freshHeads, input.clip?.topic || input.clip?.title || "", words).catch(() => freshHeads);
   // the client's own overlay (Studio "🎬 Overlay"): corrected words and / or their B-roll in place of the AI's
   const own = input.clip?.broll_fix ?? [];
   const headlines = picked.map((h, i) => {
@@ -163,10 +165,14 @@ export async function POST(req: Request) {
         .eq("user_id", row.user_id).eq("tab", "motion").neq("id", id).order("created_at", { ascending: false }).limit(12);
       recent = (past ?? []).map((r: any) => directionSummary(r?.direction as ProDirection)).filter((x): x is string => !!x).slice(0, 5);
     }
-    const [plan, fixes] = await withDeadline(t0 + PLAN_BUDGET_MS, () => Promise.all([
+    const [rawPlan, fixes] = await withDeadline(t0 + PLAN_BUDGET_MS, () => Promise.all([
       directEdit({ words, duration, input, hasFace: b?.has_face !== false, pro, recent }),
       fixing,
     ]));
+    // the director wrote from the raw transcript: the fixer's corrections reach every text it shows too, then one
+    // fast spelling check of those texts (a misheard / merged token never becomes a big headline word)
+    const plan = await fixShownSpelling(fixes.length ? fixPlanText(rawPlan, words.map((w: { w: string }) => w.w), fixes) : rawPlan,
+      context ?? "", t0 + PLAN_BUDGET_MS);
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
     await admin
       .from("history")

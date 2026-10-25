@@ -3,10 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { motionStart, newPlanToken, siteUrl } from "@/lib/motion";
-import { CLIPPER_JOB_TAB, cleanOptions, cleanSource, clipperYoutubeAuth } from "@/lib/clipper";
+import { refundReserved, reserveCredit } from "@/lib/deduct";
+import { CLIPPER_JOB_TAB, cleanOptions, cleanSource, clipperFees, clipperYoutubeAuth } from "@/lib/clipper";
 
 // POST /api/clipper/analyze { source: {type, url, name?}, options, project_id? } — CLIPPER step 1: a Modal job reads
-// the video (title, transcript, "most replayed"), the director picks the clips. Free; ≤ 3 at a time per client.
+// the video (title, transcript, "most replayed"), the director picks the clips. A flat fee (clipper_pricing.analysis,
+// RM1) is held at the start and given back when the analysis fails; ≤ 3 at a time per client.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -37,6 +39,7 @@ export async function POST(req: Request) {
 
   const planToken = newPlanToken();
   const projectId = typeof b?.project_id === "string" && /^[0-9a-f-]{36}$/i.test(b.project_id) ? b.project_id : null;
+  const fee = (await clipperFees()).analysis;
   const { data: row, error } = await admin.from("history").insert({
     user_id: user.id,
     project_id: projectId,
@@ -46,10 +49,15 @@ export async function POST(req: Request) {
     prompt: (src.name || src.url).slice(0, 200),
     reference_url: src.url,
     task_id: null,
-    cost: 0,
-    metadata: { feature: "clipper-analysis", stage: "queued", source: src, options, plan_token: planToken },
+    cost: fee,
+    metadata: { feature: "clipper-analysis", stage: "queued", source: src, options, plan_token: planToken, reserved: fee },
   }).select("id").single();
   if (error || !row) return NextResponse.json({ error: error?.message || "Gagal cipta analisa" }, { status: 500 });
+  // the analysis fee, held now (the RPC refuses when the balance can't cover it)
+  if (!(await reserveCredit(user.id, "clipper", fee, row.id))) {
+    await admin.from("history").delete().eq("id", row.id);
+    return NextResponse.json({ error: "Kredit tidak mencukupi — sila top up.", needed: fee }, { status: 402 });
+  }
 
   const start = await motionStart({
     flow: "clip-analyze",
@@ -63,12 +71,14 @@ export async function POST(req: Request) {
     ...(src.type === "youtube" ? { yt_auth: await clipperYoutubeAuth() } : {}),
   });
   if (!start.ok) {
-    await admin.from("history").update({ status: "failed", error_message: `Gagal mula analisa: ${start.error}` }).eq("id", row.id);
+    await admin.from("history").update({ status: "failed", error_message: `Gagal mula analisa: ${start.error}`, cost: 0,
+      metadata: { feature: "clipper-analysis", stage: "failed", source: src, options, plan_token: planToken, reserved: 0 } }).eq("id", row.id);
+    await refundReserved(user.id, "clipper", fee, row.id);
     return NextResponse.json({ error: `Gagal mula analisa: ${start.error}` }, { status: 502 });
   }
   await admin.from("history").update({
     task_id: start.callId,
-    metadata: { feature: "clipper-analysis", stage: "queued", source: src, options, plan_token: planToken, provider: "modal-motion" },
+    metadata: { feature: "clipper-analysis", stage: "queued", source: src, options, plan_token: planToken, provider: "modal-motion", reserved: fee },
   }).eq("id", row.id);
   return NextResponse.json({ ok: true, id: row.id });
 }

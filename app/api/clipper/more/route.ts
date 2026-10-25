@@ -3,8 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { withDeadline } from "@/lib/openrouter";
+import { refundReserved, reserveCredit } from "@/lib/deduct";
 import {
-  MAX_ANALYSIS_CLIPS, cleanOptions, directClips, isFreshClip,
+  MAX_ANALYSIS_CLIPS, cleanOptions, clipperFees, directClips, isFreshClip,
   type ClipperAnalysis, type ClipperClip, type HeatPoint, type Line,
 } from "@/lib/clipper";
 
@@ -49,6 +50,13 @@ export async function POST(req: Request) {
   }
   if (!a.transcript_url) return NextResponse.json({ error: "Transkrip video ini tiada — analisa semula video." }, { status: 409 });
 
+  // the round's fee (clipper_pricing.more, RM1 a press), held now — given back when the round fails or finds nothing
+  const fee = (await clipperFees()).more;
+  if (!(await reserveCredit(user.id, "clipper", fee, jobId))) {
+    return NextResponse.json({ error: "Kredit tidak mencukupi — sila top up.", needed: fee }, { status: 402 });
+  }
+  const giveBack = () => refundReserved(user.id, "clipper", fee, jobId);
+
   // mark the round as running (a fresh read: the Studio may have just saved previews into the same metadata)
   const mark = async (patch: Record<string, unknown>) => {
     const cur = await read();
@@ -92,13 +100,15 @@ export async function POST(req: Request) {
       metadata: { ...rest, analysis: { ...(meta.analysis || a), clips: [...cur, ...added] } },
     }).eq("id", jobId);
     if (!added.length) {
-      return NextResponse.json({ ok: true, added: 0, batch, notice: "AI tidak jumpa momen kuat lain dalam video ini — klip terbaik sudah diambil." });
+      await giveBack();
+      return NextResponse.json({ ok: true, added: 0, batch, charged: 0, notice: "AI tidak jumpa momen kuat lain dalam video ini — klip terbaik sudah diambil." });
     }
-    return NextResponse.json({ ok: true, added: added.length, batch, fallback: res.fallback });
+    return NextResponse.json({ ok: true, added: added.length, batch, charged: fee, fallback: res.fallback });
   } catch (e: any) {
     const cur = await read();
     const { more_at: _drop, ...rest } = cur?.metadata || {};
     await admin.from("history").update({ metadata: rest }).eq("id", jobId);
+    await giveBack();
     return NextResponse.json({ error: e?.message || "Gagal cari klip baru — cuba lagi." }, { status: 502 });
   }
 }

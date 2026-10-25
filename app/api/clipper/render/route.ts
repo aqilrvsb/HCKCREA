@@ -6,7 +6,7 @@ import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { LOCK_CAPTION_LOOKS, type LockCaptionLook, type MotionLocks } from "@/lib/motion-manual";
 import { CLIPPER_JOB_TAB, CLIPPER_TAB, MAX_RENDER_CLIPS, clipContext, clipperYoutubeAuth, type ClipperAnalysis } from "@/lib/clipper";
-import { clipFlash, clipKey, clipSeed, type PolishRef } from "@/lib/clipper-preview";
+import { clipFlash, clipKey, clipSeed, previewWords, type PolishRef, type TLine } from "@/lib/clipper-preview";
 import { HEADLINE_VERSION } from "@/lib/motion-headline";
 import { vgcStyle, vgcVault } from "@/lib/vgc-styles";
 
@@ -31,6 +31,14 @@ function shuffled<T>(list: T[]): T[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+/** The analysis transcript (B2 JSON lines with word timings), or null. */
+async function transcriptLines(url: string | null | undefined): Promise<TLine[] | null> {
+  if (!url) return null;
+  const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  const j = r?.ok ? await r.json().catch(() => null) : null;
+  return Array.isArray(j) ? (j as TLine[]) : null;
 }
 
 /** A hook short enough for the director's hook lock (≤ 40 chars), cut at a word. */
@@ -89,6 +97,15 @@ export async function POST(req: Request) {
   const language = (["ms", "en", "id"].includes(String(a.language)) ? a.language : "ms") as "ms" | "en" | "id";
   // what the Studio preview made per clip (keyword colours / zooms) — the render reuses it, so it looks the same
   const previews = ((job as any).metadata?.previews ?? {}) as Record<string, PolishRef & { at?: number }>;
+  // the analysis already transcribed the whole video with Whisper turbo + word alignment: each clip takes its words
+  // from there instead of transcribing itself on a GPU again (~20 s faster, no GPU queue in a 50-clip batch) — the
+  // very words the Studio preview shows. YouTube captions carry no real word timings: those clips still transcribe.
+  const tlines = /^whisper/i.test(String(a.caption_source || "")) ? await transcriptLines(a.transcript_url) : null;
+  const clipWords = (s: number, e: number) => {
+    if (!tlines) return null;
+    const { words, aligned } = previewWords(tlines, s, e);
+    return aligned && words.length >= 3 ? words.slice(0, 3000).map((w) => ({ w: w.w, t: w.t, e: w.e })) : null;
+  };
 
   // the analysis' speaker turns [[s, e, "S1"], …] (source seconds) → one clip's, in clip seconds
   const turnsIn = (all: unknown, s: number, e: number) =>
@@ -259,6 +276,8 @@ export async function POST(req: Request) {
         source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language, jumpcut,
         seed: clipSeed(job.id, c.start, c.end),
         ...(c.flash ? { flash: c.flash } : {}),
+        // the clip's words from the analysis (clip seconds) — Modal skips its own transcription
+        ...((): { words?: { w: string; t: number; e: number }[] } => { const w = clipWords(c.start, c.end); return w ? { words: w } : {}; })(),
         // who speaks when inside this clip (clip seconds) — the camera cuts on speaker turns
         turns: turnsIn(a.turns, c.start, c.end),
         ...(wmText || wmImage ? { watermark: { ...(wmText ? { text: wmText } : {}), ...(wmImage ? { image: wmImage } : {}) } } : {}),

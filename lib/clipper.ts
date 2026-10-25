@@ -9,6 +9,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
 import { extractJson, motionCheck, type MotionCheck } from "@/lib/motion";
+import { refundReserved } from "@/lib/deduct";
 
 export const CLIPPER_JOB_TAB = "clipper-job";
 
@@ -23,6 +24,18 @@ export async function clipperYoutubeAuth(): Promise<{ cookies?: string; proxy?: 
 }
 
 export const CLIPPER_TAB = "clipper";
+
+/** The flat CLIPPER fees (RM): one video analysis, one "➕ Cari lagi klip" round — app_settings.clipper_pricing
+ *  ({ analysis, more }); the owner set RM1 each (2026-10-26). Both are refunded when the work fails / finds nothing. */
+export async function clipperFees(): Promise<{ analysis: number; more: number }> {
+  const { getSetting } = await import("@/lib/settings");
+  const v = await getSetting<{ analysis?: unknown; more?: unknown }>("clipper_pricing").catch(() => null);
+  const fee = (x: unknown, d: number) => {
+    const n = Number(x);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : d;
+  };
+  return { analysis: fee(v?.analysis, 1), more: fee(v?.more, 1) };
+}
 const ANALYSE_STALE_MS = 50 * 60_000;
 
 export type ClipSourceType = "youtube" | "gdrive" | "upload" | "tiktok";
@@ -541,9 +554,19 @@ export async function settleClipperJob(row: JobRow, pre?: MotionCheck): Promise<
   const meta = row.metadata || {};
   const admin = createAdminClient();
   const createdMs = new Date(row.created_at || meta.created_at || Date.now()).getTime();
+  // the analysis fee goes back when it fails (or finds nothing) — only the call that flips the row refunds, once
+  const fee = Number(meta.reserved) || 0;
+  const giveBack = async () => {
+    if (fee > 0) await refundReserved(row.user_id, "clipper", fee, row.id);
+  };
+  const fail = async (msg: string, metadata?: Record<string, unknown>) => {
+    const { data: flipped } = await admin.from("history").update({ status: "failed", error_message: msg, cost: 0, ...(metadata ? { metadata } : {}) })
+      .eq("id", row.id).eq("status", "pending").select("id");
+    if (flipped?.length) await giveBack();
+  };
   if (!row.task_id) {
     if (Date.now() - createdMs > 10 * 60_000) {
-      await admin.from("history").update({ status: "failed", error_message: "Analisa tidak bermula — cuba lagi." }).eq("id", row.id).eq("status", "pending");
+      await fail("Analisa tidak bermula — cuba lagi.");
       return { state: "settled", status: "failed" };
     }
     return { state: "pending" };
@@ -551,29 +574,32 @@ export async function settleClipperJob(row: JobRow, pre?: MotionCheck): Promise<
   const r = pre ?? (await motionCheck(row.task_id));
   if (r.status === "running" || r.status === "unknown") {
     if (Date.now() - createdMs > ANALYSE_STALE_MS) {
-      await admin.from("history").update({ status: "failed", error_message: "Analisa mengambil masa terlalu lama — cuba lagi." }).eq("id", row.id).eq("status", "pending");
+      await fail("Analisa mengambil masa terlalu lama — cuba lagi.");
       return { state: "settled", status: "failed" };
     }
     return { state: "pending", progress: r.status === "running" ? r.progress ?? null : null };
   }
   if (r.status === "failed") {
-    await admin.from("history").update({ status: "failed", error_message: String(r.error || "Analisa gagal").slice(0, 500), metadata: { ...meta, stage: "failed" } })
-      .eq("id", row.id).eq("status", "pending");
+    await fail(String(r.error || "Analisa gagal").slice(0, 500), { ...meta, stage: "failed" });
     return { state: "settled", status: "failed", error: r.error };
   }
   const a = (r.result as any)?.analysis as ClipperAnalysis | undefined;
   if (!a) {
-    await admin.from("history").update({ status: "failed", error_message: "Analisa tidak lengkap — cuba lagi." }).eq("id", row.id).eq("status", "pending");
+    await fail("Analisa tidak lengkap — cuba lagi.");
     return { state: "settled", status: "failed" };
   }
+  const found = !!a.clips?.length;
   const { data: flipped } = await admin.from("history").update({
     status: "done",
-    error_message: a.clips?.length ? null : (a.plan_error ? `AI tidak dapat memilih klip: ${a.plan_error}` : "Tiada klip ditemui."),
+    error_message: found ? null : (a.plan_error ? `AI tidak dapat memilih klip: ${a.plan_error}` : "Tiada klip ditemui."),
     prompt: String(a.title || meta.source?.name || "Video").slice(0, 200),
     thumbnail_url: a.thumb || null,
     duration: Math.round(a.duration || 0),
+    ...(found ? {} : { cost: 0 }),
     metadata: { ...meta, stage: "done", analysis: a, settled_at: new Date().toISOString() },
   }).eq("id", row.id).eq("status", "pending").select("id");
   if (!flipped?.length) return { state: "skipped" };
+  // no clip found: nothing delivered — the fee goes back
+  if (!found) await giveBack();
   return { state: "settled", status: "done" };
 }

@@ -454,7 +454,7 @@ async function pickClean(query: string, big: string, hits: { url: string; thumb?
       : ""}${asked
       ? `THE SELLER ASKED FOR THIS PICTURE (their own words) — it fits their video by definition; pick the cleanest image that literally shows the query.\n${topic ? `(The video, for context only: ${topic.slice(0, 300)})\n` : ""}`
       : topic ? `THE VIDEO IS ABOUT: ${topic}\nThe picture must fit THAT video's subject — reject any image of another subject even when it matches the query's words (a cake seller's video never gets a skin / face picture).\n` : ""}${said ? `THE SPEAKER SAYS RIGHT THERE: "${said}"
-` : ""}Query: "${query}" (on screen: "${big}") — the picture must show what that line and those words mean, in the video's sense — literally, never a metaphor or a mood picture. Read Malay words in their MEANING, not literally: 'masalah manis' / 'kencing manis' = high blood sugar (diabetes) — never sweets, lipstick or something pretty; 'buat dono' = acting like they don't know; 'madu' / 'bermadu' when they talk about a husband, a wife or marriage = a co-wife (polygamy), never honey. a related-but-different thing is WRONG (candy or chocolate for sugar in a drink). Images #0..#${hits.length - 1} attached in order.`,
+` : ""}Query: "${query}" (on screen: "${big}") — the picture must show what that line and those words mean, in the video's sense — literally, never a metaphor or a mood picture. Read Malay words in their MEANING, not literally: 'masalah manis' / 'kencing manis' = high blood sugar (diabetes) — never sweets, lipstick or something pretty; 'buat dono' = acting like they don't know; 'madu' / 'bermadu' when they talk about a husband, a wife or marriage = a co-wife (polygamy), never honey. a related-but-different thing is WRONG (candy or chocolate for sugar in a drink). -1 when no image clearly shows it: a picture only loosely related is worse than none (the panel then keeps the headline's words). Images #0..#${hits.length - 1} attached in order.`,
     images: hits.map((h) => h.thumb || h.url),
     temperature: 0.1,
     maxTokens: 60,
@@ -512,6 +512,93 @@ export function fixHeadlineWords<T extends { lead: string; big: string; box?: st
     return m === m.toUpperCase() && m !== m.toLowerCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to;
   });
   return heads.map((h) => ({ ...h, lead: fix(h.lead) ?? h.lead, big: fix(h.big) ?? h.big, ...(h.box ? { box: fix(h.box) } : {}) }));
+}
+
+// the plan fields that are shown on screen (never a search query, a URL or an id)
+const SHOWN_TEXT = new Set(["text", "lead", "big", "box", "heading", "title", "sub", "caption", "label", "kicker", "say", "note"]);
+
+/** The caption fixer's corrections (a misheard token → what was said) applied to every text the plan shows — the
+ *  director writes from the raw transcript while the fixer runs beside it, so a misheard token ("MEMANGFUL") could
+ *  reach a headline, a sticker or a scene line though the captions read "memang full". */
+export function fixPlanText<T>(plan: T, words: string[], fixes: [number, string][]): T {
+  const core = (s: string) => s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  const pairs = new Map<string, string>();
+  for (const [i, w] of fixes) {
+    const from = core(String(words[i] ?? "")), to = core(String(w));
+    if (from.length >= 3 && to && from.toLowerCase() !== to.toLowerCase() && !/\s/.test(from)) pairs.set(from.toLowerCase(), to);
+  }
+  if (!pairs.size) return plan;
+  const fix = (s: string) => s.replace(/[\p{L}\p{N}]+/gu, (m) => {
+    const to = pairs.get(m.toLowerCase());
+    if (!to) return m;
+    return m === m.toUpperCase() && m !== m.toLowerCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to;
+  });
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== "object") return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      out[k] = typeof x === "string" ? (SHOWN_TEXT.has(k) ? fix(x) : x) : walk(x);
+    }
+    return out;
+  };
+  return walk(plan) as T;
+}
+
+/** Every on-screen text of a plan (SHOWN_TEXT fields), in walk order. */
+function shownTexts(v: unknown, out: string[] = []): string[] {
+  if (Array.isArray(v)) { for (const x of v) shownTexts(x, out); return out; }
+  if (!v || typeof v !== "object") return out;
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof x === "string") { if (SHOWN_TEXT.has(k)) out.push(x); } else shownTexts(x, out);
+  }
+  return out;
+}
+
+const SPELL_SYS = `You proofread the ON-SCREEN TEXTS of a Malaysian TikTok edit (headlines, stickers, scene lines, the hook). They were written from a speech-recognition transcript, so a word can be misheard, wrongly merged or split, or misspelled ("MEMANGFUL" → "MEMANG FULL", "begguna" → "beg guna", "percipat" → "pelipat").
+The language is Malay, English or Malaysian code-switching. Fix ONLY words that are not real words of their language or are clearly misspelled. Never change a real word, a brand / product name, a number, or real slang (je, kan, tu, la, lah, ke, kot). Never rewrite, shorten or translate a text.
+Return ONLY JSON: {"fixes": [{"from": "<the word exactly as written>", "to": "<the correct spelling>"}]} — {"fixes": []} when everything is spelled right.`;
+
+/** One fast check of the spelling of everything the plan shows (a misheard / merged token from the transcript must not
+ *  become a big headline word): word-for-word fixes, caps style kept. Fail-soft — the plan as it was. */
+export async function fixShownSpelling<T>(plan: T, context: string, deadline: number): Promise<T> {
+  const texts = [...new Set(shownTexts(plan).map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => /\p{L}{3,}/u.test(s)))].slice(0, 80);
+  const left = deadline - Date.now();
+  if (!texts.length || left < 5000) return plan;
+  const r = await orChat({
+    modelKey: "model_motion_guard",
+    systemPrompt: SPELL_SYS,
+    userPrompt: `${context ? `VIDEO / SELLER CONTEXT (brand names are right as written there): ${context.slice(0, 300)}\n\n` : ""}TEXTS:\n${texts.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\nJSON only.`,
+    temperature: 0,
+    maxTokens: 1200,
+    timeoutMs: Math.min(20_000, left - 2000),
+    stream: true,
+    validate: (c) => { try { return Array.isArray(extractJson(c)?.fixes); } catch { return false; } },
+  }).catch(() => null);
+  if (!r?.ok || !r.content) return plan;
+  let list: { from?: unknown; to?: unknown }[] = [];
+  try { list = extractJson(r.content)?.fixes ?? []; } catch { return plan; }
+  const core = (s: string) => s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  const pairs = new Map<string, string>();
+  for (const f of list.slice(0, 40)) {
+    const from = core(String(f?.from ?? "")), to = core(String(f?.to ?? "")).replace(/\s+/g, " ");
+    // one written word → its spelling (a merged word may become two); never a rewrite of a phrase
+    if (from.length >= 3 && to && !/\s/.test(from) && to.split(" ").length <= 3 && from.toLowerCase() !== to.toLowerCase()) pairs.set(from.toLowerCase(), to);
+  }
+  if (!pairs.size) return plan;
+  const fix = (s: string) => s.replace(/[\p{L}\p{N}]+/gu, (m) => {
+    const to = pairs.get(m.toLowerCase());
+    if (!to) return m;
+    return m === m.toUpperCase() && m !== m.toLowerCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to.toLowerCase();
+  });
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== "object") return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = typeof x === "string" ? (SHOWN_TEXT.has(k) ? fix(x) : x) : walk(x);
+    return out;
+  };
+  return walk(plan) as T;
 }
 
 /** Headlines made on one word list, moved onto another (the CLIPPER render re-transcribes the clip). */

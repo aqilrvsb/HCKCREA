@@ -4377,15 +4377,26 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     else:
         _media_segment(str(c.get("media_url") or c.get("url")), start, end, seg)
     lang = c.get("language") or p.get("language")
-    # the clip's words on the GPU engine (Whisper turbo + alignment), running while the camera is planned
+    # the analysis already transcribed this clip (Whisper turbo + alignment over the whole video): the render route
+    # hands over its words (clip seconds, the very words the Studio preview showed) — no GPU call for this clip
+    given = []
+    for w in (c.get("words") or [])[:3000]:
+        try:
+            s_, t_, e_ = str(w.get("w") or "").strip(), float(w["t"]), float(w.get("e") or w["t"])
+        except Exception:  # noqa: BLE001
+            continue
+        if s_ and 0 <= t_ <= (end - start) + 0.5:
+            given.append({"w": s_[:40], "t": round(t_, 3), "e": round(max(e_, t_ + 0.05), 3)})
+    # else the clip's words on the GPU engine (Whisper turbo + alignment), running while the camera is planned
     asr_call = None
-    try:
-        a16 = d / "clip_audio.ogg"
-        _run(["ffmpeg", "-v", "error", "-y", "-i", str(seg), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "48k", str(a16)], "clip audio", 300)
-        asr_call = clip_audio.spawn(None, a16.read_bytes(), lang if lang in ("ms", "en", "id") else None,
-                                    str(c.get("title") or "")[:120] or None, ["asr", "align"])
-    except Exception as e:  # noqa: BLE001
-        print("clip audio engine not started:", str(e)[:200], flush=True)
+    if len(given) < 3:
+        try:
+            a16 = d / "clip_audio.ogg"
+            _run(["ffmpeg", "-v", "error", "-y", "-i", str(seg), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "48k", str(a16)], "clip audio", 300)
+            asr_call = clip_audio.spawn(None, a16.read_bytes(), lang if lang in ("ms", "en", "id") else None,
+                                        str(c.get("title") or "")[:120] or None, ["asr", "align"])
+        except Exception as e:  # noqa: BLE001
+            print("clip audio engine not started:", str(e)[:200], flush=True)
     # who speaks when (from the analysis, clip seconds) → the camera cuts on speaker turns
     turns = [{"s": float(t["s"]), "e": float(t["e"]), "spk": str(t["spk"])} for t in (c.get("turns") or [])
              if isinstance(t, dict) and float(t.get("e", 0)) > float(t.get("s", 0))] or None
@@ -4395,7 +4406,10 @@ def _clip_prepare(p: dict, d: Path) -> dict:
     src = framed if framed.exists() else seg
     _progress("transcribe", 14)
     words, aligned = None, False
-    if asr_call is not None:
+    if len(given) >= 3:
+        words, aligned = given, True
+        print(f"clip words from the analysis: {len(given)} (no GPU call)", flush=True)
+    elif asr_call is not None:
         # a clip never waits long for a GPU: past 240 s (no GPU free, or a slow start) the CPU transcriber takes over —
         # a 50-clip batch shares the workspace's 10 GPUs (~20 s a clip, warm), so the last ones wait ~2–3 min
         res = _engine_get(asr_call, "clip words", 240)
