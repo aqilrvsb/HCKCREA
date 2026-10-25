@@ -133,6 +133,9 @@ export async function POST(req: Request) {
   if (!clips.length) return NextResponse.json({ error: "Pilih sekurang-kurangnya satu klip (3–120 saat)." }, { status: 400 });
 
   const rate = await priceFor(user.id, "motion", "motion");
+  // admin debugging only: Modal keeps the job folder (props.json + assets) so a render can be inspected afterwards
+  const keepJob = s.debug_keep === true
+    && !!(await admin.from("profiles").select("is_admin").eq("id", user.id).maybeSingle()).data?.is_admin;
   const ytAuth = src.type === "youtube" ? await clipperYoutubeAuth() : null;
   const projectId = typeof b?.project_id === "string" && /^[0-9a-f-]{36}$/i.test(b.project_id) ? b.project_id : job.project_id ?? null;
   const ids: string[] = [];
@@ -250,6 +253,7 @@ export async function POST(req: Request) {
       max_sec: 125,
       auto: true,
       captions,
+      ...(keepJob ? { keep_job: true } : {}),
       ...(ytAuth ? { yt_auth: ytAuth } : {}),
       clip: {
         source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language, jumpcut,
