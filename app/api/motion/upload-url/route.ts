@@ -34,7 +34,9 @@ export async function POST(req: Request) {
   }
   // avoid = the upload host a retry just failed on: the next link goes to another account
   const avoid = typeof b?.avoid === "string" && /^[a-z0-9.-]{1,120}$/i.test(b.avoid) ? b.avoid : undefined;
-  const signed = await signMotionUpload(user.id, String(b?.name || (kind === "image" ? "photo.jpg" : "video.mp4")), kind, avoid);
+  // CLIPPER uploads (its source video, a clip's own B-roll) go to the CLIPPER accounts, the rest to the Motion ones
+  const work = kind === "clip" || b?.from === "clipper" ? "clipper" : "motion";
+  const signed = await signMotionUpload(user.id, String(b?.name || (kind === "image" ? "photo.jpg" : "video.mp4")), kind, avoid, work);
   if (!signed) return NextResponse.json({ error: "Motion renderer not configured" }, { status: 500 });
   return NextResponse.json({ ok: true, upload_url: signed.uploadUrl });
 }

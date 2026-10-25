@@ -39,7 +39,7 @@ async function transcript(url: string): Promise<TLine[] | null> {
 
 /** The speaker's face over one clip of the source (Modal clip_faces, ≤ 100 s), or undefined. */
 async function sourceFaces(url: string, start: number, end: number): Promise<(SrcFaces & { at: number }) | undefined> {
-  const cfg = await getMotionConfig();
+  const cfg = await getMotionConfig({ work: "clipper" });
   if (!cfg) return undefined;
   const r = await fetch(`${cfg.api_url}/faces`, {
     method: "POST", headers: { "Content-Type": "application/json" },

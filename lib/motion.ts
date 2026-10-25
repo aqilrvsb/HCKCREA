@@ -250,7 +250,11 @@ export async function allowedEngine(v: unknown, userId: string | null | undefine
 // "<modal call id>@<account id>" — so status checks / settling reach the right
 // one; a plain call id = the main account (every job before multi-account).
 // vgc_url = the account's Custom Style (VGC) app (modal_vgc.py), same secret.
-type MotionAccount = MotionCfg & { id: string; vgc_url?: string };
+// role = the work an account takes (owner's split, 2026-10-26): "motion" (Default, Custom, Custom Style), "clipper"
+// (CLIPPER analyses, clips, uploads, Studio faces, ZIPs), none = both. Set in app_settings: motion_modal.role (main),
+// motion_modal.accounts[].role.
+export type MotionWork = "motion" | "clipper";
+type MotionAccount = MotionCfg & { id: string; vgc_url?: string; role?: MotionWork };
 const MAIN_ACCOUNT = "main";
 
 /** Accounts that take new jobs; `includeDisabled` also returns switched-off
@@ -261,7 +265,8 @@ export async function getMotionAccounts(opts: { includeDisabled?: boolean } = {}
     const api_url = String(a?.api_url || "").replace(/\/+$/, "");
     const secret = String(a?.secret || "");
     const vgc_url = String(a?.vgc_api_url || "").replace(/\/+$/, "") || undefined;
-    return api_url && secret ? { id, api_url, secret, vgc_url } : null;
+    const role: MotionWork | undefined = a?.role === "motion" || a?.role === "clipper" ? a.role : undefined;
+    return api_url && secret ? { id, api_url, secret, vgc_url, role } : null;
   };
   // the main workspace can be switched off too (motion_modal.enabled = false — e.g. its monthly usage ran out);
   // its running jobs are still checked to the end (includeDisabled)
@@ -306,12 +311,13 @@ async function nextTurn(): Promise<number> {
   return LOCAL_TURN++;
 }
 
-/** The account that serves an upload, a Studio preview or a ZIP: the accounts that are up take turns (round robin,
- *  one turn per call). `avoidHost` = the workspace a retry just failed on — it sits this one out when another is up. */
-export async function getMotionConfig(opts: { avoidHost?: string } = {}): Promise<MotionCfg | null> {
+/** The account that serves an upload, a Studio preview or a ZIP: the accounts that are up for this work take turns
+ *  (round robin, one turn per call). `avoidHost` = the workspace a retry just failed on — it sits this one out when
+ *  another is up. */
+export async function getMotionConfig(opts: { avoidHost?: string; work?: MotionWork } = {}): Promise<MotionCfg | null> {
   const accounts = await getMotionAccounts();
   if (!accounts.length) return null;
-  let up = await upAccounts(accounts);
+  let up = await upAccounts(accounts, opts.work);
   const avoid = String(opts.avoidHost || "").toLowerCase();
   if (avoid && up.length > 1) {
     const rest = up.filter((a) => { try { return new URL(a.api_url).host.toLowerCase() !== avoid; } catch { return true; } });
@@ -357,15 +363,26 @@ async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccou
 }
 const JUST_STARTED = new Map<string, number[]>();
 
-/** The accounts that are up (a disabled workspace sits out); all of them when none answers. */
-async function upAccounts(accounts: MotionAccount[]): Promise<MotionAccount[]> {
+/** The accounts that are up (a disabled workspace sits out); all of them when none answers. With `work`: only the
+ *  accounts for that work (its role, or no role); when none of those is up, the others take it — a client never gets
+ *  an error because its own accounts are down. */
+async function upAccounts(accounts: MotionAccount[], work?: MotionWork): Promise<MotionAccount[]> {
   const up = (await Promise.all(accounts.map(async (a) => ((await accountUp(a)) ? a : null)))).filter(Boolean) as MotionAccount[];
-  return up.length ? up : accounts;
+  if (!work) return up.length ? up : accounts;
+  const forWork = (list: MotionAccount[]) => list.filter((a) => !a.role || a.role === work);
+  const mine = forWork(up);
+  if (mine.length) return mine;
+  if (up.length) return up;
+  return forWork(accounts).length ? forWork(accounts) : accounts;
 }
 
+/** CLIPPER flows ("clip-analyze", "clip") run on the CLIPPER accounts; everything else is Motion work. */
+const workOf = (payload: Record<string, any>): MotionWork => (String(payload?.flow || "").startsWith("clip") ? "clipper" : "motion");
+
 export async function motionStart(payload: Record<string, any>): Promise<{ ok: true; callId: string } | { ok: false; error: string }> {
-  // jobs spread over the accounts that are up — a disabled workspace sits out instead of failing every first try
-  const accounts = await upAccounts(await getMotionAccounts());
+  // jobs spread over the accounts that are up for this work — a disabled workspace sits out instead of failing every
+  // first try
+  const accounts = await upAccounts(await getMotionAccounts(), workOf(payload));
   if (!accounts.length) return { ok: false, error: "Motion renderer not configured (motion_modal)" };
   const first = await pickMotionAccount(accounts);
   // Laju renderer: the admin switch (app_settings.motion_renderer); a payload that
@@ -402,7 +419,7 @@ export async function motionStart(payload: Record<string, any>): Promise<{ ok: t
 /** Start a Custom Style (VGC) run on the least busy account that has the VGC
  *  app (main first on a tie). Task id: "vgc:<call id>[@<account>]". */
 export async function vgcStart(payload: Record<string, any>): Promise<{ ok: true; callId: string } | { ok: false; error: string }> {
-  const accounts = await upAccounts((await getMotionAccounts()).filter((a) => a.vgc_url));
+  const accounts = await upAccounts((await getMotionAccounts()).filter((a) => a.vgc_url), "motion");
   if (!accounts.length) return { ok: false, error: "Custom Style belum disediakan (motion_modal.vgc_api_url)" };
   const first = await pickMotionAccount(accounts);
   let lastErr = "";
@@ -461,8 +478,9 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
  *  Vercel caps request bodies at 4.5MB, so the file never touches Next. */
 const VGC_EXTS = ["jpg", "jpeg", "png", "webp", "mp4", "mov", "webm", "m4v", "mp3", "wav", "m4a", "aac", "ogg"];
 
-export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" | "vgc" | "clip" = "video", avoidHost?: string): Promise<{ uploadUrl: string; key: string } | null> {
-  const cfg = await getMotionConfig({ avoidHost });
+export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" | "vgc" | "clip" = "video", avoidHost?: string,
+  work: MotionWork = kind === "clip" ? "clipper" : "motion"): Promise<{ uploadUrl: string; key: string } | null> {
+  const cfg = await getMotionConfig({ avoidHost, work });
   if (!cfg) return null;
   const extRaw = (fileName.split(".").pop() || "").toLowerCase();
   // videos → motion-uploads/, product photos → motion-images/, Custom Style

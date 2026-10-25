@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   };
   const items = (rows ?? []).filter((r: any) => r.output_url).map((r: any) => ({ url: r.output_url, name: r.prompt || "klip", kit: kitOf(r) }));
   if (!items.length) return NextResponse.json({ error: "Tiada klip siap untuk dimuat turun." }, { status: 400 });
-  const cfg = await getMotionConfig();
+  const cfg = await getMotionConfig({ work: "clipper" });
   if (!cfg) return NextResponse.json({ error: "Motion renderer not configured" }, { status: 500 });
   const key = `users/${user.id.replace(/[^A-Za-z0-9_-]/g, "")}/clipper/zips/${randomUUID().replace(/-/g, "")}.zip`;
   const r = await fetch(`${cfg.api_url}/zip`, {
