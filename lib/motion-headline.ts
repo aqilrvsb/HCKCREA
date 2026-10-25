@@ -69,6 +69,10 @@ export type HeadlinePlan = {
   about?: "product" | "story";
 };
 
+/** A picture search for a logo / icon / brand mark: the web answers with ANOTHER company's (a lime swoosh on white
+ *  filled a styled clip for "Vidara Healthy Beauty logo") — B-roll and headline panels never search for one. */
+export const LOGO_QUERY = /\b(logos?|icons?|brand ?marks?|wordmarks?|emblems?|lambang|ikon)\b/i;
+
 /** What the director / polish call is asked for (the same words in every flow). */
 export const HEADLINE_SPEC = `"headlines": [HEADLINE] — REQUIRED in every video, in this order through the video: one "over", one "split", then (from 20 s) one "pip", then (from 45 s) a second "split"; one at a time, each on a different strong line, spread over the whole video after the hook and before the CTA, in the speaker-on-screen gaps (never inside a scene):
   {"kind": "over", "at": CUE, "to"?: CUE, "lead": 2–5 words (sentence case, the set-up), "big": 1–3 words (≤16 characters, the punch), "box": 2–5 words (the payoff)} — the speaker stays full-frame and a three-line headline animates over them: an elegant italic lead-in, one huge word, a short line in a colour box (e.g. lead "Rahsia kulit", big "GLOWING", box "dalam 7 hari"); ~3 s,
@@ -237,7 +241,8 @@ export function cleanHeadlines(raw: unknown, words: { w: string; t: number }[], 
     const at = cueOk(h?.at, n, duration);
     if (at === undefined) continue;
     const to = cueOk(h?.to, n, duration);
-    const query = clean(h?.query, 80);
+    // a logo search is no picture (another company's sign comes back): the panel falls back to the headline's own words
+    const query = LOGO_QUERY.test(clean(h?.query, 80)) ? "" : clean(h?.query, 80);
     // a lead-in / box line with a number (or unit) the speaker doesn't say goes, the rest stays; when the punch itself
     // carries it, the whole headline was built on that claim: its words become the speaker's own there (its B-roll stays)
     let lead = clean(h?.lead, 34), box = clean(h?.box, 34), punch = big;
