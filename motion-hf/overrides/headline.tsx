@@ -84,7 +84,10 @@ export function headClip(heads: PlacedHeadline[], frame: number): React.CSSPrope
 }
 
 // ── text ──
-const bigSize = (t: string, width = 1000) => Math.max(110, Math.min(270, Math.floor(width / Math.max(1, t.length * 0.43))));
+// Anton caps, as shares of the em: M / W are wide, I / 1 / punctuation thin, the rest ~0.5 — one average for every
+// letter let "MACADAMIA" run past the frame (two M's)
+const antonEm = (t: string) => [...t.toUpperCase()].reduce((a, ch) => a + (/[MW]/.test(ch) ? 0.64 : /[IJ1!.,:;'|]/.test(ch) ? 0.27 : ch === ' ' ? 0.22 : 0.5), 0);
+const bigSize = (t: string, width = 1000) => Math.max(110, Math.min(270, Math.floor((width - t.length * 1.5) / Math.max(1, antonEm(t)))));
 const leadSize = (t: string, width = 980) => Math.max(58, Math.min(104, Math.floor(width / Math.max(1, t.length * 0.42))));
 const SHADOW = '0 6px 28px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.5)';
 
