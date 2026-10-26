@@ -43,9 +43,9 @@ export const isVeoSafetyRefusal = (err: string | null | undefined) => /explicit 
 /** Veo adds up mild signals across a long prompt (a young woman, "never tight", "covers … neck", a product it finds
  *  sensitive, a long rule list): Yasier's men's massage oil was refused on every full prompt while the same scene in
  *  a short prompt passed. This is that short prompt: the scene / outfit / product / action and the spoken line (the
- *  part before the locks), its body descriptors softened, one line for the clean frame + voice + language. Used once,
- *  only after a refusal. */
-export function compactVeoPrompt(full: string): string {
+ *  part before the locks), its body descriptors softened, one line for the clean frame + voice + language. Two forms,
+ *  tried in order, only after a refusal. */
+export function compactVeoPrompts(full: string): string[] {
   const text = String(full ?? "").replace(/\\n/g, "\n");
   // the scene part: everything before the first lock / rule block
   const cut = text.search(/natural realistic proportions|anatomically|ANATOMY LOCK|CLEAN FRAME|RAW UNEDITED|NATURAL PHONE|AUDIO LOCK|VOICE CHARACTER|DIALOG LENGTH|LANGUAGE LOCK|PRODUCT LOCK|HIJAB LOCK|MODESTY LOCK|UGC AUTHENTICITY|Negative:|\n\n/i);
@@ -63,9 +63,12 @@ export function compactVeoPrompt(full: string): string {
   // things, even as "no bag / basket / button", made Veo draw them (3 of 3), and quoting the spoken phrase made it a
   // subtitle — so no object or phrase that must stay off screen is named here.
   const malay = /Malaysian Malay|Bahasa Melayu/i.test(text) ? ", speaking Malaysian Malay" : "";
-  return veoSafePrompt(
-    `Phone video, one continuous take straight from a phone's camera roll: a plain camera image from the first frame to the last, every part of the frame, edges and bottom included, showing only the real scene. It opens directly on this scene: ${scene}${hijab}${product} The reference photos guide the look only. Everything said is heard, not written. Natural handheld phone video, everyday lighting. One voice only${malay}.`
-  ).slice(0, 2000);
+  const body = `${scene}${hijab}${product} The reference photos guide the look only. Everything said is heard, not written. Natural handheld phone video, everyday lighting. One voice only${malay}.`;
+  // 1st: with the clean-picture opening (fewer drawn shop buttons: 1 in 3 vs every time without it);
+  // 2nd: bare — that opening adds to Veo's score too, and one of the five Bossa scenes (a peplum blouse + palazzo
+  // pants outfit) passed only without it
+  const framed = `Phone video, one continuous take straight from a phone's camera roll: a plain camera image from the first frame to the last, every part of the frame, edges and bottom included, showing only the real scene. It opens directly on this scene: ${body}`;
+  return [framed, body].map((p) => veoSafePrompt(p).slice(0, 2000));
 }
 
 /** A Veo model id (google/veo3-1-fast-r2v, veo3.1-fast, …). */

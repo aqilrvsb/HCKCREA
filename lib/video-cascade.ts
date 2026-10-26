@@ -22,7 +22,7 @@
 // cascade tries the OTHER slots first.
 
 import { p1CreateTask } from "@/lib/p1";
-import { compactVeoPrompt, isVeoModel, isVeoSafetyRefusal, veoSafePrompt } from "@/lib/veo-safety";
+import { compactVeoPrompts, isVeoModel, isVeoSafetyRefusal, veoSafePrompt } from "@/lib/veo-safety";
 import { p2CreateTask } from "@/lib/p2";
 import { p5CreateVideo } from "@/lib/p5";
 import { p6CreateVideo, type P6Slot } from "@/lib/p6";
@@ -131,10 +131,15 @@ async function tryVideoSlot(slot: SlotProvider, input: VideoCascadeInput): Promi
   const first = await fireVideoSlot(slot, input, veo ? veoSafePrompt(input.prompt) : input.prompt);
   // Veo refused the long prompt as "explicit content" (it adds up mild signals — a sensitive product + a young woman +
   // a long rule list): once more on the same slot in the compact form (the scene, the product, the spoken line)
+  // (a refusal comes back at once and costs nothing)
   if (!first.ok && veo && slot !== "none" && isVeoSafetyRefusal(first.error)) {
-    const again = await fireVideoSlot(slot, input, compactVeoPrompt(input.prompt));
-    console.log(`[video-cascade] ${slot}: Veo refused the full prompt — compact prompt ${again.ok ? "accepted" : `refused too (${again.error})`}`);
-    if (again.ok) return again;
+    const forms = compactVeoPrompts(input.prompt);
+    for (let i = 0; i < forms.length; i++) {
+      const again = await fireVideoSlot(slot, input, forms[i]);
+      console.log(`[video-cascade] ${slot}: Veo refused the full prompt — compact prompt ${i + 1}/${forms.length} ${again.ok ? "accepted" : `refused too (${again.error})`}`);
+      if (again.ok) return again;
+      if (!isVeoSafetyRefusal(again.error)) break;
+    }
   }
   return first;
 }
