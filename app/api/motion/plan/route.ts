@@ -39,7 +39,8 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
   // fresh headlines (no Studio preview to reuse): their pictures and their spelling check side by side, like the preview
   const freshHeads = fresh?.headlines ?? [];
   const topicText = input.clip?.topic || input.clip?.title || "";
-  const picked = reused?.headlines.length ? reused.headlines
+  // (headlines reused from an older preview still pass the final text check: no vulgar word on screen)
+  const picked = reused?.headlines.length ? applySpelling(reused.headlines, new Map<string, string>())
     : await Promise.all([
       enrichHeadlines(freshHeads, topicText, words).catch(() => freshHeads),
       spellPairs(freshHeads, topicText, deadline + 15_000).catch(() => new Map<string, string>()),

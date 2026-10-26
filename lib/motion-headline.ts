@@ -13,6 +13,7 @@ import { excludeOperators, getSitePrefs, searchImages } from "@/lib/motion-searc
 import { extractJson } from "@/lib/motion";
 import { orChat, orChatVision } from "@/lib/openrouter";
 import { uploadBufferToContent } from "@/lib/b2";
+import { hasVulgar, scrubVulgar } from "@/lib/motion-captions";
 import { createHash } from "crypto";
 
 /** Where a picked picture / clip is kept on our storage (one file per source link). */
@@ -585,19 +586,24 @@ export async function spellPairs(plan: unknown, context: string, deadline: numbe
   for (const f of list.slice(0, 40)) {
     const from = core(String(f?.from ?? "")), to = core(String(f?.to ?? "")).replace(/\s+/g, " ");
     // one written word → its spelling (a merged word may become two); never a rewrite of a phrase
-    if (from.length >= 3 && to && !/\s/.test(from) && to.split(" ").length <= 3 && from.toLowerCase() !== to.toLowerCase()) pairs.set(from.toLowerCase(), to);
+    if (from.length >= 3 && to && !/\s/.test(from) && to.split(" ").length <= 3 && from.toLowerCase() !== to.toLowerCase() && !hasVulgar(to)) pairs.set(from.toLowerCase(), to);
   }
   return pairs;
 }
 
-/** The spelling fixes applied to every text a plan shows (caps style kept); the client's own texts (`keep`) untouched. */
+/** The spelling fixes applied to every text a plan shows (caps style kept), and no vulgar word ever shown (a misheard
+ *  token once became one); the client's own texts (`keep`) untouched. */
 export function applySpelling<T>(plan: T, pairs: Map<string, string>, keep: Set<string> = new Set()): T {
-  if (!pairs.size) return plan;
-  const fix = (s: string) => keep.has(s.replace(/\s+/g, " ").trim()) ? s : s.replace(/[\p{L}\p{N}]+/gu, (m) => {
+  const spell = (s: string) => !pairs.size ? s : s.replace(/[\p{L}\p{N}]+/gu, (m) => {
     const to = pairs.get(m.toLowerCase());
     if (!to) return m;
     return m === m.toUpperCase() && m !== m.toLowerCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to.toLowerCase();
   });
+  const fix = (s: string) => {
+    if (keep.has(s.replace(/\s+/g, " ").trim())) return s;
+    const out = spell(s);
+    return hasVulgar(out) ? scrubVulgar(out) : out;
+  };
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(walk);
     if (!v || typeof v !== "object") return v;

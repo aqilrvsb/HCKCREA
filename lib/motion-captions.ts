@@ -27,7 +27,7 @@ ${ANCHOR[lang]}
 - a real word that makes its sentence nonsense where it stands was misheard: replace it with the sound-alike word that makes the sentence natural — read the words around it ("minum letih tujuh kotak" → "lebih", while "saya letih sangat" stays "letih") and what the video is about (SELLER CONTEXT: "kulit" (skin) in a cake seller's video → "kulat" (mould)). A real word that makes sense where it stands stays as it is, even when another word could also fit ("kena sediakan sabun" stays "sabun"); a name stays a name.
 - keep the speaker's colloquial words and slang as they are (tak, nak, je, korang, kan, dia, lah, aja, dekat) — don't formalise, don't translate whole phrases, don't censor, don't add or remove words
 - Malaysian English slang is spoken often: "buat dono" / "buat donno" = "don't know" (buat tak tahu) — Whisper writes "donow", "donor", "dono": write "dono" there, never "donor" (a blood donor) unless they really talk about donating
-- NEVER turn a token into a vulgar, sexual, explicit or insulting word (Malay or English). Sellers of intimate / feminine-care products speak in polite euphemisms ("bunga", "kewanitaan", "area sensitif", "bahagian bawah") — an unclear token there is one of those polite words (use the one the speaker says elsewhere), never a crude anatomical word. If you're not sure, leave the token unchanged.
+- NEVER turn a token into a vulgar, sexual, explicit or insulting word (Malay or English) — a seller never says one: an unclear token is the everyday word that fits the sentence ("memang menjadi seburar turun tiga kilo" → "sebulan", never "semburit"). Sellers of intimate / feminine-care products speak in polite euphemisms ("bunga", "kewanitaan", "area sensitif", "bahagian bawah") — an unclear token there is one of those polite words (use the one the speaker says elsewhere), never a crude anatomical word. If you're not sure, leave the token unchanged.
 - one-for-one: a correction replaces exactly one token (it may contain a space); keep punctuation attached as it was; never repeat the word right before or after it
 Answer ONLY JSON: {"fix": [[index, "corrected"], ...]}`;
 
@@ -37,10 +37,24 @@ const bare = (s: string | undefined) => String(s ?? "").toLowerCase().replace(/[
 // the seller's polite word — into a crude one). Kept only if the speaker's own
 // token already was that word.
 const VULGAR = new Set([
-  "cipap", "puki", "pukimak", "pepek", "burit", "kote", "konek", "butuh", "pantat", "lancau", "jubur", "sundal", "pelacur",
-  "fuck", "fucking", "shit", "pussy", "dick", "cock", "cunt", "bitch", "slut", "whore", "penis", "vagina",
+  "cipap", "puki", "pukimak", "pepek", "burit", "semburit", "kote", "konek", "butuh", "pantat", "lancau", "jubur", "sundal", "pelacur",
+  "liwat", "meliwat", "diliwat", "sodomi", "rogol", "merogol", "dirogol", "kimak", "cibai", "bangsat", "keparat", "jalang",
+  "haramjadah", "lahanat", "sial", "sialan",
+  "fuck", "fucking", "fucker", "shit", "pussy", "dick", "cock", "cunt", "bitch", "slut", "whore", "penis", "vagina",
+  "porn", "porno", "rape", "horny", "boobs", "tits", "asshole",
 ]);
-const isVulgar = (w: string) => w.split(/\s+/).some((p) => VULGAR.has(bare(p)));
+// crude roots no everyday word contains: "semburit" (a fix once made it out of a misheard "seburar" = "sebulan")
+const VULGAR_ROOTS = ["burit", "pukimak", "liwat", "sodom"];
+const vulgarToken = (p: string) => { const b = bare(p); return VULGAR.has(b) || VULGAR_ROOTS.some((r) => b.includes(r)); };
+const isVulgar = (w: string) => w.split(/\s+/).some(vulgarToken);
+// words a fix may never introduce but a speaker may really say in a normal sense (Indonesian "butuh" = need, "konek"
+// = connect, a mild "sial"): on-screen texts keep them
+const SCREEN_OK = new Set(["butuh", "konek", "kote", "sial", "sialan"]);
+const screenVulgar = (p: string) => !SCREEN_OK.has(bare(p)) && vulgarToken(p);
+/** A text with a vulgar / sexual / insulting word (Malay or English) that must not be shown. */
+export const hasVulgar = (text: string) => String(text ?? "").split(/[^\p{L}\p{N}]+/u).some((p) => !!p && screenVulgar(p));
+/** The text without those words (an on-screen text never shows one). */
+export const scrubVulgar = (text: string) => String(text ?? "").split(/(\s+)/).filter((p) => !p.trim() || !screenVulgar(p)).join("").replace(/\s{2,}/g, " ").trim();
 
 /** Whisper artifacts fixed without a model: a hyphen glued to the front of a word ("-satu"). */
 export function tidyToken(w: string): string {
