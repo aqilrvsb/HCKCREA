@@ -22,6 +22,7 @@
 // cascade tries the OTHER slots first.
 
 import { p1CreateTask } from "@/lib/p1";
+import { compactVeoPrompt, isVeoModel, isVeoSafetyRefusal, veoSafePrompt } from "@/lib/veo-safety";
 import { p2CreateTask } from "@/lib/p2";
 import { p5CreateVideo } from "@/lib/p5";
 import { p6CreateVideo, type P6Slot } from "@/lib/p6";
@@ -121,11 +122,25 @@ export type VideoCascadeResult =
       tierLog: VideoCascadeTierLog[];
     };
 
-async function tryVideoSlot(
-  slot: SlotProvider,
-  input: VideoCascadeInput
-): Promise<{ ok: boolean; taskId: string | null; error: string | null; model: string; keyIndex?: number }> {
-  const { primaryModel, prompt, aspectRatio, imageUrls, imageMode, durationMode, userId, refVideoUrl } = input;
+type SlotResult = { ok: boolean; taskId: string | null; error: string | null; model: string; keyIndex?: number };
+
+async function tryVideoSlot(slot: SlotProvider, input: VideoCascadeInput): Promise<SlotResult> {
+  const veo = isVeoModel(input.primaryModel);
+  // Veo: wording its safety classifier misreads is rewritten here, where every request leaves (first fires, Resubmits,
+  // every tab, old stored prompts) — lib/veo-safety.ts
+  const first = await fireVideoSlot(slot, input, veo ? veoSafePrompt(input.prompt) : input.prompt);
+  // Veo refused the long prompt as "explicit content" (it adds up mild signals — a sensitive product + a young woman +
+  // a long rule list): once more on the same slot in the compact form (the scene, the product, the spoken line)
+  if (!first.ok && veo && slot !== "none" && isVeoSafetyRefusal(first.error)) {
+    const again = await fireVideoSlot(slot, input, compactVeoPrompt(input.prompt));
+    console.log(`[video-cascade] ${slot}: Veo refused the full prompt — compact prompt ${again.ok ? "accepted" : `refused too (${again.error})`}`);
+    if (again.ok) return again;
+  }
+  return first;
+}
+
+async function fireVideoSlot(slot: SlotProvider, input: VideoCascadeInput, prompt: string): Promise<SlotResult> {
+  const { primaryModel, aspectRatio, imageUrls, imageMode, durationMode, userId, refVideoUrl } = input;
   if (slot === "none") {
     return { ok: false, taskId: null, error: "slot disabled (none)", model: primaryModel };
   }

@@ -8,35 +8,13 @@ import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 import { buildVeoLocks, pickAutoContentVoice, type AutoContentAge } from "@/lib/veo-voices";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import { veoSafePrompt } from "@/lib/veo-safety";
 
-// ── Veo 3.1 prompt sanitizer (VEO PATH ONLY) ──────────────────────────────
-// Veo's text-moderation classifier false-flags these words as "explicit
-// content" even inside modesty NEGATIVES — it doesn't parse the "NO" in "NO
-// cleavage", it just sees the word. Auto-content's character/modesty locks are
-// heavy on exactly these terms (attractive, anatomically, breast/cleavage/
-// midriff/navel/thigh), which is why hijab-MODEST videos get rejected with
-// "Detected explicit content" and never reach Veo. Rewrite them to neutral
-// equivalents right before the prompt is fired. Grok/Gemini are untouched.
-const VEO_SANITIZE: [RegExp, string][] = [
-  [/beautiful attractive/gi, "polished camera-ready"],
-  [/handsome attractive/gi, "sharp camera-ready"],
-  [/\battractive\b/gi, "camera-ready"],
-  [/anatomically perfect/gi, "natural realistic proportions"],
-  [/no extra limbs/gi, "no distortion"],
-  [/breast shape/gi, "silhouette"],
-  [/\bbreasts?\b/gi, "chest"],
-  [/\bcleavage\b/gi, "low necklines"],
-  [/\bmidriff\b/gi, "waist"],
-  [/\bnavel\b/gi, "waistline"],
-  [/thigh exposure/gi, "leg exposure"],
-  [/\bthighs?\b/gi, "legs"],
-  [/body shape/gi, "figure"],
-];
-function sanitizeForVeo(s: string): string {
-  let out = s;
-  for (const [re, rep] of VEO_SANITIZE) out = out.replace(re, rep);
-  return out;
-}
+// ── Veo 3.1 prompt wording (VEO PATH ONLY) ────────────────────────────────
+// Veo's text-moderation classifier false-flags words, not meaning ("NO cleavage" → it sees "cleavage"; "RAW
+// UNEDITED FOOTAGE" beside a sensitive product reads as adult video). The shared rewrite (lib/veo-safety.ts) runs
+// here on the stored prompt and again where every request leaves (lib/video-cascade.ts). Grok / Gemini untouched.
+const sanitizeForVeo = veoSafePrompt;
 
 // ── master plan JSON: tolerant reader ─────────────────────────────────────
 // The plan model (Gemini Flash via GRSAI) now and then answers with a small JSON slip — a trailing comma before
