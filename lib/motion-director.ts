@@ -25,7 +25,7 @@ import { HOOK_SOUNDS } from "@/lib/motion-hook-sounds";
 import { vgcStyle, type VaultStyle } from "@/lib/vgc-styles";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
-import { HEADLINE_SPEC, LOGO_QUERY, applyOwnHeadlines, cleanHeadlines, enrichHeadlines, type HeadlinePlan } from "@/lib/motion-headline";
+import { HEADLINE_SPEC, LOGO_QUERY, applyOwnHeadlines, applySpelling, cleanHeadlines, enrichHeadlines, spellPairs, type HeadlinePlan } from "@/lib/motion-headline";
 import { ingredientShots, withIngredientShots, type IngredientShot } from "@/lib/motion-ingredients";
 
 type Cue = string | number;
@@ -1014,7 +1014,10 @@ export async function directEdit(opts: {
   const factMoments = rawFacts(raw, words.length, duration)
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
-  const [broll, facts, , headlines, ingShots] = await Promise.all([
+  // the texts the client typed (their hook / CTA / own headline words) are never "fixed"
+  const keepTexts = new Set([input.locks?.hook, input.locks?.cta, ...(input.headlineFix ?? []).flatMap((f: any) => [f?.lead, f?.big, f?.box])]
+    .filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.replace(/\s+/g, " ").trim()));
+  const [broll, facts, , headlines, ingShots, spelling] = await Promise.all([
     input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, uploads, words,
       [input.product || plan.brand, plan.angle, input.instructions?.slice(0, 160)].filter(Boolean).join(" — ")), [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
@@ -1023,12 +1026,15 @@ export async function directEdit(opts: {
     // every ingredient the speaker names gets its picture on that word (required; off only with B-roll off)
     input.broll === false ? Promise.resolve([] as IngredientShot[])
       : byDeadline(ingredientShots(words, [input.product || plan.brand, input.instructions?.slice(0, 200)].filter(Boolean).join(" — "), { uploads }), [] as IngredientShot[]),
+    // the spelling of every text the plan shows (a misheard / merged token never becomes a big headline word) —
+    // beside the picture searches, so it adds no wait
+    byDeadline(spellPairs(plan, [input.product || plan.brand].filter(Boolean).join(" — "), Date.now() + 60_000, keepTexts), new Map<string, string>()),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
   // the client's own headline words / B-roll (review step) win over the AI's, slot by slot — and appear only there
-  const finalHeads = applyOwnHeadlines(headlines ?? [], input.headlineFix ?? [], words, headSource);
+  const finalHeads = applyOwnHeadlines(applySpelling(headlines ?? [], spelling, keepTexts), input.headlineFix ?? [], words, headSource);
   // a selling beat whose picture wasn't found still gets hit: its words on a tape sticker
   for (const b of beatFills) {
     if (!SHOWABLE.has(b.kind) || broll.some((x) => x.at === b.at) || !b.say || /\d/.test(b.say) || (guard && guardHits(b.say).length)) continue;
@@ -1049,7 +1055,8 @@ export async function directEdit(opts: {
     const d = plan.direction as Record<string, any> | undefined;
     if (d) for (const k of ["side", "banner", "behind"]) if (Array.isArray(d[k])) d[k] = d[k].filter((x: any) => free(x?.at, x?.to, 2));
   }
-  return { ...plan, director, broll: allBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts, headlines: finalHeads };
+  const spelled = applySpelling({ ...plan, broll: allBroll }, spelling, keepTexts);
+  return { ...spelled, director, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts, headlines: finalHeads };
 }
 
 // ── grounding: numbers on screen are spoken; on-speaker pieces live between scenes; scenes ≤ ~70 % ─────────────

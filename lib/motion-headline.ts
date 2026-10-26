@@ -559,12 +559,14 @@ const SPELL_SYS = `You proofread the ON-SCREEN TEXTS of a Malaysian TikTok edit 
 The language is Malay, English or Malaysian code-switching. Fix ONLY words that are not real words of their language or are clearly misspelled. Never change a real word, a brand / product name, a number, or real slang (je, kan, tu, la, lah, ke, kot). Never rewrite, shorten or translate a text.
 Return ONLY JSON: {"fixes": [{"from": "<the word exactly as written>", "to": "<the correct spelling>"}]} — {"fixes": []} when everything is spelled right.`;
 
-/** One fast check of the spelling of everything the plan shows (a misheard / merged token from the transcript must not
- *  become a big headline word): word-for-word fixes, caps style kept. Fail-soft — the plan as it was. */
-export async function fixShownSpelling<T>(plan: T, context: string, deadline: number): Promise<T> {
-  const texts = [...new Set(shownTexts(plan).map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => /\p{L}{3,}/u.test(s)))].slice(0, 80);
+/** The spelling fixes for everything a plan shows (a misheard / merged token from the transcript must not become a big
+ *  headline word): written word → its spelling. One AI call — run it BESIDE other work (it reads only the texts), then
+ *  applySpelling. `keep` = texts the client typed (never touched). Fail-soft: no fixes. */
+export async function spellPairs(plan: unknown, context: string, deadline: number, keep: Set<string> = new Set()): Promise<Map<string, string>> {
+  const none = new Map<string, string>();
+  const texts = [...new Set(shownTexts(plan).map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => /\p{L}{3,}/u.test(s) && !keep.has(s)))].slice(0, 80);
   const left = deadline - Date.now();
-  if (!texts.length || left < 5000) return plan;
+  if (!texts.length || left < 5000) return none;
   const r = await orChat({
     modelKey: "model_motion_guard",
     systemPrompt: SPELL_SYS,
@@ -575,9 +577,9 @@ export async function fixShownSpelling<T>(plan: T, context: string, deadline: nu
     stream: true,
     validate: (c) => { try { return Array.isArray(extractJson(c)?.fixes); } catch { return false; } },
   }).catch(() => null);
-  if (!r?.ok || !r.content) return plan;
+  if (!r?.ok || !r.content) return none;
   let list: { from?: unknown; to?: unknown }[] = [];
-  try { list = extractJson(r.content)?.fixes ?? []; } catch { return plan; }
+  try { list = extractJson(r.content)?.fixes ?? []; } catch { return none; }
   const core = (s: string) => s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
   const pairs = new Map<string, string>();
   for (const f of list.slice(0, 40)) {
@@ -585,8 +587,13 @@ export async function fixShownSpelling<T>(plan: T, context: string, deadline: nu
     // one written word → its spelling (a merged word may become two); never a rewrite of a phrase
     if (from.length >= 3 && to && !/\s/.test(from) && to.split(" ").length <= 3 && from.toLowerCase() !== to.toLowerCase()) pairs.set(from.toLowerCase(), to);
   }
+  return pairs;
+}
+
+/** The spelling fixes applied to every text a plan shows (caps style kept); the client's own texts (`keep`) untouched. */
+export function applySpelling<T>(plan: T, pairs: Map<string, string>, keep: Set<string> = new Set()): T {
   if (!pairs.size) return plan;
-  const fix = (s: string) => s.replace(/[\p{L}\p{N}]+/gu, (m) => {
+  const fix = (s: string) => keep.has(s.replace(/\s+/g, " ").trim()) ? s : s.replace(/[\p{L}\p{N}]+/gu, (m) => {
     const to = pairs.get(m.toLowerCase());
     if (!to) return m;
     return m === m.toUpperCase() && m !== m.toLowerCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to.toLowerCase();
@@ -599,6 +606,11 @@ export async function fixShownSpelling<T>(plan: T, context: string, deadline: nu
     return out;
   };
   return walk(plan) as T;
+}
+
+/** spellPairs + applySpelling in one go (when nothing else runs beside it). */
+export async function fixShownSpelling<T>(plan: T, context: string, deadline: number): Promise<T> {
+  return applySpelling(plan, await spellPairs(plan, context, deadline));
 }
 
 /** Headlines made on one word list, moved onto another (the CLIPPER render re-transcribes the clip). */

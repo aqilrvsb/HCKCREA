@@ -8,7 +8,7 @@ import { orChat, withDeadline } from "@/lib/openrouter";
 import { HOOK_SOUND_COUNT } from "@/lib/motion-hook-sounds";
 import { clipPolish } from "@/lib/clipper-polish";
 import { alignWords, clipPicks, reusePolish, userCaptionFixes } from "@/lib/clipper-preview";
-import { enrichHeadlines, fixPlanText, fixShownSpelling } from "@/lib/motion-headline";
+import { applySpelling, enrichHeadlines, fixPlanText, spellPairs } from "@/lib/motion-headline";
 import { ingredientShots, type IngredientShot } from "@/lib/motion-ingredients";
 
 type PlanWord = { i: number; w: string; t: number; e?: number };
@@ -36,10 +36,14 @@ async function clipCaptionPlan(input: EditInput, words: PlanWord[], duration: nu
     .map((s) => ({ at: s.at, ...(s.to ? { to: s.to } : {}), layout: "full" as const, kind: "photo" as const, label: s.label, query: s.query ?? s.label, candidates: s.candidates, must: true }));
   const keywords = !polish ? [] : reused?.keywords.length ? reused.keywords : fresh?.keywords ?? [];
   const zooms = !polish ? [] : reused?.zooms.length ? reused.zooms : fresh?.zooms ?? [];
-  // fresh headlines (no Studio preview to reuse): their spelling checked like the preview's, before the pictures
-  const freshHeads = reused?.headlines.length ? [] : await fixShownSpelling(fresh?.headlines ?? [], input.clip?.topic || input.clip?.title || "", deadline + 15_000);
+  // fresh headlines (no Studio preview to reuse): their pictures and their spelling check side by side, like the preview
+  const freshHeads = fresh?.headlines ?? [];
+  const topicText = input.clip?.topic || input.clip?.title || "";
   const picked = reused?.headlines.length ? reused.headlines
-    : await enrichHeadlines(freshHeads, input.clip?.topic || input.clip?.title || "", words).catch(() => freshHeads);
+    : await Promise.all([
+      enrichHeadlines(freshHeads, topicText, words).catch(() => freshHeads),
+      spellPairs(freshHeads, topicText, deadline + 15_000).catch(() => new Map<string, string>()),
+    ]).then(([heads, pairs]) => applySpelling(heads, pairs));
   // the client's own overlay (Studio "🎬 Overlay"): corrected words and / or their B-roll in place of the AI's
   const own = input.clip?.broll_fix ?? [];
   const headlines = picked.map((h, i) => {
@@ -169,10 +173,9 @@ export async function POST(req: Request) {
       directEdit({ words, duration, input, hasFace: b?.has_face !== false, pro, recent }),
       fixing,
     ]));
-    // the director wrote from the raw transcript: the fixer's corrections reach every text it shows too, then one
-    // fast spelling check of those texts (a misheard / merged token never becomes a big headline word)
-    const plan = await fixShownSpelling(fixes.length ? fixPlanText(rawPlan, words.map((w: { w: string }) => w.w), fixes) : rawPlan,
-      context ?? "", t0 + PLAN_BUDGET_MS);
+    // the director wrote from the raw transcript: the fixer's corrections reach every text it shows too (its own
+    // spelling check of those texts ran beside the picture searches, inside directEdit)
+    const plan = fixes.length ? fixPlanText(rawPlan, words.map((w: { w: string }) => w.w), fixes) : rawPlan;
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
     await admin
       .from("history")
