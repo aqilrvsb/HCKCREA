@@ -59,15 +59,12 @@ export function compactVeoPrompt(full: string): string {
     .trim();
   const hijab = /\bhijab|tudung/i.test(text) ? " Her hijab stays on, covering her hair, the whole clip." : "";
   const product = /\bproduct\b/i.test(scene) ? " The product looks exactly like the reference photo." : "";
-  // words the full prompt marks as spoken only ("The phrase 'beg kuning' is SPOKEN DIALOG ONLY") — without this Veo
-  // drew a shop button under "Cepat tekan beg kuning bawah!"
-  const spoken = [...new Set([...text.matchAll(/phrase\s+["'“‘]([^"'”’\n]{2,40})["'”’]\s+(?:is|exists)\s+(?:only\s+)?(?:as\s+)?spoken/gi)].map((m) => m[1].trim()))];
-  const spokenLine = spoken.length
-    ? ` ${spoken.map((p) => `"${p}"`).join(", ")} ${spoken.length > 1 ? "are" : "is"} only spoken, never shown: no bag, basket, cart, button, icon or app screen appears.`
-    : "";
-  // one continuous shot: with the short prompt Veo opened on the reference photo itself (another hand) before the scene
+  // The picture is described only by what it IS. Tests on a "tekan beg kuning bawah" line (2026-10-26): naming shop
+  // things, even as "no bag / basket / button", made Veo draw them (3 of 3), and quoting the spoken phrase made it a
+  // subtitle — so no object or phrase that must stay off screen is named here.
+  const malay = /Malaysian Malay|Bahasa Melayu/i.test(text) ? ", speaking Malaysian Malay" : "";
   return veoSafePrompt(
-    `${scene}${hijab}${product}${spokenLine} One continuous handheld phone shot from the first frame to the last, everyday lighting; the reference photos guide the look only and never appear as their own shot. The frame shows only the scene itself: no captions, subtitles, text, buttons, icons, stickers or graphics. One voice only, speaking Malaysian Malay.`
+    `Phone video, one continuous take straight from a phone's camera roll: a plain camera image from the first frame to the last, every part of the frame, edges and bottom included, showing only the real scene. It opens directly on this scene: ${scene}${hijab}${product} The reference photos guide the look only. Everything said is heard, not written. Natural handheld phone video, everyday lighting. One voice only${malay}.`
   ).slice(0, 2000);
 }
 
