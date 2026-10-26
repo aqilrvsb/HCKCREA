@@ -37,6 +37,63 @@ function sanitizeForVeo(s: string): string {
   for (const [re, rep] of VEO_SANITIZE) out = out.replace(re, rep);
   return out;
 }
+
+// ── master plan JSON: tolerant reader ─────────────────────────────────────
+// The plan model (Gemini Flash via GRSAI) now and then answers with a small JSON slip — a trailing comma before
+// "}" / "]" ("Expected double-quoted property name … line 37 column 3"), smart quotes, a raw line break inside a
+// string, two objects with no comma between them, or a reply cut off at the token limit. Each is repaired here;
+// an answer that still can't be read fails the call's `validate`, so the cascade asks the next model.
+function escapeRawNewlines(json: string): string {
+  let out = "", inStr = false, esc = false;
+  for (const ch of json) {
+    if (inStr) {
+      if (esc) { esc = false; out += ch; continue; }
+      if (ch === "\\") { esc = true; out += ch; continue; }
+      if (ch === '"') { inStr = false; out += ch; continue; }
+      out += ch === "\n" ? "\\n" : ch === "\r" ? "" : ch === "\t" ? "\\t" : ch;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    out += ch;
+  }
+  return out;
+}
+function parsePlanArray(content: string, truncated = false): any[] {
+  let cleaned = String(content || "").trim();
+  if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
+  // Strip any prose preamble: the first "[" followed by optional whitespace + "{" opens the videos array (bracketed
+  // tags like "[UGC]" before it are chatter)
+  const open = cleaned.match(/\[\s*\{/);
+  const start = open && open.index !== undefined ? open.index : cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+  if (start >= 0 && end > start) cleaned = cleaned.substring(start, end + 1);
+  else if (start >= 0 && truncated) {
+    const lastClose = cleaned.lastIndexOf("},");
+    if (lastClose > start) cleaned = cleaned.substring(start, lastClose + 1) + "]";
+  }
+  const attempts = [
+    (s: string) => s,
+    (s: string) => s.replace(/,\s*([}\]])/g, "$1"),
+    (s: string) => escapeRawNewlines(s.replace(/[“”]/g, '"').replace(/[‘’]/g, "'")).replace(/,\s*([}\]])/g, "$1").replace(/\}\s*\{/g, "},{"),
+  ];
+  let lastErr: unknown = null;
+  for (const fix of attempts) {
+    try {
+      const parsed = JSON.parse(fix(cleaned));
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+      lastErr = new Error("Empty plan");
+    } catch (e) { lastErr = e; }
+  }
+  // cut off mid-object: keep the complete videos
+  const lastClose = cleaned.lastIndexOf("},");
+  if (lastClose > 0) {
+    try {
+      const parsed = JSON.parse(attempts[2](cleaned.substring(0, lastClose + 1) + "]"));
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Empty plan");
+}
 import {
   FRAMEWORKS,
   SHOP_CTA_VARIATIONS,
@@ -1784,6 +1841,8 @@ CRITICAL OUTPUT RULES:
       // log: UGC tab Custom Idea / Auto + idea / Auto only.
       logFeature: ideaStyle ? "auto_with_idea" : "auto_only",
       logUserId: user?.id || null,
+      // an answer the tolerant reader still can't read → the next model in the cascade answers instead
+      validate: (c) => { try { return parsePlanArray(c, true).length > 0; } catch { return false; } },
     });
     if (!plan.ok || !plan.content) {
       return NextResponse.json({ error: plan.error || "Master plan failed" }, { status: 502 });
@@ -1797,29 +1856,8 @@ CRITICAL OUTPUT RULES:
     // array opener — `[` followed by optional whitespace then `{` — and
     // fall back to the naive approach only if we can't find that.
     try {
-      let cleaned = plan.content.trim();
-      if (cleaned.startsWith("```")) {
-        cleaned = cleaned.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
-      }
-
-      // Strip any prose preamble: find the first "[" that's followed by
-      // optional whitespace + "{". That's the start of the videos array.
-      // Anything before it (including bracketed tags like [UGC]) is
-      // chatter we can safely drop.
-      const arrayOpenMatch = cleaned.match(/\[\s*\{/);
-      const start =
-        arrayOpenMatch && arrayOpenMatch.index !== undefined
-          ? arrayOpenMatch.index
-          : cleaned.indexOf("[");
-      const end = cleaned.lastIndexOf("]");
-      if (start >= 0 && end > start) {
-        cleaned = cleaned.substring(start, end + 1);
-      } else if (plan.finishReason === "length") {
-        const lastClose = cleaned.lastIndexOf("},");
-        if (lastClose > 0) cleaned = cleaned.substring(0, lastClose + 1) + "]";
-      }
-      const parsed = JSON.parse(cleaned);
-      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Empty plan");
+      // fences, prose before the array, trailing commas, smart quotes, raw line breaks, a cut-off answer
+      const parsed = parsePlanArray(plan.content, plan.finishReason === "length");
 
       plans = parsed.slice(0, quantity).map((p: any, i: number): Plan => {
         const fwName = String(p.framework || frameworkRotation[i]?.name || `Video ${i + 1}`);
