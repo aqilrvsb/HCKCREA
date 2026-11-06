@@ -4,11 +4,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { motionStart, newPlanToken, siteUrl } from "@/lib/motion";
 import { refundReserved, reserveCredit } from "@/lib/deduct";
-import { CLIPPER_JOB_TAB, cleanOptions, cleanSource, clipperFees, clipperYoutubeAuth } from "@/lib/clipper";
+import { CLIPPER_JOB_TAB, cleanLiveMinutes, cleanOptions, cleanSource, clipperFees, clipperYoutubeAuth } from "@/lib/clipper";
 
-// POST /api/clipper/analyze { source: {type, url, name?}, options, project_id? } — CLIPPER step 1: a Modal job reads
-// the video (title, transcript, "most replayed"), the director picks the clips. A flat fee (clipper_pricing.analysis,
-// RM1) is held at the start and given back when the analysis fails; ≤ 3 at a time per client.
+// POST /api/clipper/analyze { source: {type, url, name?}, options, live?: {minutes}, project_id? } — CLIPPER step 1: a
+// Modal job reads the video (title, transcript, "most replayed"), the director picks the clips. A TikTok LIVE on now
+// ("tiktoklive") is recorded first for live.minutes (or until it ends / the client stops it), then analysed the same
+// way. A flat fee (clipper_pricing.analysis, RM1) is held at the start and given back when the analysis fails;
+// ≤ 3 at a time per client.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,8 @@ const BAD_LINK: Record<string, string> = {
   youtube: "Pautan YouTube tidak sah — tampal pautan video (youtube.com/watch?v=… atau youtu.be/…).",
   gdrive: "Pautan Google Drive tidak sah — tampal pautan fail (drive.google.com/file/d/…).",
   upload: "Upload video dahulu.",
-  tiktok: "Link replay LIVE tidak sah — guna butang \"Ambil link LIVE\" pada halaman LIVE Dashboard (Seller Center), kemudian tampal di sini.",
+  tiktok: "Link TikTok LIVE tidak sah — tampal link LIVE yang sedang berjalan (tiktok.com/@nama/live, link Share, atau @nama), atau link replay dari butang \"Ambil link LIVE\".",
+  tiktoklive: "Link LIVE tidak sah — tampal link LIVE yang sedang berjalan (tiktok.com/@nama/live, link Share, atau @nama).",
 };
 
 export async function POST(req: Request) {
@@ -31,6 +34,8 @@ export async function POST(req: Request) {
   const src = cleanSource(type, b?.source?.url, b?.source?.name);
   if (!src) return NextResponse.json({ error: BAD_LINK[type] || "Pilih sumber video." }, { status: 400 });
   const options = cleanOptions(b?.options);
+  // a LIVE on now: how long to record (seconds)
+  const live = src.type === "tiktoklive" ? { max_sec: cleanLiveMinutes(b?.live?.minutes) * 60 } : undefined;
 
   const admin = createAdminClient();
   const { count } = await admin.from("history").select("id", { count: "exact", head: true })
@@ -50,7 +55,7 @@ export async function POST(req: Request) {
     reference_url: src.url,
     task_id: null,
     cost: fee,
-    metadata: { feature: "clipper-analysis", stage: "queued", source: src, options, plan_token: planToken, reserved: fee },
+    metadata: { feature: "clipper-analysis", stage: "queued", source: src, options, ...(live ? { live } : {}), plan_token: planToken, reserved: fee },
   }).select("id").single();
   if (error || !row) return NextResponse.json({ error: error?.message || "Gagal cipta analisa" }, { status: 500 });
   // the analysis fee, held now (the RPC refuses when the balance can't cover it)
@@ -69,16 +74,17 @@ export async function POST(req: Request) {
     vision_url: `${siteUrl()}/api/clipper/vision`,
     plan_token: planToken,
     ...(src.type === "youtube" ? { yt_auth: await clipperYoutubeAuth() } : {}),
+    ...(live ? { live } : {}),
   });
   if (!start.ok) {
     await admin.from("history").update({ status: "failed", error_message: `Gagal mula analisa: ${start.error}`, cost: 0,
-      metadata: { feature: "clipper-analysis", stage: "failed", source: src, options, plan_token: planToken, reserved: 0 } }).eq("id", row.id);
+      metadata: { feature: "clipper-analysis", stage: "failed", source: src, options, ...(live ? { live } : {}), plan_token: planToken, reserved: 0 } }).eq("id", row.id);
     await refundReserved(user.id, "clipper", fee, row.id);
     return NextResponse.json({ error: `Gagal mula analisa: ${start.error}` }, { status: 502 });
   }
   await admin.from("history").update({
     task_id: start.callId,
-    metadata: { feature: "clipper-analysis", stage: "queued", source: src, options, plan_token: planToken, provider: "modal-motion", reserved: fee },
+    metadata: { feature: "clipper-analysis", stage: "queued", source: src, options, ...(live ? { live } : {}), plan_token: planToken, provider: "modal-motion", reserved: fee },
   }).eq("id", row.id);
   return NextResponse.json({ ok: true, id: row.id });
 }

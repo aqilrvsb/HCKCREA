@@ -2,7 +2,8 @@
 
 // CLIPPER tab — a long video → its most viral clips.
 //   1. Sumber: a YouTube link (read through Cloudflare WARP — YouTube bot-checks our servers' own IPs), a Google Drive
-//      link (≤ 12 GB, server to server) or an upload (≤ 1 GB).
+//      link (≤ 12 GB, server to server), an upload (≤ 1 GB), or TikTok LIVE — one on now (its link: recorded from that
+//      moment for the chosen length, until it ends, or until "Berhenti") or a replay (its HLS link, from Seller Center).
 //   2. Analisa: a Modal job reads the transcript + "most replayed" (or the voice-energy curve), the master director
 //      (Sonnet 5.5) picks the clips (title, hook, score, caption, hashtags) — /api/clipper/*, lib/clipper.ts.
 //   3. Studio: tick clips (≤ 50 at once), edit their title / hook / timing, pick how they're made — "Klip + caption",
@@ -10,7 +11,7 @@
 //      below (Motion engine: 9:16 reframe around the speaker, captions, HyperFrames). Finished clips download one by
 //      one or as a ZIP. "➕ Cari lagi klip" asks the director for more clips from other moments of the same video.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, Download, Flame, Link2, Loader2, Play, Plus, Radio, ScissorsLineDashed, Search, Trash2, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, Flame, Link2, Loader2, Play, Plus, Radio, ScissorsLineDashed, Search, Square, Trash2, Upload, X } from "lucide-react";
 import ClipPreview, { ClipBrollEditor, ClipCaptionEditor, type BrollFix, type CapFix } from "./clipper-preview";
 import { clipKey } from "@/lib/clipper-preview";
 import { LOCK_CAPTION_LOOKS } from "@/lib/motion-manual";
@@ -21,7 +22,14 @@ import MotionStylePicker from "./motion-style-picker";
 /** Most clips one "Jana" starts at once (the render route's MAX_RENDER_CLIPS). */
 const MAX_RENDER = 50;
 
-type SrcType = "youtube" | "gdrive" | "upload" | "tiktok";
+type SrcType = "youtube" | "gdrive" | "upload" | "tiktok" | "tiktoklive";
+
+// a TikTok LIVE on now: tiktok.com/@name(/live), a share link (vt./vm.tiktok.com, tiktok.com/t/…, …/share/live/…) or
+// @name (the same forms lib/clipper.ts takes)
+const isLivePage = (u: string) => /^(?:https?:\/\/(?:www\.|m\.)?tiktok\.com\/@[\w.-]{2,40}(?:\/live)?\/?(?:[?#].*)?|@[\w.-]{2,40}|https?:\/\/(?:(?:vt|vm)\.tiktok\.com\/[A-Za-z0-9]+|(?:www\.)?tiktok\.com\/t\/[A-Za-z0-9]+|(?:www\.|m\.)?tiktok\.com\/share\/live\/\d+)\/?(?:[?#].*)?)$/i.test(u.trim());
+const LIVE_MINUTES: { m: number; label: string }[] = [
+  { m: 15, label: "15 min" }, { m: 30, label: "30 min" }, { m: 60, label: "1 jam" }, { m: 120, label: "2 jam" }, { m: 180, label: "3 jam" }, { m: 240, label: "4 jam" },
+];
 
 // "📌 Ambil link LIVE": a bookmark the client drags to Chrome's bookmark bar once. On a Seller Center LIVE Dashboard
 // (Replay playing) it finds the replay's HLS playlist among the page's network requests and copies it. First click
@@ -52,6 +60,9 @@ type Render = { id: string; status: string; url: string | null; title: string; s
 type Job = {
   id: string; status: string; stage: string | null; pct: number | null; error: string | null; created_at: string;
   source: { type: SrcType; url: string; name?: string; video_id?: string } | null;
+  /** a TikTok LIVE on now: the chosen length (s), when "Berhenti" was pressed; rec = seconds recorded so far */
+  live?: { max_sec: number; stop_at?: string | null } | null;
+  rec?: number | null;
   options: { duration: string; count: string | number } | null;
   analysis: {
     title?: string | null; channel?: string | null; duration: number; thumb?: string | null; video_id?: string | null; language?: string | null;
@@ -66,7 +77,8 @@ const inputCls = "w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outli
 const inputStyle = { border: `1px solid ${THEME.soft}`, color: "var(--color-text)" } as const;
 const PREFS_KEY = "clipper-studio";
 const STAGE: Record<string, string> = {
-  queued: "Dalam giliran", source: "Baca video", download: "Muat turun video", upload: "Simpan video", transcript: "Baca transkrip",
+  queued: "Dalam giliran", connecting: "Sambung ke LIVE", recording: "Merakam LIVE",
+  source: "Baca video", download: "Muat turun video", upload: "Simpan video", transcript: "Baca transkrip",
   audio: "Muat turun audio", speakers: "Kenal pasti penutur & bunyi", director: "AI director pilih klip viral", vision: "AI tengok klip terbaik",
   save: "Simpan hasil", done: "Siap", failed: "Gagal",
 };
@@ -144,6 +156,10 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // TikTok LIVE: one on now (recorded from now) or a replay; how long to record
+  const [ttMode, setTtMode] = useState<"now" | "replay">("now");
+  const [liveMin, setLiveMin] = useState(60);
+  const [stopping, setStopping] = useState<string | null>(null);
 
   // ── analyses ──
   const [jobs, setJobs] = useState<Job[] | null>(null);
@@ -314,9 +330,16 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
     setError(null);
     setNotice(null);
     let source: { type: SrcType; url: string; name?: string };
+    const recordLive = srcType === "tiktok" && ttMode === "now";
     if (srcType === "upload") {
       if (!file?.url) return setError(file ? "Tunggu upload siap dulu." : "Pilih video untuk diupload.");
       source = { type: "upload", url: file.url, name: file.name };
+    } else if (recordLive) {
+      const u = link.trim();
+      if (!u) return setError("Tampal link LIVE yang sedang berjalan (tiktok.com/@nama/live, link Share, atau @nama).");
+      if (/\.m3u8/i.test(u)) return setError("Itu link replay — pilih \"Replay\" di atas untuk LIVE yang sudah tamat.");
+      if (!isLivePage(u)) return setError("Link LIVE tidak sah — tampal tiktok.com/@nama/live, link Share dari TikTok, atau @nama.");
+      source = { type: "tiktoklive", url: u };
     } else {
       const u = link.trim();
       if (!u) return setError(srcType === "youtube" ? "Tampal pautan YouTube." : srcType === "tiktok" ? "Tampal link replay LIVE (dari butang 📌 Ambil link LIVE)." : "Tampal pautan Google Drive.");
@@ -338,11 +361,14 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
       const r = await fetch("/api/clipper/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, options: { duration, count, focus: focus.trim() || undefined, range, language }, project_id: projectId }),
+        body: JSON.stringify({ source, options: { duration, count, focus: focus.trim() || undefined, range, language },
+          ...(recordLive ? { live: { minutes: liveMin } } : {}), project_id: projectId }),
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal mula analisa");
-      setNotice(`🔍 Analisa bermula — AI baca transkrip & ${srcType === "youtube" ? "data \"most replayed\"" : "tenaga suara"}, kemudian pilih klip paling viral (biasanya 1–4 minit; video 2–3 jam lebih lama).`);
+      setNotice(recordLive
+        ? `🔴 Rakaman LIVE bermula — sehingga ${LIVE_MINUTES.find((x) => x.m === liveMin)?.label ?? `${liveMin} min`}, atau sampai LIVE tamat. Tekan "Berhenti & jana klip" bila-bila masa; klip siap beberapa minit selepas rakaman berhenti.`
+        : `🔍 Analisa bermula — AI baca transkrip & ${srcType === "youtube" ? "data \"most replayed\"" : "tenaga suara"}, kemudian pilih klip paling viral (biasanya 1–4 minit; video 2–3 jam lebih lama).`);
       setOpenId(d.id);
       setLink("");
       setFile(null);
@@ -351,6 +377,23 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
       setError(e?.message || "Gagal mula analisa");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // a LIVE being recorded: stop now — the clips are made from what's recorded
+  async function stopLive(id: string) {
+    if (!confirm("Berhenti rakam sekarang dan jana klip daripada rakaman setakat ini?")) return;
+    setStopping(id);
+    try {
+      const r = await fetch("/api/clipper/live-stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hentikan rakaman");
+      setNotice("⏹ Rakaman dihentikan — AI sedang pilih klip daripada rakaman ini.");
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Gagal hentikan rakaman");
+    } finally {
+      setStopping(null);
     }
   }
 
@@ -507,7 +550,7 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
           <div>
             <h2 className="text-base font-extrabold text-[var(--color-text-primary)]">CLIPPER — video panjang jadi klip viral</h2>
             <p className="text-[11px] text-[var(--color-text-secondary)] leading-snug mt-0.5">
-              Tampal pautan YouTube / replay TikTok LIVE atau upload video. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
+              Tampal pautan YouTube / TikTok LIVE (sedang live atau replay) atau upload video. AI (Sonnet 5.5) baca transkrip &amp; data &quot;most replayed&quot;, pilih momen paling viral,
               kemudian jana klip 9:16 — kamera ikut muka penutur, caption animasi, kata kunci berwarna &amp; hook. Pratonton gaya dahulu, kemudian jana.
             </p>
           </div>
@@ -522,6 +565,31 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
         </div>
 
         {srcType === "tiktok" && (
+          <div className="grid grid-cols-2 gap-2">
+            <Chip active={ttMode === "now"} onClick={() => setTtMode("now")}>🔴 Sedang LIVE sekarang</Chip>
+            <Chip active={ttMode === "replay"} onClick={() => setTtMode("replay")}>⏮ Replay (LIVE sudah tamat)</Chip>
+          </div>
+        )}
+
+        {srcType === "tiktok" && ttMode === "now" && (
+          <div className="rounded-xl p-3 space-y-2.5 text-[11px] leading-snug" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
+            <div className="text-xs font-extrabold text-[var(--color-text-primary)]">Klip terus dari LIVE yang sedang berjalan</div>
+            <ol className="list-decimal pl-4 space-y-1 text-[var(--color-text-secondary)]">
+              <li>Buka LIVE itu di TikTok → <b>Share</b> → <b>Copy link</b> (atau taip <b>tiktok.com/@nama/live</b>, atau <b>@nama</b> sahaja).</li>
+              <li>Tampal di bawah, pilih berapa lama nak rakam, tekan <b>Analisa</b>.</li>
+              <li>Kami rakam LIVE <b>mulai saat itu</b>. Bila masa cukup, LIVE tamat, atau anda tekan <b>Berhenti &amp; jana klip</b> — AI terus pilih klip paling viral.</li>
+            </ol>
+            <div>
+              <div className={label}>Rakam selama</div>
+              <div className="flex flex-wrap gap-1.5">
+                {LIVE_MINUTES.map((x) => <Chip key={x.m} active={liveMin === x.m} onClick={() => setLiveMin(x.m)}>{x.label}</Chip>)}
+              </div>
+            </div>
+            <p className="text-[10px] text-[var(--color-text-muted)]">Bahagian LIVE sebelum anda tekan Analisa tidak termasuk — untuk seluruh LIVE, guna <b>Replay</b> selepas LIVE tamat.</p>
+          </div>
+        )}
+
+        {srcType === "tiktok" && ttMode === "replay" && (
           <div className="rounded-xl p-3 space-y-2 text-[11px] leading-snug" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
             <div className="text-xs font-extrabold text-[var(--color-text-primary)]">Cara ambil link replay LIVE (Seller Center) — setup sekali, kemudian 2 klik</div>
             <ol className="list-decimal pl-4 space-y-1.5 text-[var(--color-text-secondary)]">
@@ -551,11 +619,13 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
 
         {srcType !== "upload" ? (
           <div className="space-y-2">
-            <label className={label}>{srcType === "youtube" ? "Pautan video YouTube" : srcType === "tiktok" ? "Link replay TikTok LIVE" : "Pautan fail Google Drive"}</label>
+            <label className={label}>{srcType === "youtube" ? "Pautan video YouTube" : srcType === "tiktok" ? (ttMode === "now" ? "Link LIVE yang sedang berjalan" : "Link replay TikTok LIVE") : "Pautan fail Google Drive"}</label>
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--color-bg)]" style={{ border: `1px solid ${THEME.soft}` }}>
               <Link2 className="w-4 h-4 shrink-0" style={{ color: THEME.primary }} />
               <input className="w-full bg-transparent outline-none text-sm text-[var(--color-text)]" value={link} onChange={(e) => setLink(e.target.value)}
-                placeholder={srcType === "youtube" ? "https://www.youtube.com/watch?v=…  /  https://youtu.be/…" : srcType === "tiktok" ? "Tampal link dari butang 📌 Ambil link LIVE (…m3u8…)" : "https://drive.google.com/file/d/…/view"} />
+                placeholder={srcType === "youtube" ? "https://www.youtube.com/watch?v=…  /  https://youtu.be/…"
+                  : srcType === "tiktok" ? (ttMode === "now" ? "https://www.tiktok.com/@nama/live  /  https://vt.tiktok.com/…  /  @nama" : "Tampal link dari butang 📌 Ambil link LIVE (…m3u8…)")
+                  : "https://drive.google.com/file/d/…/view"} />
               {link && <button type="button" onClick={() => setLink("")} aria-label="Kosongkan"><X className="w-4 h-4 text-[var(--color-text-muted)]" /></button>}
             </div>
             {srcType === "gdrive" && <p className="text-[10px] text-[var(--color-text-muted)]">Fail video mesti dikongsi &quot;Anyone with the link&quot; (Share → General access). Sesuai untuk video besar / panjang (sehingga 12GB).</p>}
@@ -672,7 +742,8 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
                     {thumb && <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" />}
                     <span className="absolute top-1.5 left-1.5 text-[10px] font-extrabold px-1.5 py-0.5 rounded-md text-white"
                       style={{ background: j.status === "done" ? "rgba(34,197,94,0.9)" : j.status === "failed" ? "rgba(239,68,68,0.9)" : "rgba(168,85,247,0.95)" }}>
-                      {j.status === "done" ? `${a?.clips?.length ?? 0} klip` : j.status === "failed" ? "Gagal" : (STAGE[j.stage || "queued"] || "Sedang analisa")}
+                      {j.status === "done" ? `${a?.clips?.length ?? 0} klip` : j.status === "failed" ? "Gagal"
+                        : j.stage === "recording" ? `🔴 Merakam ${fmt(j.rec ?? 0)}` : (STAGE[j.stage || "queued"] || "Sedang analisa")}
                     </span>
                     {j.status === "pending" && <Loader2 className="absolute top-1.5 right-1.5 w-4 h-4 animate-spin text-white" />}
                   </div>
@@ -700,17 +771,45 @@ export default function ClipperTab({ projectId }: { projectId?: string }) {
             <button type="button" onClick={() => void removeJob(job.id)} title="Padam analisa" className="p-1.5 rounded-lg" style={off}><Trash2 className="w-4 h-4" /></button>
           </div>
 
-          {job.status === "pending" && (
-            <div className="rounded-xl p-4 flex items-center gap-3" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
-              <Loader2 className="w-5 h-5 animate-spin" style={{ color: THEME.primary }} />
-              <div className="flex-1">
-                <div className="text-xs font-extrabold text-[var(--color-text-primary)]">{STAGE[job.stage || "queued"] || "Sedang analisa"}…</div>
-                <div className="h-1.5 rounded-full mt-1.5 overflow-hidden" style={{ background: "var(--color-border)" }}>
-                  <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(5, Math.min(97, job.pct ?? 8))}%`, background: THEME.gradient }} />
+          {job.status === "pending" && (() => {
+            // a TikTok LIVE on now: recording (with its clock and the stop button), then the usual analysis
+            const recording = job.source?.type === "tiktoklive" && (job.stage === "recording" || job.stage === "connecting" || job.stage === "queued") && !job.live?.stop_at;
+            const maxSec = job.live?.max_sec || 0;
+            return (
+              <div className="rounded-xl p-4 space-y-3" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
+                <div className="flex items-center gap-3">
+                  {recording && job.stage === "recording"
+                    ? <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse shrink-0" />
+                    : <Loader2 className="w-5 h-5 animate-spin" style={{ color: THEME.primary }} />}
+                  <div className="flex-1">
+                    <div className="text-xs font-extrabold text-[var(--color-text-primary)]">
+                      {job.stage === "recording" && !job.live?.stop_at
+                        ? `🔴 Merakam LIVE · ${fmt(job.rec ?? 0)}${maxSec ? ` / ${fmt(maxSec)}` : ""}`
+                        : job.live?.stop_at && job.stage === "recording" ? "Menghentikan rakaman"
+                        : STAGE[job.stage || "queued"] || "Sedang analisa"}…
+                    </div>
+                    <div className="h-1.5 rounded-full mt-1.5 overflow-hidden" style={{ background: "var(--color-border)" }}>
+                      <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(5, Math.min(97, job.pct ?? 8))}%`, background: THEME.gradient }} />
+                    </div>
+                  </div>
                 </div>
+                {recording && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" disabled={stopping === job.id || job.stage !== "recording" || (job.rec ?? 0) < 60}
+                      onClick={() => void stopLive(job.id)}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-extrabold text-white inline-flex items-center gap-1.5 disabled:opacity-50"
+                      style={{ background: "linear-gradient(135deg,#ef4444,#ec4899)" }}>
+                      {stopping === job.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+                      Berhenti &amp; jana klip
+                    </button>
+                    <span className="text-[10px] text-[var(--color-text-muted)]">
+                      {(job.rec ?? 0) < 60 ? "Boleh berhenti selepas 1 minit rakaman." : "Rakaman berhenti sendiri bila masa cukup atau LIVE tamat. Halaman ini boleh ditutup."}
+                    </span>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
           {job.status === "failed" && <div className="text-xs text-red-400 font-bold">{job.error || "Analisa gagal."}</div>}
 
           {job.status === "done" && job.analysis && (

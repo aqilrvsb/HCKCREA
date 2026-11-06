@@ -8,7 +8,7 @@
 // segment → 9:16 reframe around the speaker → captions / hook / full AI edit → HyperFrames).
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
-import { extractJson, motionCheck, type MotionCheck } from "@/lib/motion";
+import { extractJson, motionCheck, type MotionCheck, type MotionProgress } from "@/lib/motion";
 import { refundReserved } from "@/lib/deduct";
 
 export const CLIPPER_JOB_TAB = "clipper-job";
@@ -38,7 +38,27 @@ export async function clipperFees(): Promise<{ analysis: number; more: number }>
 }
 const ANALYSE_STALE_MS = 50 * 60_000;
 
-export type ClipSourceType = "youtube" | "gdrive" | "upload" | "tiktok";
+/** "tiktok" = a LIVE replay (its HLS playlist); "tiktoklive" = a LIVE on now (recorded first, then analysed). */
+export type ClipSourceType = "youtube" | "gdrive" | "upload" | "tiktok" | "tiktoklive";
+
+/** How long a LIVE on now may be recorded (minutes); 240 = the analysis's 4-hour cap. */
+export const LIVE_RECORD_MINUTES = [15, 30, 60, 120, 180, 240] as const;
+export function cleanLiveMinutes(raw: unknown): number {
+  const n = Math.round(Number(raw));
+  return (LIVE_RECORD_MINUTES as readonly number[]).includes(n) ? n : 60;
+}
+
+// a TikTok LIVE on now: tiktok.com/@name(/live), a share link (vt./vm.tiktok.com, tiktok.com/t/…), a
+// tiktok.com/share/live/<room> link, or just @name
+const TT_LIVE_PAGE = /^https?:\/\/(?:www\.|m\.)?tiktok\.com\/@([\w.-]{2,40})(?:\/live)?\/?(?:[?#].*)?$/i;
+const TT_SHARE = /^https?:\/\/(?:(?:vt|vm)\.tiktok\.com\/[A-Za-z0-9]+|(?:www\.)?tiktok\.com\/t\/[A-Za-z0-9]+|(?:www\.|m\.)?tiktok\.com\/share\/live\/\d+)\/?(?:[?#].*)?$/i;
+const TT_AT = /^@([\w.-]{2,40})$/;
+export function tiktokLiveLink(raw: unknown): { url: string; user?: string } | null {
+  const u = String(raw ?? "").trim();
+  const m = TT_LIVE_PAGE.exec(u) ?? TT_AT.exec(u);
+  if (m) return { url: `https://www.tiktok.com/@${m[1]}/live`, user: m[1] };
+  return TT_SHARE.test(u) ? { url: u.split("#")[0] } : null;
+}
 export type ClipDuration = "15" | "30" | "60" | "auto";
 export type ClipperOptions = {
   duration: ClipDuration;
@@ -122,6 +142,12 @@ export function cleanSource(type: unknown, url: unknown, name?: unknown): { type
   }
   if (type === "upload") {
     return UPLOAD_HOST.test(u) ? { type, url: u, name: String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || "Video" } : null;
+  }
+  // a TikTok LIVE on now (the TikTok LIVE source takes either kind of link: this one, or a replay below)
+  if (type === "tiktoklive" || type === "tiktok") {
+    const live = tiktokLiveLink(u);
+    if (live) return { type: "tiktoklive", url: live.url, name: live.user ? `LIVE @${live.user}` : "TikTok LIVE" };
+    if (type === "tiktoklive") return null;
   }
   // a TikTok LIVE replay (Seller Center → LIVE Dashboard → Replay): its HLS playlist on TikTok's CDN — signed, no login
   if (type === "tiktok") {
@@ -549,7 +575,7 @@ Return ONLY JSON: {"clips": [{"c": "C…", "verdict": "ok" | "fix" | "reject", "
 type JobRow = { id: string; user_id: string; status: string; task_id: string | null; metadata: any; created_at?: string };
 
 /** A pending analysis: check Modal; finished → the analysis lands in metadata, failed → the error. */
-export async function settleClipperJob(row: JobRow, pre?: MotionCheck): Promise<{ state: string; status?: string; error?: string; progress?: { stage?: string; pct?: number } | null }> {
+export async function settleClipperJob(row: JobRow, pre?: MotionCheck): Promise<{ state: string; status?: string; error?: string; progress?: MotionProgress | null }> {
   if (row.status !== "pending") return { state: "skipped" };
   const meta = row.metadata || {};
   const admin = createAdminClient();
@@ -573,7 +599,9 @@ export async function settleClipperJob(row: JobRow, pre?: MotionCheck): Promise<
   }
   const r = pre ?? (await motionCheck(row.task_id));
   if (r.status === "running" || r.status === "unknown") {
-    if (Date.now() - createdMs > ANALYSE_STALE_MS) {
+    // a LIVE on now is recorded first (up to its chosen length), then analysed
+    const liveMs = (Number(meta.live?.max_sec) || 0) * 1000;
+    if (Date.now() - createdMs > ANALYSE_STALE_MS + (liveMs ? liveMs + 15 * 60_000 : 0)) {
       await fail("Analisa mengambil masa terlalu lama — cuba lagi.");
       return { state: "settled", status: "failed" };
     }

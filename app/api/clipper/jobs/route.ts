@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { motionCheck } from "@/lib/motion";
+import { motionCheck, type MotionProgress } from "@/lib/motion";
 import { CLIPPER_JOB_TAB, CLIPPER_TAB, settleClipperJob } from "@/lib/clipper";
 
 // GET /api/clipper/jobs?project_id= — the client's CLIPPER analyses (newest first). Pending ones are checked on
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   const { data: rows, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const progress: Record<string, { stage?: string; pct?: number } | null> = {};
+  const progress: Record<string, MotionProgress | null> = {};
   const pending = (rows ?? []).filter((r: any) => r.status === "pending");
   if (pending.length) {
     await Promise.all(pending.map(async (r: any) => {
@@ -56,6 +56,9 @@ export async function GET(req: Request) {
       status: r.status,
       stage: progress[r.id]?.stage ?? r.metadata?.stage ?? null,
       pct: progress[r.id]?.pct ?? null,
+      // a TikTok LIVE on now: the chosen length, and while recording the seconds recorded so far
+      live: r.metadata?.live ? { max_sec: Number(r.metadata.live.max_sec) || 0, stop_at: r.metadata.live.stop_at ?? null } : null,
+      rec: typeof progress[r.id]?.rec === "number" ? progress[r.id]!.rec : null,
       error: r.error_message,
       created_at: r.created_at,
       source: r.metadata?.source ?? null,

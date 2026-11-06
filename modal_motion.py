@@ -3931,6 +3931,210 @@ def _clip_analyze(p: dict, d: Path) -> dict:
                                      "director": (plan or {}).get("director"), "plan_error": err or None}}
 
 
+# ── CLIPPER, a TikTok LIVE that is on now: recorded from this moment, then analysed like an upload ─────────────────
+# The client pastes the LIVE's link (tiktok.com/@name/live, a vt./vm.tiktok.com share link, or @name). clip_live finds
+# the room through TikTok's web live API (yt-dlp's TikTok LIVE page reader finds no room since TikTok's 2026 page
+# change; this API answers Modal's US exits directly — measured 2026-11-07), records the room's FLV stream with ffmpeg
+# (copy, no re-encode) in parts — a dropped stream is picked up again while the room is still live — and stops at the
+# chosen length, at the client's "Berhenti", or when the LIVE ends. The recording goes to B2 and the usual analysis
+# (run_job, flow clip-analyze, source = that file) takes it from there; its progress is passed through.
+LIVE_STOP = modal.Dict.from_name("peninglab-clip-live-stop", create_if_missing=True)
+LIVE_MAX_SEC = CLIP_MAX_SOURCE_SEC
+LIVE_QUALITY = ("origin", "uhd", "hd", "sd", "ld")  # best first; "ao" (audio only) never
+
+
+def _tt_live_room(link: str) -> dict:
+    """The LIVE behind a link: {user, room_id, live, flv, hls, title}. live False = the account isn't live now."""
+    from curl_cffi import requests as creq
+    s = creq.Session(impersonate="chrome")
+    u = link.strip()
+    if u.startswith("@"):
+        u = f"https://www.tiktok.com/{u}/live"
+    if re.match(r"https?://(?:vt|vm)\.tiktok\.com/|https?://(?:www\.)?tiktok\.com/t/", u):  # a share link: where it leads
+        u = str(s.get(u, allow_redirects=True, timeout=20).url)
+    m = re.search(r"tiktok\.com/@([\w.-]+)", u)
+    user = m.group(1) if m else None
+    m = re.search(r"/share/live/(\d+)|[?&]room_id=(\d+)", u)
+    room_id = (m.group(1) or m.group(2)) if m else None
+    out = {"user": user, "room_id": room_id, "live": False, "flv": None, "hls": None, "title": None}
+
+    def pick(streams: dict) -> None:
+        for q in LIVE_QUALITY:
+            main = (streams.get(q) or {}).get("main") or {}
+            if main.get("flv") or main.get("hls"):
+                out["flv"], out["hls"] = main.get("flv"), main.get("hls")
+                return
+
+    if user:
+        j = s.get("https://www.tiktok.com/api-live/user/room/", params={"aid": "1988", "uniqueId": user, "sourceType": "54"}, timeout=20).json()
+        data = j.get("data") or {}
+        lr = data.get("liveRoom") or {}
+        out["room_id"] = room_id or str((data.get("user") or {}).get("roomId") or "") or None
+        out["live"] = int(lr.get("status") or 0) == 2
+        out["title"] = lr.get("title")
+        try:
+            pick((json.loads(((lr.get("streamData") or {}).get("pull_data") or {}).get("stream_data") or "{}").get("data")) or {})
+        except Exception:  # noqa: BLE001
+            pass
+    if out["room_id"] and (not user or (out["live"] and not out["flv"] and not out["hls"])):
+        d = (s.get("https://webcast.tiktok.com/webcast/room/info/", params={"aid": "1988", "room_id": out["room_id"]}, timeout=20).json() or {}).get("data") or {}
+        out["live"] = int(d.get("status") or 0) == 2
+        out["title"] = out["title"] or d.get("title")
+        out["user"] = out["user"] or (d.get("owner") or {}).get("display_id")
+        st = d.get("stream_url") or {}
+        flv = st.get("flv_pull_url") or {}
+        out["flv"] = out["flv"] or next((flv[k] for k in ("FULL_HD1", "HD1", "SD1", "SD2") if flv.get(k)), None)
+        out["hls"] = out["hls"] or st.get("hls_pull_url")
+    return out
+
+
+def _live_progress(me: str, stage: str, pct: int, **extra) -> None:
+    try:
+        PROGRESS[me] = {"stage": stage, "pct": int(pct), "ts": time.time(), **extra}
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _live_stop_asked(me: str) -> bool:
+    try:
+        return LIVE_STOP.get(me) is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@app.function(image=yt_image.pip_install("boto3==1.34.0"), cpu=(0.5, 2.0), memory=(1024, 4096), timeout=LIVE_MAX_SEC + 2 * 3600,
+              secrets=SECRETS, scaledown_window=IDLE_JOB, max_containers=40)
+def clip_live(payload: dict) -> dict:
+    import shutil
+    me = modal.current_function_call_id() or ""
+    src = payload.get("source") or {}
+    uid, hid = str(payload.get("user_id") or "anon"), str(payload.get("history_id") or "job")
+    max_sec = max(60, min(LIVE_MAX_SEC, int(float((payload.get("live") or {}).get("max_sec") or 3600))))
+    d = Path(tempfile.mkdtemp(prefix="live_"))
+    try:
+        _live_progress(me, "connecting", 2)
+        room = _tt_live_room(str(src.get("url") or ""))
+        who = f"@{room['user']}" if room.get("user") else "Akaun ini"
+        if not room["live"]:
+            raise RuntimeError(f"{who} tidak sedang LIVE sekarang — tampal link semasa LIVE sedang berjalan.")
+        if not (room["flv"] or room["hls"]):
+            raise RuntimeError(f"Tak dapat buka siaran LIVE {who} — cuba lagi sebentar.")
+        name = (f"LIVE @{room['user']}" if room.get("user") else "TikTok LIVE") + (f" · {room['title']}" if room.get("title") else "")
+        parts: list[Path] = []
+        recorded, drops, ended, stopped = 0.0, 0, False, False
+        t_start = time.time()
+        while recorded < max_sec - 2:
+            left = max_sec - recorded
+            part = d / f"part{len(parts):03d}.ts"
+            log = d / f"part{len(parts):03d}.log"  # a file, not a pipe: hours of messages can't fill it and stall ffmpeg
+            # FLV first (TikTok's own players use it); the HLS copy when there is no FLV
+            stream = room["flv"] or room["hls"]
+            with open(log, "wb") as logf:
+                proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-rw_timeout", "20000000",
+                                         *(["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"] if not room["flv"] else []),
+                                         "-i", stream, "-t", f"{left:.0f}", "-c", "copy", "-f", "mpegts", str(part)],
+                                        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=logf)
+            p0 = time.time()
+            while proc.poll() is None:
+                time.sleep(4)
+                now_rec = recorded + (time.time() - p0)
+                _live_progress(me, "recording", 3 + int(42 * min(1.0, now_rec / max_sec)), rec=int(now_rec), max=max_sec, user=room.get("user"))
+                if proc.poll() is None:
+                    if _live_stop_asked(me):
+                        stopped = True
+                        try:
+                            proc.stdin.write(b"q")  # ffmpeg's own quit: the part closes cleanly
+                            proc.stdin.flush()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        try:
+                            proc.wait(timeout=15)
+                        except Exception:  # noqa: BLE001
+                            proc.kill()
+                        break
+            err = log.read_bytes()[-300:].decode("utf-8", "replace") if log.exists() else ""
+            got = 0.0
+            if part.exists() and part.stat().st_size > 50_000:
+                try:
+                    got = float(_probe(part).get("duration") or 0)
+                except Exception as e:  # noqa: BLE001
+                    print("live: part unreadable, dropped:", str(e)[:200], flush=True)
+            if got > 0:
+                parts.append(part)
+                recorded += got
+            if stopped or recorded >= max_sec - 2:
+                break
+            # the stream stopped before the time was up: the LIVE ended, or the connection dropped
+            print(f"live: stream stopped after {got:.0f}s (recorded {recorded:.0f}s): {err.strip()[:200]}", flush=True)
+            drops = drops + 1 if got < 20 else 0
+            try:
+                room = _tt_live_room(f"https://www.tiktok.com/@{room['user']}/live") if room.get("user") else _tt_live_room(str(src.get("url") or ""))
+            except Exception as e:  # noqa: BLE001
+                print("live: room re-check failed:", str(e)[:200], flush=True)
+                room = {**room, "live": drops < 6}
+            if not room["live"] or not (room["flv"] or room["hls"]):
+                ended = True
+                break
+            if drops >= 6:  # live, but every reconnect drops at once: keep what we have
+                break
+            time.sleep(min(10, 2 * drops))
+        print(f"live: recorded {recorded:.0f}s in {len(parts)} part(s) over {time.time() - t_start:.0f}s"
+              f" ({'stopped' if stopped else 'ended' if ended else 'time up'})", flush=True)
+        if recorded < 60:
+            raise RuntimeError("Rakaman LIVE terlalu pendek (kurang 1 minit) — " +
+                               ("LIVE sudah tamat." if ended else "rakam sekurang-kurangnya 1 minit sebelum berhenti."))
+        # the parts → one MP4 (copied, no re-encode)
+        _live_progress(me, "upload", 46, rec=int(recorded), max=max_sec, user=room.get("user"))
+        lst = d / "parts.txt"
+        lst.write_text("".join(f"file '{p.name}'\n" for p in parts), encoding="utf-8")
+        out = d / "source.mp4"
+        _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy",
+              "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", str(out)], "live concat", 1800)
+        for p in parts:
+            p.unlink(missing_ok=True)
+        media_url = _upload_b2(out, f"users/{uid}/clipper/{hid}-source.mp4", "video/mp4")
+        thumb = None
+        try:
+            tj = d / "thumb.jpg"
+            _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{min(30.0, recorded / 3):.1f}", "-i", str(out),
+                  "-frames:v", "1", "-vf", "scale=360:-2", "-q:v", "4", str(tj)], "live thumb", 120)
+            thumb = _upload_b2(tj, f"users/{uid}/clipper/{hid}-thumb.jpg", "image/jpeg")
+        except Exception as e:  # noqa: BLE001
+            print("live thumb failed:", str(e)[:200], flush=True)
+        out.unlink(missing_ok=True)
+        # the usual analysis on the recording; its progress shows as this job's (after the recording's share)
+        job = {**payload, "flow": "clip-analyze", "source": {"type": "upload", "url": media_url, "name": name[:120]}}
+        call = run_job.spawn(job)
+        cid = call.object_id
+        while True:
+            try:
+                res = call.get(timeout=5)
+                break
+            except TimeoutError:
+                try:
+                    pr = PROGRESS.get(cid) or {}
+                    if pr.get("stage"):
+                        _live_progress(me, str(pr["stage"]), 46 + int(0.54 * int(pr.get("pct") or 0)), rec=int(recorded), max=max_sec)
+                except Exception:  # noqa: BLE001
+                    pass
+        if isinstance(res, dict) and res.get("ok") and isinstance(res.get("analysis"), dict):
+            a = res["analysis"]
+            a["source_type"] = "tiktoklive"
+            a["thumb"] = a.get("thumb") or thumb
+            a["live"] = {"user": room.get("user"), "recorded_sec": round(recorded, 1), "ended": ended, "stopped": stopped}
+        _live_progress(me, "done" if isinstance(res, dict) and res.get("ok") else "failed", 100)
+        return res
+    except Exception as e:  # noqa: BLE001
+        _live_progress(me, "failed", 100)
+        return {"ok": False, "error": str(e)[:900]}
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        try:
+            LIVE_STOP.pop(me)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _probe_url(url: str) -> dict:
     r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", url],
                        capture_output=True, text=True, timeout=120)
@@ -4630,8 +4834,21 @@ def api():
         if payload.get("flow") not in ("ad", "edit", "clip-analyze", "clip"):
             return {"ok": False, "error": "unknown flow"}
         job = {k: v for k, v in payload.items() if k != "secret"}
-        call = await run_job.spawn.aio(job)
+        # CLIPPER, a TikTok LIVE on now: recorded first (clip_live), then the usual analysis
+        live = payload.get("flow") == "clip-analyze" and (payload.get("source") or {}).get("type") == "tiktoklive"
+        call = await (clip_live if live else run_job).spawn.aio(job)
         return {"ok": True, "call_id": call.object_id}
+
+    @web.post("/stop")
+    async def stop_(payload: dict):
+        # CLIPPER, a LIVE being recorded: stop now and make the clips from what's recorded
+        if not _authorised(str(payload.get("secret") or "")):
+            return JSONResponse({"ok": False, "error": "unauthorised"}, status_code=401)
+        cid = str(payload.get("call_id") or "")
+        if not re.fullmatch(r"fc-[A-Za-z0-9]+", cid):
+            return JSONResponse({"ok": False, "error": "bad call_id"}, status_code=400)
+        await LIVE_STOP.put.aio(cid, time.time())
+        return {"ok": True}
 
     @web.get("/check")
     async def check(call_id: str = "", secret: str = ""):

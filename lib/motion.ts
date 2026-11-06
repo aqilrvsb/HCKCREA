@@ -444,8 +444,11 @@ export async function vgcStart(payload: Record<string, any>): Promise<{ ok: true
   return { ok: false, error: lastErr };
 }
 
+/** A job's progress; a CLIPPER LIVE recording adds rec / max (seconds recorded / the chosen length). */
+export type MotionProgress = { stage?: string; pct?: number; rec?: number; max?: number };
+
 export type MotionCheck =
-  | { status: "running"; progress?: { stage?: string; pct?: number } | null }
+  | { status: "running"; progress?: MotionProgress | null }
   | { status: "done"; result: { url?: string; poster_url?: string | null; duration_sec: number; render_sec?: number; draft?: Record<string, any>; [k: string]: any } }
   | { status: "failed"; error: string; apiError?: string }
   | { status: "unknown"; error: string };
@@ -471,6 +474,25 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
   } catch (e: any) {
     // Network blips must never fail a row — the next poll retries.
     return { status: "unknown", error: e?.message || "network" };
+  }
+}
+
+/** CLIPPER, a TikTok LIVE being recorded: ask its Modal job to stop now (the clips come from what's recorded). */
+export async function motionStop(taskId: string): Promise<{ ok: boolean; error?: string }> {
+  const { callId, account } = splitTaskId(taskId);
+  const cfg = (await getMotionAccounts({ includeDisabled: true })).find((a) => a.id === account);
+  if (!cfg) return { ok: false, error: `Motion renderer account "${account}" not configured` };
+  try {
+    const r = await fetch(`${cfg.api_url}/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ call_id: callId, secret: cfg.secret }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const j = await r.json().catch(() => ({}));
+    return r.ok && j?.ok ? { ok: true } : { ok: false, error: j?.error || `Modal HTTP ${r.status}` };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "network" };
   }
 }
 
