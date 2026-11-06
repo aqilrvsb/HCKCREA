@@ -26,7 +26,7 @@ type SrcType = "youtube" | "gdrive" | "upload" | "tiktok" | "tiktoklive";
 
 // a TikTok LIVE on now: tiktok.com/@name(/live), a share link (vt./vm.tiktok.com, tiktok.com/t/…, …/share/live/…) or
 // @name (the same forms lib/clipper.ts takes)
-const isLivePage = (u: string) => /^(?:https?:\/\/(?:www\.|m\.)?tiktok\.com\/@[\w.-]{2,40}(?:\/live)?\/?(?:[?#].*)?|@[\w.-]{2,40}|https?:\/\/(?:(?:vt|vm)\.tiktok\.com\/[A-Za-z0-9]+|(?:www\.)?tiktok\.com\/t\/[A-Za-z0-9]+|(?:www\.|m\.)?tiktok\.com\/share\/live\/\d+)\/?(?:[?#].*)?)$/i.test(u.trim());
+const isLivePage = (u: string) => /^(?:https?:\/\/(?:www\.|m\.)?tiktok\.com\/@[\w.-]{2,40}(?:\/live)?\/?(?:[?#].*)?|@[\w.-]{2,40}|https?:\/\/(?:(?:vt|vm)\.tiktok\.com\/[\w-]+|(?:www\.)?tiktok\.com\/t\/[\w-]+|(?:www\.|m\.)?tiktok\.com\/share\/live\/\d+)\/?(?:[?#].*)?)$/i.test(u.trim());
 const LIVE_MINUTES: { m: number; label: string }[] = [
   { m: 15, label: "15 min" }, { m: 30, label: "30 min" }, { m: 60, label: "1 jam" }, { m: 120, label: "2 jam" }, { m: 180, label: "3 jam" }, { m: 240, label: "4 jam" },
 ];

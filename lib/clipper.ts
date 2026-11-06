@@ -51,7 +51,8 @@ export function cleanLiveMinutes(raw: unknown): number {
 // a TikTok LIVE on now: tiktok.com/@name(/live), a share link (vt./vm.tiktok.com, tiktok.com/t/…), a
 // tiktok.com/share/live/<room> link, or just @name
 const TT_LIVE_PAGE = /^https?:\/\/(?:www\.|m\.)?tiktok\.com\/@([\w.-]{2,40})(?:\/live)?\/?(?:[?#].*)?$/i;
-const TT_SHARE = /^https?:\/\/(?:(?:vt|vm)\.tiktok\.com\/[A-Za-z0-9]+|(?:www\.)?tiktok\.com\/t\/[A-Za-z0-9]+|(?:www\.|m\.)?tiktok\.com\/share\/live\/\d+)\/?(?:[?#].*)?$/i;
+// share codes carry "-" and "_" too (a phone share link, 2026-11-07: vt.tiktok.com/ZS9f8NfmS2oNV-L69qc/)
+const TT_SHARE = /^https?:\/\/(?:(?:vt|vm)\.tiktok\.com\/[\w-]+|(?:www\.)?tiktok\.com\/t\/[\w-]+|(?:www\.|m\.)?tiktok\.com\/share\/live\/\d+)\/?(?:[?#].*)?$/i;
 const TT_AT = /^@([\w.-]{2,40})$/;
 export function tiktokLiveLink(raw: unknown): { url: string; user?: string } | null {
   const u = String(raw ?? "").trim();
