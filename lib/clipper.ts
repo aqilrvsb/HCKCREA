@@ -471,7 +471,10 @@ JSON only.`;
   }
   const short = pool.slice(0, Math.min(60, Math.max(cnt.max + 6, Math.ceil(cnt.max * 1.8))));
   if (!short.length) {
-    return { summary: "", clips: fallbackClips(lines, heatmap, o, meta.duration, meta.title || "Klip", taken), director: null, fallback: true };
+    // no AI picks: the analysis fails and its fee comes back — never the old loudness-only stand-in (the owner's call,
+    // 2026-11-11: quality over a weaker result). director null = no model answered at all (DragonAPI down / no balance).
+    if (!director) throw new Error("AI director tidak tersedia sekarang — cuba lagi sebentar.");
+    return { summary: "", clips: [], director, fallback: false };
   }
   let ranked = short;
   if (short.length > 1 && (!opts.deadline || Date.now() < opts.deadline - 70_000)) {

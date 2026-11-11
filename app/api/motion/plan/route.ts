@@ -10,6 +10,7 @@ import { clipPolish } from "@/lib/clipper-polish";
 import { alignWords, clipPicks, reusePolish, userCaptionFixes } from "@/lib/clipper-preview";
 import { applySpelling, enrichHeadlines, fixPlanText, spellPairs } from "@/lib/motion-headline";
 import { ingredientShots, type IngredientShot } from "@/lib/motion-ingredients";
+import { alertAiDown } from "@/lib/ai-down-alert";
 
 type PlanWord = { i: number; w: string; t: number; e?: number };
 
@@ -213,9 +214,10 @@ export async function POST(req: Request) {
       .eq("id", id);
     return NextResponse.json({ ok: true, plan: { ...plan, fixes } });
   } catch (e: any) {
-    // Modal falls back to captions-only when the plan fails — still with the
-    // caption fixes (that call is bounded by the same deadline).
+    // No plan: Modal stops the video with an error and the credit comes back (no captions-only video, no GRSAI
+    // stand-in — the owner's call, 2026-11-11); the admins hear about it on WhatsApp
     const fixes = await fixing.catch(() => [] as [number, string][]);
+    await alertAiDown(`Motion (video ${id.slice(0, 8)})`, e?.message || "plan failed");
     return NextResponse.json({ ok: false, error: e?.message || "plan failed", fixes }, { status: 502 });
   }
 }

@@ -399,6 +399,11 @@ async function runCascade(
   });
 }
 
+/** Model slots that never fall through to the shared model_auto (a light Gemini): Motion + CLIPPER stay on their own
+ *  models (Claude on DragonAPI). When all of those fail, the call fails — the owner's call (2026-11-11), after the
+ *  29 Oct–2 Nov DragonAPI outage put ~110 videos on Gemini Flash Lite plans that clients called "tak cantik". */
+const NO_AUTO_FALLBACK = new Set(["model_motion", "model_motion_guard"]);
+
 export async function orChat(opts: {
   // Per-feature model keys. Admin can configure each one independently
   // in /admin/settings, OR leave them empty to fall back to model_auto.
@@ -505,7 +510,7 @@ export async function orChat(opts: {
     const motion = parseModelSetting(s["model_motion"]);
     if (motion) layers.push(motion);
   }
-  if (requestedKey !== "model_auto") {
+  if (requestedKey !== "model_auto" && !NO_AUTO_FALLBACK.has(requestedKey)) {
     const auto = parseModelSetting(s["model_auto"]);
     if (auto) layers.push(auto);
   }
@@ -608,7 +613,7 @@ export async function orChatVision(opts: {
   const layers: ParsedModel[] = [];
   const primary = parseModelSetting(s[requestedKey]);
   if (primary) layers.push(primary);
-  if (requestedKey !== "model_auto") {
+  if (requestedKey !== "model_auto" && !NO_AUTO_FALLBACK.has(requestedKey)) {
     const auto = parseModelSetting(s["model_auto"]);
     if (auto) layers.push(auto);
   }

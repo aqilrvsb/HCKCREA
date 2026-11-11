@@ -2391,7 +2391,14 @@ def _edit_direct(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     except Exception as e:  # noqa: BLE001
         print("plan call failed:", e)
     if not plan:
-        plan, plan_fallback = _fallback_plan(), True  # captions only
+        clip = p.get("clip") if isinstance(p.get("clip"), dict) else None
+        if clip is not None and clip.get("mode", "captions") != "style":
+            # CLIPPER "Klip + caption": the captions are the whole edit anyway
+            plan, plan_fallback = _fallback_plan(), True
+        else:
+            # the AI editor (Claude, model_motion) is down: no video rather than a plain captions-only one — the row
+            # fails and the credit comes back (the owner's call, 2026-11-11: quality kept, no weaker stand-in)
+            raise RuntimeError("AI editor sedang tidak tersedia — video tidak dijana, kredit dipulangkan. Sila cuba lagi sebentar.")
     if st.get("captions", p.get("captions")) is False and isinstance(plan.get("captions"), dict):
         plan["captions"] = {**plan["captions"], "on": False}
 

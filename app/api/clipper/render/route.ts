@@ -273,7 +273,8 @@ export async function POST(req: Request) {
       ...(keepJob ? { keep_job: true } : {}),
       ...(ytAuth ? { yt_auth: ytAuth } : {}),
       clip: {
-        source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language, jumpcut,
+        // mode: "captions" may render captions-only when the plan call fails; "style" (the full AI edit) then fails instead
+        mode, source_type: src.type, url: src.url, media_url: a.media_url || null, start: c.start, end: c.end, frame, language, jumpcut,
         seed: clipSeed(job.id, c.start, c.end),
         ...(c.flash ? { flash: c.flash } : {}),
         // the clip's words from the analysis (clip seconds) — Modal skips its own transcription

@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { tokenMatches } from "@/lib/motion";
 import { withDeadline } from "@/lib/openrouter";
 import { CLIPPER_JOB_TAB, cleanOptions, directClips, type HeatPoint, type Line } from "@/lib/clipper";
+import { alertAiDown } from "@/lib/ai-down-alert";
 
 // POST /api/clipper/plan — called BY the Modal analysis job once it has the transcript + heatmap. Auth = the
 // row's plan_token (only Modal has it). The master director (model_motion — Sonnet 5.5) picks the clips here,
@@ -51,6 +52,8 @@ export async function POST(req: Request) {
     const res = await withDeadline(t0 + BUDGET_MS, () => directClips({ meta, heatmap, lines, options, deadline: t0 + BUDGET_MS }));
     return NextResponse.json({ ok: true, summary: res.summary, clips: res.clips, director: res.director, fallback: res.fallback });
   } catch (e: any) {
+    // the AI director is down: the analysis fails (fee refunded) and the admins hear about it on WhatsApp
+    await alertAiDown(`Clipper (analisa ${id.slice(0, 8)})`, e?.message || "director failed");
     return NextResponse.json({ ok: false, error: e?.message || "director failed" }, { status: 502 });
   }
 }
