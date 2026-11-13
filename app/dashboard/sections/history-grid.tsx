@@ -134,10 +134,12 @@ function modelLabel(item: HistoryItem): string {
   // selected in admin (P2's nano-banana-v2 vs P3's nano-banana-2 are
   // genuinely different upstream models). Add provider suffix for clarity.
   if (m === "nano-banana-fast") return "Banana Fast" + providerSuffix;
+  if (m === "nano-banana-2.1") return "Banana 2.1" + providerSuffix;
   if (m === "nano-banana-2") return "Banana 2" + providerSuffix;
   if (m === "nano-banana-v2" || m === "google/nano-banana-v2") return "Banana v2" + providerSuffix;
   if (m === "nano-banana-pro" || m === "google/nano-banana-pro") return "Banana Pro" + providerSuffix;
   if (m.includes("nano-banana")) return "Banana Pro" + providerSuffix; // fallback for unknown variants
+  if (m.includes("gpt-image-2.6")) return "GPT Image 2.6" + providerSuffix;
   if (m.includes("gpt-image-2.5")) return "GPT Image 2.5" + providerSuffix;
   if (m.includes("gpt-image") || m === "gpt-image-2") return "GPT Image 2" + providerSuffix;
   if (m === "z-image" || m.includes("z-image")) return "Z-Image" + providerSuffix;
@@ -5349,7 +5351,8 @@ function EditImageModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: model.includes("gpt-image-2.5") ? "gpt-image-2.5" : model.includes("gpt-image") ? "gpt-image-2" : "nano-banana-pro",
+          model: model.includes("gpt-image-2.6") ? "gpt-image-2.6" : model.includes("gpt-image-2.5") ? "gpt-image-2.5"
+            : model.includes("gpt-image") ? "gpt-image-2" : model.includes("nano-banana-2.1") ? "nano-banana-2.1" : "nano-banana-pro",
           prompt: edit.trim(),
           reference_url: refs[0],
           reference_urls: refs.length > 1 ? refs : undefined,

@@ -90,6 +90,10 @@ export type CascadeResult =
 // what really rendered instead of an id the slot would reject.
 const GRSAI_ONLY_MODELS: Record<string, string> = {
   "gpt-image-2.5": "gpt-image-2",
+  // added 2026-11-13 (owner, from Grsai's model list) — both verified on Grsai: 9:16 → 941x1672 (2.6, 38 s) and
+  // 768x1376 at 1K (nano-banana-2.1, 20 s, same price at 1K/2K/4K)
+  "gpt-image-2.6": "gpt-image-2",
+  "nano-banana-2.1": "nano-banana-2",
 };
 
 function toP2Model(bareModel: string, hint?: string): string {

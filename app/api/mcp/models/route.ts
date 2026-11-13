@@ -86,6 +86,22 @@ export async function GET(req: Request) {
       },
     },
     {
+      // Grsai-only (newest GPT Image); cascade pins P4 first, other slots fall back to gpt-image-2.
+      name: "gpt-image-2.6", type: "image", rate: gptImage, unit: "per_image",
+      constraints: {
+        image_urls: { max: 4 },
+        aspect_ratios: IMAGE_ASPECTS,
+      },
+    },
+    {
+      // Grsai-only (Gemini Nano Banana 2.1); cascade pins P4 first, other slots fall back to nano-banana-2.
+      name: "nano-banana-2.1", type: "image", rate: bananaPro, unit: "per_image",
+      constraints: {
+        image_urls: { max: 4 },
+        aspect_ratios: IMAGE_ASPECTS,
+      },
+    },
+    {
       name: "veo", type: "video", rate: veo, unit: "per_video_8s",
       constraints: {
         duration: { fixed: 8 },
