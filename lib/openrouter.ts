@@ -227,6 +227,10 @@ async function callProvider(opts: {
         temperature: opts.temperature ?? 0.8,
         max_tokens: opts.maxTokens ?? 4000,
         stream: !!opts.stream,
+        // DragonAPI's Claude started "thinking out loud" on long prompts (2026-11-14): a 20-s video's director plan
+        // ran 19–56k tokens of reasoning, hit the 150-s cut, and 5 Motion videos failed. reasoning_effort "none"
+        // turns it off (measured: the same plans in 17–35 s, normal size; `thinking: disabled` does NOT work there)
+        ...(opts.provider === "dragon" ? { reasoning_effort: "none" } : {}),
       }),
       ...(signal ? { signal } : {}),
     });
