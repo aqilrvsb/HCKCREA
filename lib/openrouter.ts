@@ -359,9 +359,12 @@ async function runCascade(
     return { ok: false, error: lastError };
   }
 
-  // The same model twice in one race only doubles the wait.
+  // The same model twice in one race only doubles the wait — except on DragonAPI, a relay over a pool of upstream
+  // accounts: one request can stall (2026-11-14: Sonnet 5.5 silent for 60+ s on 3 of 5 plans) while a second one,
+  // served by another account, answers in ~20 s. There a model listed again is its own backup (the owner: Motion's
+  // director must be Sonnet 5.5, never Sonnet 5 / Opus).
   const seen = new Set<string>();
-  const queue = slots.filter((x) => !seen.has(`${x.provider}:${x.model}`) && !!seen.add(`${x.provider}:${x.model}`));
+  const queue = slots.filter((x) => x.provider === "dragon" || (!seen.has(`${x.provider}:${x.model}`) && !!seen.add(`${x.provider}:${x.model}`)));
   return new Promise<ChatResult>((resolve) => {
     const ctrls: AbortController[] = [];
     let next = 0;
