@@ -236,6 +236,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [editProduct, setEditProduct] = useState("");
   const [readingVideos, setReadingVideos] = useState(false);
   const [editImgBusy, setEditImgBusy] = useState(false);
+  // "🔗 Gabung jadi 1 video" (off by default — the one-video-one-result flow is untouched): the picked videos, in the
+  // order set with ◀ ▶, are joined into ONE video (/api/motion/merge) and that one goes through the usual Edit Video
+  const [merge, setMerge] = useState(false);
+  const [merging, setMerging] = useState(false);
 
   // Running jobs live in the History grid (placeholder cards poll their own status).
   // "Buat Iklan" can be switched off for everyone (motion_features.ad) or per
@@ -257,6 +261,19 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const sendingCount = videos.length - toSend.length;
   const editSec = toSend.reduce((s, v) => s + Math.ceil(Math.min(v.dur || 0, MAX_SEC)), 0);
   const editCost = rate !== null && editSec > 0 ? toSend.reduce((s, v) => s + perVideo(Math.ceil(Math.min(v.dur || 0, MAX_SEC))), 0) : null;
+  // Gabung video: on only with 2+ videos in Edit Video; the joined length must stay within Motion's 3 minutes
+  const mergeOn = merge && mode === "edit" && toSend.length >= 2;
+  const mergeTotal = toSend.reduce((s, v) => s + (v.dur || 0), 0);
+  const mergeTooLong = mergeOn && mergeTotal > MAX_SEC + 1;
+  const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+  const moveVideo = (key: string, dir: -1 | 1) => setVideos((cur) => {
+    const i = cur.findIndex((v) => v.key === key);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= cur.length) return cur;
+    const next = [...cur];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  });
 
   // ── images ──
   async function addImages(files: FileList | null, role: "product" | "presenter") {
@@ -467,6 +484,62 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     else setNotice("📝 Skrip & caption sedang dijana. Bila kad History bertukar border kuning, tekan \"Semak skrip\", betulkan jika perlu, kemudian \"Jana Video\".");
   }
 
+  // "🔗 Gabung jadi 1 video": every picked video uploads (the same uploads as always), Modal joins them in the order
+  // shown into ONE video, and that one is sent to /api/motion/edit like a single upload — the same settings as
+  // submitEdit (kept separate on purpose: the usual flow is never touched by this option)
+  async function submitMerged() {
+    setError(null);
+    setNotice(null);
+    const batch = videos.filter((v) => !v.sending);
+    if (batch.length < 2) return setError("Pilih sekurang-kurangnya 2 video untuk digabung.");
+    const total = batch.reduce((s, v) => s + (v.dur || 0), 0);
+    if (total > MAX_SEC + 1) return setError(`Jumlah video ${mmss(total)} — maksimum 3 minit selepas digabung. Buang atau potong satu video.`);
+    const productName = editProduct.replace(/\s+/g, " ").trim();
+    if (!productName) return setError("Sila isi nama produk (ejaan yang betul).");
+    if (editImages.length === 0) return setError("Upload sekurang-kurangnya 1 gambar produk.");
+    if (custom && !styleLocks.styleId) return setError("Pilih satu style dulu.");
+    const manual = custom || !editAuto;
+    const note = custom ? (story.trim() ? `Cerita klien: ${story.trim()}` : "") : editPrompt.trim();
+    const settings = {
+      language: editLang, prompt: manual ? note || undefined : undefined,
+      product: productName, product_images: editImages, auto: true,
+      ...(custom ? { locks: styleLocks } : editAuto ? {} : { locks: { ...locks, styleId: undefined, styleName: undefined } }),
+      captions, caption_style: captionStyle, sfx,
+      accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard, engine, cta_kind: ctaKind, auto_editor: autoEditor,
+    };
+    const keys = new Set(batch.map((v) => v.key));
+    setVideos((cur) => cur.map((v) => (keys.has(v.key) ? { ...v, sending: true, error: null, pct: v.uploadedUrl ? 100 : v.pct ?? null } : v)));
+    setMerging(true);
+    setNotice(`🔗 ${batch.length} video sedang diupload & digabung jadi satu — biasanya 1–2 minit.`);
+    try {
+      // the uploads that started when the videos were picked, in the order shown
+      const urls = await Promise.all(batch.map(async (v) => {
+        const url = v.uploadedUrl || (await startUpload(v));
+        patchVideo(v.key, { uploadedUrl: url, pct: 100 });
+        return url;
+      }));
+      const m = await fetch("/api/motion/merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }) });
+      const md = await m.json().catch(() => ({}));
+      if (!m.ok || !md?.ok || !md?.url) throw new Error(md?.error || "Gagal gabung video");
+      const r = await fetch("/api/motion/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...settings, video_url: md.url, duration_sec: md.duration || total }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
+      for (const v of batch) removeVideo(v.key);
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+      setNotice(`🔗 ${batch.length} video digabung jadi satu (${mmss(md.duration || total)}). Skrip & caption sedang dijana — bila kad History bertukar border kuning, tekan "Semak skrip", betulkan jika perlu, kemudian "Jana Video".`);
+    } catch (e: any) {
+      setVideos((cur) => cur.map((v) => (keys.has(v.key) ? { ...v, sending: false } : v)));
+      setError(e?.message || "Gagal gabung video");
+      setNotice(null);
+    } finally {
+      setMerging(false);
+    }
+  }
+
   // Custom without a video: the AI builds the video from the product images + the client's story, in the chosen style
   // (script, AI voice, scenes) — the image-to-video engine of "Buat Iklan"
   async function submitStory() {
@@ -556,7 +629,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                       <div className="absolute inset-x-0 top-0 rounded-lg flex flex-col items-center justify-center gap-1 text-white text-[10px] font-extrabold"
                         style={{ aspectRatio: "9/16", background: "rgba(0,0,0,0.55)" }}>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        {typeof v.pct !== "number" ? "Menunggu giliran upload" : v.pct < 100 ? `Upload ${v.pct}%` : "Mula proses…"}
+                        {typeof v.pct !== "number" ? "Menunggu giliran upload" : v.pct < 100 ? `Upload ${v.pct}%` : merging ? "Menggabung…" : "Mula proses…"}
                       </div>
                     ) : (
                       <>
@@ -572,6 +645,19 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                         )}
                       </>
                     )}
+                    {mergeOn && !v.sending && (() => {
+                      // Gabung video: where this clip sits in the joined video
+                      const n = toSend.findIndex((x) => x.key === v.key);
+                      return n >= 0 ? (
+                        <>
+                          <div className="absolute left-1 top-7 rounded-md px-1.5 py-0.5 text-[11px] font-extrabold text-white" style={{ background: THEME.gradient }}>#{n + 1}</div>
+                          <div className="flex gap-1 mt-1">
+                            <button type="button" disabled={n === 0} onClick={() => moveVideo(v.key, -1)} className="flex-1 rounded-md text-[11px] font-extrabold py-0.5 disabled:opacity-30" style={{ border: `1px solid ${THEME.soft}`, color: "var(--color-text-primary)" }} aria-label="Ke depan">◀</button>
+                            <button type="button" disabled={n === toSend.length - 1} onClick={() => moveVideo(v.key, 1)} className="flex-1 rounded-md text-[11px] font-extrabold py-0.5 disabled:opacity-30" style={{ border: `1px solid ${THEME.soft}`, color: "var(--color-text-primary)" }} aria-label="Ke belakang">▶</button>
+                          </div>
+                        </>
+                      ) : null;
+                    })()}
                     <div className="text-[10px] mt-1 text-[var(--color-text-secondary)] truncate">{v.file.name}</div>
                     <div className="text-[10px] text-[var(--color-text-muted)]">{v.dur.toFixed(1)}s{v.dur > MAX_SEC ? " (3 min pertama)" : ""}</div>
                     {v.error && <div className="text-[10px] text-red-400 line-clamp-2">{v.error}</div>}
@@ -588,6 +674,22 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 )}
               </div>
             </div>
+            {toSend.length >= 2 && (
+              <div className="rounded-xl p-3 space-y-2" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
+                <label className={label} style={{ marginBottom: 0 }}>Banyak video</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Chip active={!merge} onClick={() => setMerge(false)}>Setiap video, satu hasil</Chip>
+                  <Chip active={merge} onClick={() => setMerge(true)}>🔗 Gabung jadi 1 video</Chip>
+                </div>
+                {merge && (
+                  <p className={`text-[11px] leading-snug ${mergeTooLong ? "text-red-400 font-bold" : "text-[var(--color-text-secondary)]"}`}>
+                    {mergeTooLong
+                      ? `Jumlah ${mmss(mergeTotal)} — melebihi 3 minit. Buang atau potong satu video.`
+                      : `${toSend.length} video digabung ikut susunan #1, #2… (guna ◀ ▶ untuk susun) jadi SATU video ${mmss(mergeTotal)}, kemudian AI edit ikut style yang dipilih. Saiz & bunyi diseragamkan automatik.`}
+                  </p>
+                )}
+              </div>
+            )}
             {custom && (
               <div>
                 <label className={label}>Story Description {toSend.length === 0 ? "*" : "(pilihan)"}</label>
@@ -829,17 +931,20 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={mode === "ad" ? submitting || imgBusy : storyOnly ? submitting || editImgBusy || story.trim().length === 0 : toSend.length === 0 || editImgBusy}
-            onClick={mode === "ad" ? submitAd : storyOnly ? submitStory : submitEdit}
+            disabled={mode === "ad" ? submitting || imgBusy : storyOnly ? submitting || editImgBusy || story.trim().length === 0
+              : mergeOn ? merging || mergeTooLong || editImgBusy : toSend.length === 0 || editImgBusy}
+            onClick={mode === "ad" ? submitAd : storyOnly ? submitStory : mergeOn ? submitMerged : submitEdit}
             className="px-5 py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center gap-2"
             style={{ background: THEME.gradient, boxShadow: `0 6px 18px ${THEME.soft}` }}
           >
-            {submitting && (mode === "ad" || storyOnly) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {(submitting && (mode === "ad" || storyOnly)) || (mergeOn && merging) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
             {mode === "ad"
               ? submitting ? "Menghantar…" : variations > 1 ? `Jana ${variations} Iklan` : "Jana Iklan"
               : storyOnly
                 ? submitting ? "Menghantar…" : "Jana Video daripada Cerita"
-                : toSend.length > 1 ? `Jana Skrip & Caption (${toSend.length} video)` : "Jana Skrip & Caption"}
+                : mergeOn
+                  ? merging ? "Menggabung video…" : `🔗 Gabung ${toSend.length} video & Jana Skrip`
+                  : toSend.length > 1 ? `Jana Skrip & Caption (${toSend.length} video)` : "Jana Skrip & Caption"}
           </button>
           {mode === "edit" && sendingCount > 0 && (
             <span className="text-xs font-bold inline-flex items-center gap-1" style={{ color: THEME.primary }}>
@@ -853,6 +958,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (${variations} × ~${seconds + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
                 : storyOnly
                   ? `Anggaran RM${perVideo(Math.ceil(storySec + 2)).toFixed(2)} (~${storySec + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
+                : mergeOn
+                  ? `Anggaran RM${perVideo(Math.ceil(Math.min(mergeTotal, MAX_SEC))).toFixed(2)} (1 video ${Math.ceil(Math.min(mergeTotal, MAX_SEC))}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh selepas potong senyap.`
                 : editCost !== null
                   ? `Anggaran RM${editCost.toFixed(2)} (${editSec}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh selepas potong senyap.`
                   : `RM${rate.toFixed(2)} sesaat video`}

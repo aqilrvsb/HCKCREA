@@ -3938,6 +3938,95 @@ def _clip_analyze(p: dict, d: Path) -> dict:
                                      "director": (plan or {}).get("director"), "plan_error": err or None}}
 
 
+# ── Motion "Gabung video": the client's clips → ONE video, then the usual Edit Video flow ───────────────────────────
+# An option of its own in the Motion tab (off by default — the one-video-one-result flow is untouched): the clips,
+# in the client's order, are fitted to one frame (the majority's orientation; a clip of another shape sits on a
+# blurred fill of itself), 30 fps, even loudness, a silent track where a clip has no sound — then joined and saved as
+# an ordinary upload (motion-uploads/…), which /api/motion/edit takes like any single video (owner, NL Legacy ask,
+# 2026-11-17).
+MERGE_MAX_CLIPS = 20
+MERGE_MAX_SEC = 180  # Motion's own limit (MOTION_EDIT_MAX_SEC)
+MERGE_URL = re.compile(r"^https://peninglab-content\.s3\.[a-z0-9-]+\.backblazeb2\.com/motion-uploads/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+$")
+
+
+def _merge_probe(path: Path) -> dict:
+    out = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height:stream_side_data=rotation:stream_tags=rotate",
+                "-of", "json", str(path)], "ffprobe", 60)
+    j = json.loads(out or "{}")
+    v = next((s for s in j.get("streams", []) if s.get("codec_type") == "video"), None)
+    if not v:
+        raise RuntimeError("tiada video")
+    rot = 0
+    for sd in v.get("side_data_list") or []:
+        if "rotation" in sd:
+            rot = int(float(sd["rotation"]))
+    rot = rot or int(float((v.get("tags") or {}).get("rotate") or 0))
+    w, h = int(v.get("width") or 0), int(v.get("height") or 0)
+    if abs(rot) % 180 == 90:  # a phone video shot upright: shown with width and height swapped
+        w, h = h, w
+    return {"w": w, "h": h, "dur": float((j.get("format") or {}).get("duration") or 0),
+            "audio": any(s.get("codec_type") == "audio" for s in j.get("streams", []))}
+
+
+@app.function(image=yt_image.pip_install("boto3==1.34.0"), cpu=(4.0, 8.0), memory=(4096, 8192), timeout=900, secrets=SECRETS,
+              scaledown_window=IDLE_JOB, max_containers=MAX_HELPERS)
+def merge_clips(urls: list, uid: str) -> dict:
+    import shutil
+    import uuid
+    from concurrent.futures import ThreadPoolExecutor
+    if not (2 <= len(urls) <= MERGE_MAX_CLIPS) or not all(isinstance(u, str) and MERGE_URL.match(u) for u in urls):
+        raise RuntimeError(f"Pilih 2–{MERGE_MAX_CLIPS} video untuk digabung.")
+    d = Path(tempfile.mkdtemp(prefix="merge_"))
+    try:
+        srcs = [d / f"src{i:02d}" for i in range(len(urls))]
+        with ThreadPoolExecutor(6) as ex:
+            list(ex.map(lambda p: _download(p[0], p[1]), zip(urls, srcs)))
+        info = []
+        for i, s in enumerate(srcs):
+            try:
+                info.append(_merge_probe(s))
+            except Exception:  # noqa: BLE001
+                raise RuntimeError(f"Video ke-{i + 1} tidak boleh dibaca — cuba MP4.")
+        total = sum(x["dur"] for x in info)
+        if total > MERGE_MAX_SEC + 1:
+            raise RuntimeError(f"Jumlah video {int(total // 60)}:{int(total % 60):02d} — maksimum 3 minit selepas digabung. Buang atau potong satu video.")
+        # the frame: the orientation most of the clips have (upright 1080x1920 on a tie — TikTok / Reels)
+        upright = sum(1 for x in info if x["h"] >= x["w"]) * 2 >= len(info)
+        W, H = (1080, 1920) if upright else (1920, 1080)
+
+        def norm(i: int) -> Path:
+            x, out = info[i], d / f"part{i:02d}.mp4"
+            same = x["w"] and x["h"] and abs(x["w"] / x["h"] - W / H) < 0.02
+            if same:
+                vf = f"[0:v]scale={W}:{H},setsar=1,fps=30,format=yuv420p[v]"
+            else:  # another shape: the whole clip, on a blurred fill of itself
+                vf = (f"[0:v]split[va][vb];[va]scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,crop={W // 4}:{H // 4},"
+                      f"boxblur=12:2,scale={W}:{H},setsar=1[bg];[vb]scale={W}:{H}:force_original_aspect_ratio=decrease,setsar=1[fg];"
+                      f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p[v]")
+            audio_in = ["-f", "lavfi", "-t", f"{x['dur']:.3f}", "-i", "anullsrc=r=48000:cl=stereo"] if not x["audio"] else []
+            a_src = "[1:a]" if not x["audio"] else "[0:a]"
+            af = f"{a_src}aresample=48000,aformat=channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[a]"
+            _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(srcs[i]), *audio_in, "-filter_complex", f"{vf};{af}",
+                  "-map", "[v]", "-map", "[a]", "-t", f"{x['dur']:.3f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+                  "-threads", "3", "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(out)],
+                 f"merge clip {i + 1}", 600)
+            return out
+
+        with ThreadPoolExecutor(3) as ex:
+            parts = list(ex.map(norm, range(len(srcs))))
+        lst = d / "parts.txt"
+        lst.write_text("".join(f"file '{p.name}'\n" for p in parts), encoding="utf-8")
+        merged = d / "merged.mp4"
+        _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy",
+              "-movflags", "+faststart", str(merged)], "merge join", 600)
+        dur = float(_probe(merged).get("duration") or 0)
+        safe_uid = re.sub(r"[^A-Za-z0-9_-]", "", uid)[:64] or "anon"
+        url = _upload_b2(merged, f"motion-uploads/{safe_uid}/merged-{uuid.uuid4().hex}.mp4", "video/mp4")
+        return {"url": url, "duration": round(dur, 2), "w": W, "h": H, "clips": len(srcs)}
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 # ── CLIPPER, a TikTok LIVE that is on now: recorded from this moment, then analysed like an upload ─────────────────
 # The client pastes the LIVE's link (tiktok.com/@name/live, a vt./vm.tiktok.com share link, or @name). clip_live finds
 # the room through TikTok's web live API (yt-dlp's TikTok LIVE page reader finds no room since TikTok's 2026 page
@@ -4845,6 +4934,20 @@ def api():
         live = payload.get("flow") == "clip-analyze" and (payload.get("source") or {}).get("type") == "tiktoklive"
         call = await (clip_live if live else run_job).spawn.aio(job)
         return {"ok": True, "call_id": call.object_id}
+
+    @web.post("/merge")
+    async def merge_(payload: dict):
+        # Motion "Gabung video": the client's clips (in order) → one ordinary upload
+        if not _authorised(str(payload.get("secret") or "")):
+            return JSONResponse({"ok": False, "error": "unauthorised"}, status_code=401)
+        urls = [str(u) for u in (payload.get("urls") or [])]
+        if not (2 <= len(urls) <= MERGE_MAX_CLIPS) or not all(MERGE_URL.match(u) for u in urls):
+            return JSONResponse({"ok": False, "error": f"Pilih 2–{MERGE_MAX_CLIPS} video untuk digabung."}, status_code=400)
+        try:
+            res = await merge_clips.remote.aio(urls, str(payload.get("user_id") or ""))
+            return {"ok": True, **res}
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
 
     @web.post("/stop")
     async def stop_(payload: dict):
