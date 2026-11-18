@@ -932,19 +932,22 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           <button
             type="button"
             disabled={mode === "ad" ? submitting || imgBusy : storyOnly ? submitting || editImgBusy || story.trim().length === 0
-              : mergeOn ? merging || mergeTooLong || editImgBusy : toSend.length === 0 || editImgBusy}
+              // (while joining, the clips are "sending" — out of toSend — so `merging` holds the button on its own)
+              : merging ? true : mergeOn ? mergeTooLong || editImgBusy : toSend.length === 0 || editImgBusy}
             onClick={mode === "ad" ? submitAd : storyOnly ? submitStory : mergeOn ? submitMerged : submitEdit}
             className="px-5 py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center gap-2"
             style={{ background: THEME.gradient, boxShadow: `0 6px 18px ${THEME.soft}` }}
           >
-            {(submitting && (mode === "ad" || storyOnly)) || (mergeOn && merging) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {(submitting && (mode === "ad" || storyOnly)) || (mode === "edit" && merging) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
             {mode === "ad"
               ? submitting ? "Menghantar…" : variations > 1 ? `Jana ${variations} Iklan` : "Jana Iklan"
               : storyOnly
                 ? submitting ? "Menghantar…" : "Jana Video daripada Cerita"
-                : mergeOn
-                  ? merging ? "Menggabung video…" : `🔗 Gabung ${toSend.length} video & Jana Skrip`
-                  : toSend.length > 1 ? `Jana Skrip & Caption (${toSend.length} video)` : "Jana Skrip & Caption"}
+                : merging
+                  ? "Menggabung video…"
+                  : mergeOn
+                    ? `🔗 Gabung ${toSend.length} video & Jana Skrip`
+                    : toSend.length > 1 ? `Jana Skrip & Caption (${toSend.length} video)` : "Jana Skrip & Caption"}
           </button>
           {mode === "edit" && sendingCount > 0 && (
             <span className="text-xs font-bold inline-flex items-center gap-1" style={{ color: THEME.primary }}>
@@ -958,6 +961,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (${variations} × ~${seconds + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
                 : storyOnly
                   ? `Anggaran RM${perVideo(Math.ceil(storySec + 2)).toFixed(2)} (~${storySec + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
+                : mode === "edit" && merging
+                  ? "Sedang gabung video — jangan tutup halaman ini."
                 : mergeOn
                   ? `Anggaran RM${perVideo(Math.ceil(Math.min(mergeTotal, MAX_SEC))).toFixed(2)} (1 video ${Math.ceil(Math.min(mergeTotal, MAX_SEC))}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh selepas potong senyap.`
                 : editCost !== null
