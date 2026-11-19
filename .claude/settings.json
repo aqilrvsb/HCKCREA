@@ -13,5 +13,42 @@
       "mcp__playwright",
       "mcp__vercel"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"require(process.env.CLAUDE_PROJECT_DIR + '/.claude/hooks/sync-history.cjs')\"",
+            "timeout": 300,
+            "statusMessage": "Restoring conversation history from .claude-history"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"require(process.env.CLAUDE_PROJECT_DIR + '/.claude/hooks/sync-history.cjs')\"",
+            "async": true,
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"require(process.env.CLAUDE_PROJECT_DIR + '/.claude/hooks/sync-history.cjs')\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
   }
 }
