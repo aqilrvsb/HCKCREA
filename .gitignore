@@ -69,3 +69,9 @@ storyboard-cards-export/
 
 # Claude Code conversation history + memory (contains passwords/keys — never commit or deploy)
 .claude-history/
+
+# Baseline from the git setup guide (peningorder docs/GIT_SETUP.md)
+node_modules/
+dist/
+*.log
+!.env.example
