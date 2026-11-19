@@ -20,6 +20,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node -e \"require(process.env.CLAUDE_PROJECT_DIR + '/.claude/hooks/git-safe-directory.cjs')\"",
+            "timeout": 30
+          },
+          {
+            "type": "command",
             "command": "node -e \"require(process.env.CLAUDE_PROJECT_DIR + '/.claude/hooks/sync-history.cjs')\"",
             "timeout": 300,
             "statusMessage": "Restoring conversation history from .claude-history"
