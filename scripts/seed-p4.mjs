@@ -33,7 +33,7 @@ const sb = createClient(url, key, { auth: { persistSession: false } });
 const rows = [
   {
     key: "p4_key",
-    value: { key: "sk-e52290fab6da4d6cbdb4b2e6f26a6fde" },
+    value: { key: env.P4_KEY ?? "" }, // the real key lives only in .env.local (P4_KEY) or admin settings — never in git (public repo)
     description: "Grsai API key. Used by lib/p4.ts (image provider).",
     category: "provider",
   },
@@ -76,6 +76,10 @@ const rows = [
 ];
 
 for (const row of rows) {
+  if (row.key === "p4_key" && !row.value.key) {
+    console.log("SKIP p4_key (no P4_KEY in .env.local)");
+    continue;
+  }
   const { error } = await sb
     .from("app_settings")
     .upsert(row, { onConflict: "key" });

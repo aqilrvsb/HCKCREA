@@ -22,9 +22,6 @@
 
 insert into public.app_settings (key, value, description, category)
 values
-  ('p4_key', '{"key":"sk-e52290fab6da4d6cbdb4b2e6f26a6fde"}'::jsonb,
-    'Grsai API key. Used by lib/p4.ts (image provider).',
-    'provider'),
   ('p4_image_default', '{"model":"nano-banana-pro"}'::jsonb,
     'Default model for p4 when image-cascade has no explicit primary model.',
     'provider'),
@@ -41,6 +38,15 @@ on conflict (key) do update
   set value = excluded.value,
       description = excluded.description,
       category = excluded.category;
+
+-- p4_key: the real key is set in admin (app_settings), never in git — this repo is public.
+-- Seeded blank and never overwritten, so re-running this file can't wipe a live key.
+insert into public.app_settings (key, value, description, category)
+values
+  ('p4_key', '{"key":""}'::jsonb,
+    'Grsai API key. Used by lib/p4.ts (image provider).',
+    'provider')
+on conflict (key) do nothing;
 
 -- Bump the Storytelling default model to nano-banana-fast (p4 exclusive).
 update public.app_settings
