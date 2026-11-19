@@ -66,3 +66,6 @@ __pycache__/
 
 # Confidential storyboard spec export (do NOT commit)
 storyboard-cards-export/
+
+# Claude Code conversation history + memory (contains passwords/keys — never commit or deploy)
+.claude-history/
