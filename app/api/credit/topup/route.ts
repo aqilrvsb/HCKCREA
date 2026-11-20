@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { notifyAdmins } from "@/lib/whatsapp";
+import { createChipPurchase } from "@/lib/chip";
 
-// Standalone credit top-up (RM1 = 1 credit) — MANUAL Touch 'n Go flow.
+// Standalone credit top-up (RM1 = 1 credit) — CHIP checkout (FPX / DuitNow QR).
 //
-// CHIP/FPX was removed (slow + takes a cut). Now: the client transfers to the
-// admin's Touch 'n Go account, uploads the transfer screenshot, and submits.
-// This creates a credit_topup payment with status='pending'. The credits are
-// added to the wallet ONLY when an admin approves the screenshot on
-// /admin/topups (see /api/admin/topups/approve).
+// Re-activated 2026-11-20 (replaces the manual Touch 'n Go + screenshot flow).
+// Creates a pending credit_topup payment + a CHIP purchase, returns the
+// checkout_url. CHIP's success_callback hits /api/payments/webhook, which
+// re-verifies with CHIP and credits the wallet (applyCreditTopup) — no admin
+// approval. Older manual TnG rows are still approvable in Admin → Transactions.
 
 const MIN_CREDITS = 1;
 const MAX_CREDITS = 1000;
@@ -30,68 +30,67 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    // Proof screenshot is mandatory — nothing to approve without it.
-    const proofUrl = String(body?.proof_url || "").trim();
-    if (!proofUrl || !/^https?:\/\//i.test(proofUrl)) {
-      return NextResponse.json(
-        { error: "Sila upload screenshot transfer dulu sebelum submit." },
-        { status: 400 }
-      );
-    }
 
     const admin = createAdminClient();
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    const fullName = profile?.full_name || user.email?.split("@")[0] || "User";
+    const amountMYR = credits; // RM1 = 1 credit
+
     const { data: payment, error: payErr } = await admin
       .from("payments")
       .insert({
         user_id: user.id,
         type: "credit_topup",
         credits,
-        amount: credits, // RM1 = 1 credit
+        amount: amountMYR,
         currency: "MYR",
-        status: "pending", // stays pending until an admin approves the proof
-        metadata: { credits, method: "tng", proof_url: proofUrl },
+        status: "pending",
+        metadata: { credits, method: "chip" },
       })
       .select("id")
       .single();
 
     if (payErr || !payment) {
-      return NextResponse.json({ error: "Gagal cipta permohonan top-up" }, { status: 500 });
+      return NextResponse.json({ error: "Gagal cipta payment" }, { status: 500 });
     }
 
-    // Alert admins on WhatsApp so they verify the screenshot + approve. Best-
-    // effort — a notify failure must never block the client's submit.
-    try {
-      const { data: prof } = await admin
-        .from("profiles")
-        .select("full_name, whatsapp")
-        .eq("id", user.id)
-        .maybeSingle();
-      const now = new Date().toLocaleString("ms-MY", {
-        timeZone: "Asia/Kuala_Lumpur",
-        dateStyle: "short",
-        timeStyle: "short",
-      });
-      await notifyAdmins(
-        [
-          "⏳ *PeningLab — Top Up Pending Approval*",
-          "",
-          "Client dah transfer Touch 'n Go & upload resit. Sila verify & approve.",
-          "",
-          `Amount   : RM${credits.toFixed(2)}`,
-          `Credits  : +${credits}`,
-          `Name     : ${prof?.full_name || user.email?.split("@")[0] || "User"}`,
-          `Email    : ${user.email || "-"}`,
-          `WhatsApp : ${prof?.whatsapp || "-"}`,
-          `Tarikh   : ${now} MYT`,
-          "",
-          "Approve di: Admin → Transactions → Credit Top Up",
-        ].join("\n")
-      );
-    } catch (e: any) {
-      console.warn("[topup] admin notify failed:", e?.message);
-    }
+    const origin = req.headers.get("origin") || process.env.APP_ORIGIN || "https://peninglab.com";
 
-    return NextResponse.json({ ok: true, payment_id: payment.id });
+    const purchase = await createChipPurchase({
+      email: user.email!,
+      fullName,
+      productName: `PeningLab ${credits} Credits Top-Up`,
+      amountMYR,
+      reference: `TOPUP-${payment.id.substring(0, 8)}`,
+      metadata: {
+        type: "credit_topup",
+        user_id: user.id,
+        payment_id: payment.id,
+        credits,
+      },
+      successRedirect: `${origin}/dashboard?topup=success`,
+      failureRedirect: `${origin}/dashboard?topup=failed`,
+      webhookUrl: `${origin}/api/payments/webhook`,
+    });
+
+    await admin
+      .from("payments")
+      .update({
+        chip_purchase_id: purchase.id,
+        chip_checkout_url: purchase.checkout_url,
+      })
+      .eq("id", payment.id);
+
+    return NextResponse.json({
+      ok: true,
+      payment_id: payment.id,
+      checkout_url: purchase.checkout_url,
+    });
   } catch (e: any) {
     console.error("topup error:", e?.message);
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });

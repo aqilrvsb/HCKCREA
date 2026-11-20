@@ -1,18 +1,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createChipPurchase } from "@/lib/chip";
 import { isPlanKey, loadPlan } from "@/lib/plans";
-import { notifyAdmins } from "@/lib/whatsapp";
 
-// 4-tier subscribe flow — MANUAL Touch 'n Go (no Chip/FPX).
+// Plan subscribe / resubscribe — CHIP checkout (FPX / DuitNow QR).
 //
-// CHIP/FPX was removed for plans (slow + takes a cut), mirroring the credit
-// top-up flow. Now: the client transfers the plan price to the admin's Touch
-// 'n Go account, uploads the transfer screenshot, and submits. This creates a
-// `subscription` payment with status='pending'. The plan + expiry + credits are
-// granted ONLY when an admin approves the screenshot on /admin/transactions
-// (see /api/admin/topups/approve → applySubscription). Price/days/credits/label
-// come from app_settings.plan_<key> via loadPlan() so admin can tune any tier.
+// Re-activated 2026-11-20 (replaces the manual Touch 'n Go + screenshot flow).
+// Reads price/days/credits/label from app_settings.plan_<key> via loadPlan().
+// Creates a pending `subscription` payment + CHIP purchase and returns the
+// checkout_url. CHIP's success_callback hits /api/payments/webhook, which
+// re-verifies and calls applySubscription (plan + expiry + credits + renewal
+// commission). Older manual TnG rows are still approvable in Admin.
 
 export async function POST(req: Request) {
   try {
@@ -32,35 +31,20 @@ export async function POST(req: Request) {
     }
     const plan = planRaw;
 
-    // Proof screenshot is mandatory — nothing to approve without it.
-    const proofUrl = String(body?.proof_url || "").trim();
-    if (!proofUrl || !/^https?:\/\//i.test(proofUrl)) {
-      return NextResponse.json(
-        { error: "Sila upload screenshot transfer dulu sebelum submit." },
-        { status: 400 }
-      );
-    }
-
     const admin = createAdminClient();
     const cfg = await loadPlan(admin, plan);
 
     const { data: profile } = await admin
       .from("profiles")
-      .select("full_name, whatsapp")
-      .eq("id", user.id)
-      .single();
-
-    // Look up the user's referred_by so the approval can grant a renewal
-    // commission to the original referrer. Snapshotted here at submit time.
-    const { data: refProfile } = await admin
-      .from("profiles")
-      .select("referred_by")
+      .select("full_name, referred_by")
       .eq("id", user.id)
       .maybeSingle();
-    const referredByCode = refProfile?.referred_by || null;
 
-    // Create the payment in pending state. Admin approval flips it to paid and
-    // calls applySubscription (plan + expiry = now + days, credits ADD).
+    const fullName = profile?.full_name || user.email?.split("@")[0] || "User";
+    // Snapshot referred_by so the webhook can grant a renewal commission to
+    // the original referrer (unchanged on renewal).
+    const referredByCode = profile?.referred_by || null;
+
     const { data: payment, error: payErr } = await admin
       .from("payments")
       .insert({
@@ -76,8 +60,7 @@ export async function POST(req: Request) {
           days: cfg.days,
           label: cfg.label,
           referred_by_code: referredByCode,
-          method: "tng",
-          proof_url: proofUrl,
+          method: "chip",
         },
       })
       .select("id")
@@ -85,39 +68,43 @@ export async function POST(req: Request) {
 
     if (payErr || !payment) {
       console.error("Failed to create subscription payment:", payErr);
-      return NextResponse.json({ error: "Failed to create payment" }, { status: 500 });
+      return NextResponse.json({ error: "Gagal cipta payment" }, { status: 500 });
     }
 
-    // Alert admins on WhatsApp so they verify the screenshot + approve. Best-
-    // effort — a notify failure must never block the client's submit.
-    try {
-      const now = new Date().toLocaleString("ms-MY", {
-        timeZone: "Asia/Kuala_Lumpur",
-        dateStyle: "short",
-        timeStyle: "short",
-      });
-      await notifyAdmins(
-        [
-          "⏳ *PeningLab — Langganan Pending Approval*",
-          "",
-          "Client dah transfer Touch 'n Go untuk plan & upload resit. Sila verify & approve.",
-          "",
-          `Plan     : ${cfg.label} (${cfg.days} hari)`,
-          `Amount   : RM${Number(cfg.price).toFixed(2)}`,
-          `Credits  : +${cfg.credits}`,
-          `Name     : ${profile?.full_name || user.email?.split("@")[0] || "User"}`,
-          `Email    : ${user.email || "-"}`,
-          `WhatsApp : ${profile?.whatsapp || "-"}`,
-          `Tarikh   : ${now} MYT`,
-          "",
-          "Approve di: Admin → Transactions → Langganan",
-        ].join("\n")
-      );
-    } catch (e: any) {
-      console.warn("[subscribe] admin notify failed:", e?.message);
-    }
+    const origin = req.headers.get("origin") || process.env.APP_ORIGIN || "https://peninglab.com";
 
-    return NextResponse.json({ ok: true, payment_id: payment.id });
+    const purchase = await createChipPurchase({
+      email: user.email!,
+      fullName,
+      productName: `PeningLab ${cfg.label} Plan — ${cfg.days} days`,
+      amountMYR: cfg.price,
+      reference: `SUB-${payment.id.substring(0, 8)}`,
+      metadata: {
+        type: "subscription",
+        user_id: user.id,
+        payment_id: payment.id,
+        plan,
+        credits: cfg.credits,
+        days: cfg.days,
+      },
+      successRedirect: `${origin}/dashboard?payment=success`,
+      failureRedirect: `${origin}/dashboard?payment=failed`,
+      webhookUrl: `${origin}/api/payments/webhook`,
+    });
+
+    await admin
+      .from("payments")
+      .update({
+        chip_purchase_id: purchase.id,
+        chip_checkout_url: purchase.checkout_url,
+      })
+      .eq("id", payment.id);
+
+    return NextResponse.json({
+      ok: true,
+      payment_id: payment.id,
+      checkout_url: purchase.checkout_url,
+    });
   } catch (e: any) {
     console.error("subscribe error:", e?.message);
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });

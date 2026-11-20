@@ -28,7 +28,6 @@ import {
 import Countdown from "./components/countdown";
 import LazyVideo from "./components/lazy-video";
 import PricingTiersGrid from "@/components/pricing-tiers-grid";
-import LivehostCard from "@/components/livehost-card";
 
 // Dynamic-import every below-the-fold client component so they don't bloat
 // the first-5s payload. Each has "use client" of its own and ships as a
@@ -1133,11 +1132,6 @@ export default function Home() {
           <PricingTiersGrid mode="marketing" />
         </div>
 
-        {/* Livehost — separate package (RM500/mo), own card + dashboard */}
-        <div className="mt-6">
-          <LivehostCard mode="marketing" />
-        </div>
-
         {/* Rate-deduction explainer */}
         <div className="card max-w-3xl mx-auto mt-10 p-6 md:p-7 bg-orange-50/40 border-orange-100">
           <div className="grid md:grid-cols-3 gap-5">
@@ -1205,10 +1199,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Checkout / CHIP payment form hidden — top-ups now go through the
-          manual Touch 'n Go flow inside the dashboard, not FPX/CHIP. Re-enable
-          by uncommenting <CheckoutForm /> below. */}
-      {/* <CheckoutForm /> */}
+      {/* Checkout — CHIP (FPX / DuitNow QR), re-activated 2026-11-20. New users
+          pay here; the webhook auto-creates the account + WhatsApps the login. */}
+      <CheckoutForm />
 
       {/* FAQ */}
       <section className="relative z-10 mx-auto max-w-3xl px-6 py-24">

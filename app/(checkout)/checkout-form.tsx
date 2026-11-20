@@ -44,7 +44,9 @@ export default function CheckoutForm() {
     const readStored = () => {
       try {
         const v = sessionStorage.getItem(SELECTED_PLAN_STORAGE_KEY);
-        if (v && isPlanKey(v)) setSelectedPlan(v);
+        // Only the tiers this form sells (Pro / Premium) — ignore a stale
+        // "livehost" or retired tier left in sessionStorage.
+        if (v && isPlanKey(v) && (v === "pro" || v === "premium")) setSelectedPlan(v);
       } catch {
         // sessionStorage blocked — keep default selection.
       }
