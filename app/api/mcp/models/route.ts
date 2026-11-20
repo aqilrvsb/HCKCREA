@@ -30,7 +30,7 @@ type ModelEntry = {
   constraints: ModelConstraints;
 };
 
-const IMAGE_ASPECTS = ["1:1", "9:16", "16:9", "2:3", "3:2"];
+const IMAGE_ASPECTS = ["1:1", "9:16", "16:9", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4"];
 const VIDEO_ASPECTS = ["9:16", "16:9"];
 const VIDEO_MODES: ("text" | "frame" | "ingredient")[] = ["text", "frame", "ingredient"];
 
@@ -49,38 +49,16 @@ export async function GET(req: Request) {
 
   const models: ModelEntry[] = [
     {
-      name: "nano-banana-pro", type: "image", rate: bananaPro, unit: "per_image",
-      constraints: {
-        image_urls: { max: 4 },
-        aspect_ratios: IMAGE_ASPECTS,
-      },
-    },
-    {
-      name: "gpt-image-2", type: "image", rate: gptImage, unit: "per_image",
-      constraints: {
-        image_urls: { max: 4 },
-        aspect_ratios: IMAGE_ASPECTS,
-      },
-    },
-    {
-      // Grsai-only; cascade pins P4 first, other slots fall back to gpt-image-2.
-      name: "gpt-image-2.5", type: "image", rate: gptImage, unit: "per_image",
-      constraints: {
-        image_urls: { max: 4 },
-        aspect_ratios: IMAGE_ASPECTS,
-      },
-    },
-    {
-      // Grsai-only (newest GPT Image); cascade pins P4 first, other slots fall back to gpt-image-2.
-      name: "gpt-image-2.6", type: "image", rate: gptImage, unit: "per_image",
-      constraints: {
-        image_urls: { max: 4 },
-        aspect_ratios: IMAGE_ASPECTS,
-      },
-    },
-    {
-      // Grsai-only (Gemini Nano Banana 2.1); cascade pins P4 first, other slots fall back to nano-banana-2.
+      // Nano Banana 2.1 (Gemini) — default image model. Grsai first at 2K.
       name: "nano-banana-2.1", type: "image", rate: bananaPro, unit: "per_image",
+      constraints: {
+        image_urls: { max: 4 },
+        aspect_ratios: IMAGE_ASPECTS,
+      },
+    },
+    {
+      // GPT Image 2.6 (OpenAI) — Grsai first.
+      name: "gpt-image-2.6", type: "image", rate: gptImage, unit: "per_image",
       constraints: {
         image_urls: { max: 4 },
         aspect_ratios: IMAGE_ASPECTS,

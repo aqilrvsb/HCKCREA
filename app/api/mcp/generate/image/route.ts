@@ -2,7 +2,6 @@ import { NextResponse, after } from "next/server";
 import { validateMcpKey, mcpCallerId, getOrCreateGptProjectId } from "@/lib/mcp-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
-import { getP2Config } from "@/lib/settings";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 
 // POST /api/mcp/generate/image — MCP-triggered image generation.
@@ -26,26 +25,36 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const prompt = String(body?.prompt || "").trim();
-  const requestedModel = String(body?.model || "").trim();
   const imageUrls: string[] = Array.isArray(body?.image_urls)
-    ? body.image_urls.filter((x: any) => typeof x === "string" && !!x)
+    ? body.image_urls.filter((x: any) => typeof x === "string" && !!x).slice(0, 4)
     : [];
   const aspectRatio = String(body?.aspect_ratio || "1:1");
 
   if (!prompt) {
     return NextResponse.json({ error: "prompt required" }, { status: 400 });
   }
+
+  // Since 2026-11-20 the MCP offers exactly two image models (owner's
+  // choice): nano-banana-2.1 (default) and gpt-image-2.6. Both run on Grsai
+  // (p4) first; other slots fall back to nano-banana-2 / gpt-image-2.
+  const IMAGE_MODELS = ["nano-banana-2.1", "gpt-image-2.6"] as const;
+  const raw = String(body?.model || "").trim().toLowerCase();
+  const requestedModel: (typeof IMAGE_MODELS)[number] | null =
+    !raw || raw === "banana" || raw === "nano-banana" || raw === "nano-banana-2.1" || raw === "gemini-nano-banana-2.1"
+      ? "nano-banana-2.1"
+      : raw === "gpt-image" || raw === "gpt-image-2.6"
+        ? "gpt-image-2.6"
+        : null;
   if (!requestedModel) {
-    return NextResponse.json({ error: "model required" }, { status: 400 });
+    return NextResponse.json(
+      { error: `Model '${raw}' is not available. Image models: ${IMAGE_MODELS.join(", ")}.` },
+      { status: 400 }
+    );
   }
 
-  // Resolve model hint for priceFor. The model name from the caller
-  // matches the names in /api/mcp/models — nano-banana-pro, gpt-image-2.
-  const lower = requestedModel.toLowerCase();
-  const modelHint: "banana_pro" | "gpt_image" | undefined =
-    lower.includes("banana") ? "banana_pro" :
-    lower.includes("gpt-image") ? "gpt_image" :
-    undefined;
+  // Price hint — the same rate settle.ts charges for each family.
+  const modelHint: "banana_pro" | "gpt_image" =
+    requestedModel === "nano-banana-2.1" ? "banana_pro" : "gpt_image";
 
   // Pre-flight credit check. MCP has no nav gate so we must check
   // explicitly. UI route skips this because the dashboard blocks users
@@ -108,8 +117,7 @@ export async function POST(req: Request) {
   // p2 config, fires cascade, updates row with task_id + actual model.
   after(async () => {
     try {
-      const cfg = await getP2Config();
-      const primaryModel = requestedModel || cfg.imageDefault || "nano-banana-pro";
+      const primaryModel = requestedModel;
       const result = await generateImageWithCascade({
         primaryModel,
         prompt,
