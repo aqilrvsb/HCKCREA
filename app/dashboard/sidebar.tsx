@@ -31,6 +31,9 @@ import {
 } from "lucide-react";
 import LogoutButton from "./logout-button";
 
+// PeningLab GPT sidebar link hidden per user direction 2026-11-20.
+const SHOW_PENINGLAB_GPT = false;
+
 export type Project = {
   id: string;
   name: string;
@@ -746,9 +749,9 @@ export default function Sidebar({
         )}
 
         {/* PeningLab GPT — external Custom GPT (generate video inside
-            ChatGPT). Visible to EVERY package as an upsell; login inside
-            the GPT itself gates Pro/Premium. */}
-        <a
+            ChatGPT). Hidden per user direction 2026-11-20 — flip
+            SHOW_PENINGLAB_GPT to bring it back. */}
+        {SHOW_PENINGLAB_GPT && <a
           href="https://chatgpt.com/g/g-6a48ae23dcd481918004d50a91ea51f2-pening-lab-gpt"
           target="_blank"
           rel="noopener noreferrer"
@@ -762,7 +765,7 @@ export default function Sidebar({
           />
           <span>PeningLab GPT</span>
           <ArrowUpRight className="w-3.5 h-3.5 ml-auto opacity-60" strokeWidth={2.4} />
-        </a>
+        </a>}
 
         {/* Auto Post TikTok — opens install SOP modal (matches the
             Hack Creative Extension SOP style). Click pulls the current

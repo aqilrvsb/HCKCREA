@@ -119,7 +119,8 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Ready Affiliate — videos assigned to an affiliate but NOT yet submitted to
   // NL. Tick + Submit here to actually post; then they move to Reporting
   // Affiliate. Shows only when Affiliate mode is on.
-  { key: "transfer-affiliate", label: "Ready Affiliate", icon: Send, tag: "4e" },
+  // Hidden per user direction 2026-11-20 (tab body kept; re-enable by uncommenting).
+  // { key: "transfer-affiliate", label: "Ready Affiliate", icon: Send, tag: "4e" },
   // NOTE: Reporting Affiliate is NOT a project tab — it lives under ACCOUNT in
   // the sidebar, because transfers are recorded per USER and the report spans
   // every project.
