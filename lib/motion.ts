@@ -422,13 +422,17 @@ export async function vgcStart(payload: Record<string, any>): Promise<{ ok: true
   const accounts = await upAccounts((await getMotionAccounts()).filter((a) => a.vgc_url), "motion");
   if (!accounts.length) return { ok: false, error: "Custom Style belum disediakan (motion_modal.vgc_api_url)" };
   const first = await pickMotionAccount(accounts);
+  // Claude Code on Modal runs on code28 first, DragonAPI after it (modal_vgc.py) — the code28 key travels with the
+  // job from app_settings, so rotating it in PeningLab needs no Modal redeploy. No key = DragonAPI only, as before.
+  const code28Key = String((await getSetting<any>("code28_key"))?.key || "");
+  const llm = code28Key ? { base: "https://code28.ccwu.cc", key: code28Key } : undefined;
   let lastErr = "";
   for (const acc of [first, ...accounts.filter((a) => a.id !== first.id)]) {
     try {
       const r = await fetch(`${acc.vgc_url}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, secret: acc.secret }),
+        body: JSON.stringify({ ...payload, ...(llm ? { llm } : {}), secret: acc.secret }),
         signal: AbortSignal.timeout(60_000),
       });
       const j = await r.json().catch(() => ({}));
@@ -450,7 +454,7 @@ export type MotionProgress = { stage?: string; pct?: number; rec?: number; max?:
 export type MotionCheck =
   | { status: "running"; progress?: MotionProgress | null }
   | { status: "done"; result: { url?: string; poster_url?: string | null; duration_sec: number; render_sec?: number; draft?: Record<string, any>; [k: string]: any } }
-  | { status: "failed"; error: string; apiError?: string }
+  | { status: "failed"; error: string; apiError?: string; relayError?: string }
   | { status: "unknown"; error: string };
 
 export async function motionCheck(taskId: string): Promise<MotionCheck> {
@@ -469,7 +473,8 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
     // (a Custom Style step may finish with an answer and no video)
     // (a CLIPPER analysis finishes with its analysis: no video)
     if (j?.status === "done" && (j?.result?.url || j?.result?.draft || j?.result?.analysis || (vgc && j?.result))) return { status: "done", result: j.result };
-    if (j?.status === "failed") return { status: "failed", error: String(j.error || "render failed"), apiError: j?.result?.api_error ? String(j.result.api_error) : undefined };
+    if (j?.status === "failed") return { status: "failed", error: String(j.error || "render failed"), apiError: j?.result?.api_error ? String(j.result.api_error) : undefined,
+      relayError: j?.result?.relay_error ? String(j.result.relay_error) : undefined };
     return { status: "unknown", error: `Modal check HTTP ${r.status}` };
   } catch (e: any) {
     // Network blips must never fail a row — the next poll retries.
@@ -1051,6 +1056,20 @@ async function alertDragonFatal(apiError: unknown): Promise<void> {
   }
 }
 
+/** A Custom Style / Padat run's relay errors: DragonAPI's (the last relay) as before, plus code28 refusing the key
+ *  while the run moved on to DragonAPI (modal_vgc.py relay_error) — that one means "top up code28". */
+async function alertVgcRelays(apiError: unknown, relayError: unknown): Promise<void> {
+  await alertDragonFatal(apiError);
+  const r = String(relayError || "");
+  if (!r) return;
+  try {
+    const { alertProviderKeyRefused } = await import("@/lib/ai-down-alert");
+    await alertProviderKeyRefused("code28", r);
+  } catch (e) {
+    console.warn("[motion] code28 alert failed:", (e as Error)?.message);
+  }
+}
+
 export async function failMotionRow(hist: Pick<HistoryRow, "id" | "user_id" | "metadata">, error: string): Promise<boolean> {
   const admin = createAdminClient();
   const { data: cur } = await admin.from("history").select("metadata").eq("id", hist.id).maybeSingle();
@@ -1119,12 +1138,12 @@ async function settleVgcRow(hist: HistoryRow, r: MotionCheck, startedMs: number)
     return { state: "pending", p2Status: r.status === "running" ? String(r.progress?.stage || "work") : "unknown" };
   }
   if (r.status === "failed") {
-    await alertDragonFatal(r.apiError);
+    await alertVgcRelays(r.apiError, r.relayError);
     return fail(`Custom Style gagal: ${r.error}`.slice(0, 500));
   }
 
   const res = r.result;
-  await alertDragonFatal(res.api_error); // a later round hit it after the video was made
+  await alertVgcRelays(res.api_error, res.relay_error); // a later round hit it after the video was made
   const madeVideo = !!res.url;
   const charged = cur.video && !madeVideo ? 0 : reserved;
   const step = {
@@ -1191,14 +1210,14 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
     return { state: "pending", p2Status: r.status === "running" ? String(r.progress?.stage || "render") : "unknown" };
   }
   if (r.status === "failed") {
-    if (padatRun) await alertDragonFatal(r.apiError);
+    if (padatRun) await alertVgcRelays(r.apiError, r.relayError);
     await failMotionRow(hist, (padatRun ? `${runName}: ${r.error} — kredit dipulangkan.` : `Motion render failed: ${r.error}`).slice(0, 500));
     return { state: "settled", status: "failed", error: r.error };
   }
 
   const res = r.result;
   const admin = createAdminClient();
-  if (padatRun) await alertDragonFatal(res.api_error); // a later round hit it after the video was made
+  if (padatRun) await alertVgcRelays(res.api_error, res.relay_error); // a later round hit it after the video was made
 
   // a Padat run that ended without a video (it asked for missing input, or
   // stopped): nothing to deliver — refund (a resubmit gets its old video back)

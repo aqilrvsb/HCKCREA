@@ -32,6 +32,9 @@ knowledge is Coach Am's paid material): it lives on the private
 Deploy:   py -3 -m modal deploy modal_vgc.py   (and with MODAL_PROFILE for the other accounts)
 Secrets:  vgc-secrets (ANTHROPIC_AUTH_TOKEN = the DragonAPI key), motion-secrets (MOTION_SECRET),
           fairytale-secrets (B2_ENDPOINT / B2_REGION), b2-content-secrets (B2_CONTENT_*)
+Relays:   Claude Code runs on code28 first (base + key arrive with each job as payload["llm"], from
+          app_settings.code28_key — rotate it in PeningLab, no redeploy) and moves to DragonAPI (the key above)
+          for the rest of the job on any API error / stall there, resuming the same session.
 """
 
 import json
@@ -435,6 +438,9 @@ MAX_CONTINUES = 2
 RESUME_PROMPT = ("Sesi tadi terputus kerana ralat sambungan API. Sambung tugas yang sama dari tempat ia berhenti (jangan mula "
                  "semula): siapkan pembetulan, render semula ke ./out/preview.mp4, jalankan `pl-frames out/preview.mp4` dan "
                  "beri ringkasan akhir.")
+# after a relay switch mid-step (code28 failed → DragonAPI): the same step, carried on from where it stopped
+FAILOVER_PROMPT = ("Sesi tadi terputus kerana ralat sambungan API. Sambung tugas yang sama dari tempat ia berhenti (jangan mula "
+                   "semula) dan siapkan langkah ini seperti yang diminta tadi, kemudian beri jawapan akhir.")
 
 
 # `pl-tts`: the client's AI voice (Mira, Afifah…) for Claude Code, through
@@ -1486,6 +1492,34 @@ def run_vgc(payload: dict) -> dict:
     for k in list(env):
         if k.startswith(("B2_", "MOTION_", "MODAL_")):
             env.pop(k, None)
+    # Claude relays, cheapest first: code28 (base + key sent by PeningLab with the job) then DragonAPI (this account's
+    # vgc-secrets key). An API error / stall on code28 moves the rest of THIS job to DragonAPI; the next job starts on
+    # code28 again. Session files are relay-independent, so the switch resumes the same session.
+    llm = payload.get("llm") or {}
+    relays = ([{"name": "code28", "base": str(llm["base"]).rstrip("/"), "key": str(llm["key"])}]
+              if llm.get("base") and llm.get("key") else [])
+    relays.append({"name": "dragon", "base": DRAGON_BASE, "key": ""})  # "" = keep the secret's own auth vars
+    relay = {"i": 0, "failover": None}
+
+    def relay_env(base_env: dict) -> dict:
+        e = dict(base_env)
+        r = relays[relay["i"]]
+        e["ANTHROPIC_BASE_URL"] = r["base"]
+        if r["key"]:
+            e["ANTHROPIC_AUTH_TOKEN"] = r["key"]
+            e.pop("ANTHROPIC_API_KEY", None)
+        return e
+
+    def relay_meta() -> dict:
+        """What the result tells PeningLab: the relay that finished the job, and a code28 key refusal (quota / auth —
+        it needs a top-up) so the admins get a WhatsApp; a passing error there is only logged."""
+        m = {"relay": relays[relay["i"]]["name"]}
+        f = relay["failover"]
+        if f:
+            m["relay_failover"] = f
+            if API_FATAL.search(f["error"]):
+                m["relay_error"] = f["error"]
+        return m
     for name, body in (("pl-vo-track", PL_VO_TRACK), ("pl-audio-check", PL_AUDIO_CHECK), ("pl-frames", PL_FRAMES),
                        ("pl-music", PL_MUSIC), ("pl-render", PL_RENDER)):
         tool = Path("/usr/local/bin") / name
@@ -1513,14 +1547,36 @@ def run_vgc(payload: dict) -> dict:
 
     def claude(text: str, session: str | None, budget: float, cwd: Path | None = None, run_env: dict | None = None,
                stage: str | None = None, turns: int | None = None) -> dict:
-        """One `claude -p` invocation (optionally resuming); streams progress."""
+        """One `claude -p` step on the current relay; when it ends on an API error (fatal, passing or a stall) and a
+        later relay is left, the rest of the job moves there and this step carries on in the same session."""
+        began = time.time()
+        out = _claude_once(text, session, budget, cwd, run_env, stage, turns)
+        err = _api_error(out)
+        if err and relay["i"] + 1 < len(relays):
+            frm = relays[relay["i"]]["name"]
+            relay["i"] += 1
+            relay["failover"] = relay["failover"] or {"from": frm, "error": err[:400]}
+            left = budget - (time.time() - began)
+            print(f"[runner] {frm} failed ({err[:160]}) — moving to {relays[relay['i']]['name']} for the rest of this job",
+                  flush=True)
+            if left > 120:
+                sess = out.get("session_id") or session
+                # nothing done yet → the same instruction again; else carry on from where it stopped
+                again = FAILOVER_PROMPT if (out.get("tools_used") and sess) else text
+                return _claude_once(again, sess, left, cwd, run_env, stage, turns)
+        return out
+
+    def _claude_once(text: str, session: str | None, budget: float, cwd: Path | None = None, run_env: dict | None = None,
+                     stage: str | None = None, turns: int | None = None) -> dict:
+        """One `claude -p` invocation (optionally resuming) on the current relay; streams progress."""
         cmd = ["claude", "-p", text, "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions", "--max-turns", str(int(turns or payload.get("max_turns") or MAX_TURNS)),
                "--model", MODEL] + (["--resume", session] if session else [])
         began = time.time()
-        proc = subprocess.Popen(cmd, cwd=cwd or ws, env=run_env or env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, errors="replace")
-        out = {"session_id": session, "result": None, "tail": []}
+        tools_before = state["tools"]
+        proc = subprocess.Popen(cmd, cwd=cwd or ws, env=relay_env(run_env or env), stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, errors="replace")
+        out = {"session_id": session, "result": None, "tail": [], "relay": relays[relay["i"]]["name"]}
         # A reader thread feeds a queue, so the budget and the stall watchdog are
         # checked every few seconds even when the session prints nothing (a hung
         # API call once left a run silent for 50 minutes).
@@ -1589,6 +1645,7 @@ def run_vgc(payload: dict) -> dict:
             if proc.poll() is None:
                 proc.kill()
             _save_ws(ws, vol_ws)  # the project + session survive for the next step
+        out["tools_used"] = state["tools"] - tools_before
         return out
 
     expect_video = payload.get("expect_video", True) is not False
@@ -1633,7 +1690,8 @@ def run_vgc(payload: dict) -> dict:
         _progress("done", 100)
         return {"ok": False, "url": None, "error": API_ERROR_MSG, "api_error": build_err,
                 "session_id": runs[-1]["session_id"], "runs": len(runs), "run_sec": round(time.time() - run_start, 1),
-                "cost_usd": round(sum(float((r["result"] or {}).get("total_cost_usd") or 0) for r in runs), 4)}
+                "cost_usd": round(sum(float((r["result"] or {}).get("total_cost_usd") or 0) for r in runs), 4),
+                **relay_meta()}
     video = _find_video(ws, run_start) if expect_video else None
     gdir = ws / GAUNTLET_DIR
     ledger, keep = [], len(runs) - 1  # keep = the run whose cut is delivered (its summary describes it)
@@ -1775,6 +1833,7 @@ def run_vgc(payload: dict) -> dict:
         "run_sec": round(time.time() - run_start, 1), "summary": summary[:6000],
         "subtype": result.get("subtype"), "needs_input": summary.startswith("PERLU_INPUT") or "PERLU_INPUT:" in summary[:200],
         "gauntlet": ledger,
+        **relay_meta(),
     }
     fatal = next((e for e in (_api_error(r) for r in runs) if e and API_FATAL.search(e)), "")
     if fatal:
