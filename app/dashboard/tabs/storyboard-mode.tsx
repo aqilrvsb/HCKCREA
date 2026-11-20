@@ -61,6 +61,8 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   // "⚡ Tarik Info" — TikTok Shop / Shopee link → name + detail + ≤3 photos.
   const [pulling, setPulling] = useState(false);
+  // Large preview of a product attachment (slot index), null = closed.
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const [main, setMain] = useState<"ugc" | "pc" | "custom" | null>(null);
   // Multi-select, CROSS-MAIN. 1 sub → quantity mode (1–10 of the same sub).
   // 2+ subs → connected campaign storyline (one storyboard per sub, in order);
@@ -96,6 +98,22 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   }
 
   useEffect(() => { void reloadLists(); }, []);
+
+  // Preview keyboard: Esc closes, ←/→ moves between the filled slots.
+  useEffect(() => {
+    if (previewIdx === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setPreviewIdx(null); return; }
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const filled = [0, 1, 2].filter((k) => !!pImgs[k]);
+      if (filled.length < 2) return;
+      const pos = filled.indexOf(previewIdx);
+      const d = e.key === "ArrowRight" ? 1 : -1;
+      setPreviewIdx(filled[(pos + d + filled.length) % filled.length]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewIdx, pImgs]);
 
   const savedList = showLoad === "affiliate" ? affiliate : showLoad === "manual" ? manual : [];
   // Product is "ready" once it has a name + at least one attachment — this
@@ -370,10 +388,17 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
               const url = pImgs[i] || "";
               return (
                 <div key={i} className="relative w-[52px] h-[52px] rounded-lg overflow-hidden flex-shrink-0" style={{ border: `2px dashed ${url ? "transparent" : `${THEME}88`}`, background: url ? "#000" : "var(--color-bg)" }}>
-                  <label className="w-full h-full flex items-center justify-center cursor-pointer">
-                    <input type="file" accept="image/*" className="hidden" disabled={slotUploading === i} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadSlot(i, f); }} />
-                    {slotUploading === i ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME }} /> : url ? <img src={url} className="w-full h-full object-cover" alt="" onError={() => clearInvalidSlot(i)} /> : <span className="text-[10px] font-bold leading-tight text-center" style={{ color: THEME }}>{i === 0 ? "1" : "opt"}</span>}
-                  </label>
+                  {url && slotUploading !== i ? (
+                    // Filled slot → click opens the large preview (replace/remove live there too).
+                    <button type="button" onClick={() => setPreviewIdx(i)} className="w-full h-full cursor-zoom-in" title="Tekan untuk preview besar">
+                      <img src={url} className="w-full h-full object-cover" alt="" onError={() => clearInvalidSlot(i)} />
+                    </button>
+                  ) : (
+                    <label className="w-full h-full flex items-center justify-center cursor-pointer">
+                      <input type="file" accept="image/*" className="hidden" disabled={slotUploading === i} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadSlot(i, f); }} />
+                      {slotUploading === i ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME }} /> : <span className="text-[10px] font-bold leading-tight text-center" style={{ color: THEME }}>{i === 0 ? "1" : "opt"}</span>}
+                    </label>
+                  )}
                   {url && (
                     <button type="button" onClick={() => removeSlot(i)} className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center" title="Buang gambar ni">×</button>
                   )}
@@ -388,6 +413,41 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         {savedMsg && (
           <div className="text-[11px] mt-1.5 font-semibold" style={{ color: savedMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>{savedMsg}</div>
         )}
+        {previewIdx !== null && pImgs[previewIdx] && (() => {
+          const filled = [0, 1, 2].filter((k) => !!pImgs[k]);
+          const pos = filled.indexOf(previewIdx);
+          const go = (d: number) => setPreviewIdx(filled[(pos + d + filled.length) % filled.length]);
+          return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(6px)" }} onClick={() => setPreviewIdx(null)}>
+              <div className="relative flex flex-col items-center gap-3 max-w-[min(92vw,720px)]" onClick={(e) => e.stopPropagation()}>
+                <button type="button" onClick={() => setPreviewIdx(null)} aria-label="Tutup" className="absolute -top-3 -right-3 z-10 w-9 h-9 rounded-full bg-black text-white text-xl font-bold flex items-center justify-center shadow-lg" style={{ border: "1px solid rgba(255,255,255,0.25)" }}>×</button>
+                <div className="relative">
+                  {slotUploading === previewIdx ? (
+                    <div className="w-[min(80vw,480px)] h-[min(70vh,480px)] flex items-center justify-center rounded-xl bg-black"><Loader2 className="w-8 h-8 animate-spin" style={{ color: THEME }} /></div>
+                  ) : (
+                    <img src={pImgs[previewIdx]} alt={`Gambar ${previewIdx + 1}`} className="max-h-[75vh] max-w-full object-contain rounded-xl bg-white" />
+                  )}
+                  {filled.length > 1 && (
+                    <>
+                      <button type="button" onClick={() => go(-1)} aria-label="Sebelum" className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/70 text-white text-xl font-bold flex items-center justify-center">‹</button>
+                      <button type="button" onClick={() => go(1)} aria-label="Seterusnya" className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/70 text-white text-xl font-bold flex items-center justify-center">›</button>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-white/80 font-semibold mr-1">Gambar {previewIdx + 1}{previewIdx === 0 ? " (wajib)" : ""} · {pos + 1}/{filled.length}</span>
+                  <label className="px-3 py-1.5 rounded-lg font-bold cursor-pointer" style={{ background: THEME, color: "#1a1a1a" }}>
+                    🔄 Tukar
+                    <input type="file" accept="image/*" className="hidden" disabled={slotUploading !== null} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadSlot(previewIdx, f); }} />
+                  </label>
+                  <button type="button" onClick={() => { const next = filled.filter((k) => k !== previewIdx); removeSlot(previewIdx); setPreviewIdx(next.length ? next[0] : null); }} className="px-3 py-1.5 rounded-lg font-bold text-white" style={{ background: "#dc2626" }}>
+                    🗑 Buang
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload minimum 1 attachment produk (wajib) — 2 lagi optional (lagi banyak angle = rujukan visual gpt-image-2 lebih tepat). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan (atau link Shopee) → Tiada Link Product. Paste link TikTok Shop / Shopee + tekan ⚡ Tarik Info → nama, detail &amp; sampai 3 gambar diisi automatik.</p>
         {/* Make the reference budget visible BEFORE generating. Products loaded
             from the extension arrive with only 1 photo, and 1 angle is a much
