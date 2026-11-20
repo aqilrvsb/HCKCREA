@@ -94,7 +94,9 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image",     label: "StoryBoard",   icon: ImageIcon, tag: "01" },
   // Dialog UGC tab — re-enabled 2026-06-10 per user direction. Dialog-only
   // input; exposes Grok Imagine 1.5 (default) · Veo 3.1.
-  { key: "video",     label: "Dialog UGC",   icon: Video,     tag: "02" },
+  // Dialog UGC hidden per user direction 2026-11-20 — Original Video covers it
+  // (with the same dialog word-count planner). Tab body kept; uncomment to restore.
+  // { key: "video",     label: "Dialog UGC",   icon: Video,     tag: "02" },
   { key: "original-video", label: "Original Video", icon: Film, tag: "03" },
   // Motion — AI motion-graphics video: "Buat Iklan" (ad from scratch) +
   // "Edit Video" (animated captions/overlays on an uploaded clip).

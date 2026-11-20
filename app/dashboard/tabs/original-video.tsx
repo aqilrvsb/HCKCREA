@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import DialogWordGuide from "@/components/dialog-word-guide";
 import { Loader2, X, Film, ClipboardList, Clapperboard } from "lucide-react";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
@@ -1387,6 +1388,19 @@ export default function OriginalVideoTab({
             auto-built from Product + Avatar + Dialog there. */}
         {imageMode !== "video" && (
           <>
+        {/* Dialog word-count planner — same table as Dialog UGC. A click puts a
+            ready dialog of that length into the prompt (replacing an earlier one). */}
+        <DialogWordGuide
+          tone="dark"
+          onPick={(ex) => {
+            const line = `Dialog (Bahasa Melayu): "${ex.replace(/\s*\n\s*/g, " ").trim()}"`;
+            setPrompt((p) => {
+              const re = /Dialog \(Bahasa Melayu\): "[^"]*"/;
+              if (re.test(p)) return p.replace(re, line);
+              return p.trim() ? `${p.trim()}\n\n${line}` : line;
+            });
+          }}
+        />
         <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
           Prompt (sent verbatim — no auto-locks)
         </label>
