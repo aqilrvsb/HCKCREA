@@ -668,7 +668,7 @@ async function tryAutoRetry(
     hist.type === "fairytale-scene";
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" | "p10" = "p2";
   let newSlot: string | undefined = undefined;
   let newKeyIndex: number | undefined = undefined;
   let newModel: string = model;
@@ -925,8 +925,10 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   const metaWebhookProvider = String(
     hist.metadata?.webhook_provider || ""
   ).toLowerCase();
-  const rowProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" =
-    metaProvider === "p7" || metaWebhookProvider === "p7"
+  const rowProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" | "p10" =
+    metaProvider === "p10" || metaWebhookProvider === "p10"
+      ? "p10"
+      : metaProvider === "p7" || metaWebhookProvider === "p7"
       ? "p7"
       : metaProvider === "p6" || metaWebhookProvider === "p6"
       ? "p6"
@@ -940,7 +942,11 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
               ? "p1"
               : "p2";
   let r: { status: "pending" | "running" | "succeeded" | "failed"; outputUrl?: string; error?: string; raw?: any };
-  if (rowProvider === "p6") {
+  if (rowProvider === "p10") {
+    // ToAPIs (Omni 1.2 + Grok 1.5) — one status address for both (lib/p10.ts).
+    const { p10GetStatus } = await import("@/lib/p10");
+    r = await p10GetStatus(hist.task_id);
+  } else if (rowProvider === "p6") {
     const { p6GetStatus } = await import("@/lib/p6");
     const slot = hist.metadata?.slot as any;
     // image vs video endpoint — APIPod scopes them on different paths
@@ -1222,7 +1228,9 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // per-segment source window + p2 A↔B round-robin gating. The generic
     // cascade retry here would drop the video_list window → skip it.
     const isVideoRefSeg = !!(hist.metadata as any)?.videoRefSeg;
-    const isAutoRetryable = isRetryableTab && !isVideoRefSeg && isInternalError(errMsg);
+    // ToAPIs (p10) rows retry on ANY failure — the owner's rule (2026-11-20): three ToAPIs attempts (main + the two
+    // fallback p10 slots, capped by getDynamicRetryCap), then the error. ToAPIs refunds a failed task itself.
+    const isAutoRetryable = isRetryableTab && !isVideoRefSeg && (isInternalError(errMsg) || rowProvider === "p10");
     if (isAutoRetryable) {
       const retried = await tryAutoRetry(admin, hist, errMsg);
       if (retried) {

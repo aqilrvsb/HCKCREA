@@ -63,8 +63,11 @@ export async function POST(req: Request) {
             : body?.model === "seedance"
               ? "seedance"
               : "grok";
+  // Omni 1.2 on ToAPIs (since 2026-11-20) is 720p only; Omni Flash stays 1080p (hidden in the UI).
   const resolution =
-    modelChoice === "gemini" || modelChoice === "gemini-flash"
+    modelChoice === "gemini"
+      ? "720p"
+      : modelChoice === "gemini-flash"
       ? "1080p"
       : body?.resolution === "480p"
         ? "480p"
@@ -86,7 +89,7 @@ export async function POST(req: Request) {
           ? 12
           : 8
         : modelChoice === "gemini"
-          ? 10
+          ? 15 // Omni 1.2 (ToAPIs): fixed 15 s — flat price, so the longest clip (owner's rule 2026-11-20)
           : modelChoice === "gemini-flash"
             ? ([4, 6, 8, 10].includes(Math.round(Number(body?.duration))) ? Math.round(Number(body?.duration)) : 10)
             : modelChoice === "seedance"
@@ -161,6 +164,13 @@ export async function POST(req: Request) {
     featureType === "original-video" ? "original-video" : "cinema";
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
+  // Video Reference mode was removed 2026-11-20 (Omni 1.2 on ToAPIs takes no video input — owner's call).
+  if (body?.image_mode === "video") {
+    return NextResponse.json(
+      { error: "Mod video rujukan sudah tiada — guna References atau Start frame." },
+      { status: 400 }
+    );
+  }
   // Video Reference mode requires the video (and needs no image).
   if (modelChoice === "gemini" && body?.image_mode === "video" && !videoRefUrl) {
     return NextResponse.json(
@@ -301,8 +311,7 @@ export async function POST(req: Request) {
             : cinemaRatePerSec * 2;
         cost = Number((ratePerSec * duration).toFixed(4));
       } else if (modelChoice === "gemini") {
-        // GeminiOmni — flat per-video rate, duration is fixed 10s
-        // server-side so we don't multiply.
+        // Omni 1.2 — flat per-video rate (duration fixed 15s server-side), so we don't multiply.
         const geminiFlat = await getGeminiRate("10");
         cost = Number(geminiFlat.toFixed(4));
       } else if (modelChoice === "gemini-flash") {

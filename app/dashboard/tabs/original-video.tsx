@@ -93,7 +93,7 @@ const PROVIDER_THEME: Record<
     soft: "rgba(6,182,212,0.25)",
     faint: "rgba(6,182,212,0.08)",
     gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)",
-    emoji: "🔷",
+    emoji: "✨",
   },
   "gemini-flash": {
     // Gemini Omni Flash 1.1 (APIPod p6) — cyan/teal gradient, distinct from
@@ -137,8 +137,9 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   // first-frame endpoint (image_urls 1-2 = first frame + optional last
   // frame, fixed 10s) — frame mode added per user direction 2026-07-06.
   // Crun (p2) path passes the same image_urls through unchanged.
-  // "video" (Video Reference) hidden per user direction 2026-07-15.
-  gemini: ["ingredient", "frame"],
+  // "video" (Video Reference) hidden per user direction 2026-07-15. Since 2026-11-20 this is Omni 1.2 on ToAPIs
+  // (text / references ≤ 5 / first + last frame — all verified), so Text only is offered too.
+  gemini: ["ingredient", "text", "frame"],
   // Gemini Omni Flash 1.1 — all 3 modes: r2v (ingredient, 1-7 refs), t2v
   // (text), i2v (frame, first + optional last). Duration 4/6/8/10.
   "gemini-flash": ["ingredient", "text", "frame"],
@@ -554,8 +555,8 @@ export default function OriginalVideoTab({
     if (provider === "grok" && (duration < 1 || duration > 15)) {
       setDuration(10);
     }
-    // GeminiOmni — fixed 10s.
-    if (provider === "gemini" && duration !== 10) setDuration(10);
+    // Omni 1.2 (ToAPIs) — fixed 15s (flat price, owner's rule 2026-11-20).
+    if (provider === "gemini" && duration !== 15) setDuration(15);
     // Gemini Omni Flash 1.1 — enum 4/6/8/10; snap to 8 if out of set.
     if (provider === "gemini-flash" && ![4, 6, 8, 10].includes(duration)) setDuration(8);
     // Seedance 2.0 Fast — slider 4-15s, default 5 when switching in.
@@ -589,7 +590,7 @@ export default function OriginalVideoTab({
   } else if (provider === "sora2" && sora2RatePerSec != null) {
     estCost = (sora2RatePerSec * duration).toFixed(2);
   } else if (provider === "gemini" && geminiFlatRate != null) {
-    // Gemini is flat per-video (10s fixed) — don't multiply by duration.
+    // Omni 1.2 is flat per-video (15s fixed) — don't multiply by duration.
     estCost = geminiFlatRate.toFixed(2);
   } else if (provider === "gemini-flash" && geminiFlashRate != null) {
     // Gemini Flash — per-second × duration (4/6/8/10).
@@ -648,7 +649,7 @@ export default function OriginalVideoTab({
           // Gemini forces 1080p server-side; we still send the right
           // value here so the optimistic UI cost preview matches what
           // /api/generate/cinema will actually compute.
-          resolution: provider === "gemini" || provider === "gemini-flash" ? "1080p" : provider === "seedance" ? "480p" : "720p",
+          resolution: provider === "gemini-flash" ? "1080p" : provider === "seedance" ? "480p" : "720p",
           aspect_ratio: aspect,
           // Cinema route uses "text" / "frame" / "ingredient" directly.
           image_mode: imageMode,
@@ -725,17 +726,14 @@ export default function OriginalVideoTab({
             kill-switch — see lib/feature-flags.ts). Grid auto-collapses
             from 4 → 3 cols when Sora 2 is hidden so chips stay
             balanced. */}
-        <div
-          className={`grid grid-cols-2 ${
-            SORA2_DISABLED ? "sm:grid-cols-3" : "sm:grid-cols-4"
-          } gap-2 mb-4`}
-        >
+        <div className="grid grid-cols-2 gap-2 mb-4">
           {/* Seedance 2.0 shown here per user direction 2026-07-15 (Reference
               to Video — same reference flow as GeminiOmni + a seconds slider).
               Grok = Grok Imagine 1.5 Preview (image-to-video, 1-15s, 720p). */}
           {(["veo", "sora2", "gemini", "gemini-flash", "grok", "seedance"] as const)
-            // Veo 3.1 hidden from Original Video per user direction 2026-06-30.
-            .filter((p) => p !== "veo" && !(SORA2_DISABLED && p === "sora2"))
+            // Since 2026-11-20 only Omni 1.2 + Grok 1.5 (both on ToAPIs) — Veo, Sora 2, Omni Flash and Seedance
+            // hidden per user direction.
+            .filter((p: Provider): boolean => p === "gemini" || p === "grok")
             .map((p) => {
             const active = provider === p;
             const t = PROVIDER_THEME[p];
@@ -766,7 +764,7 @@ export default function OriginalVideoTab({
                   : p === "sora2"
                     ? "Sora 2"
                     : p === "gemini"
-                      ? "GeminiOmni"
+                      ? "Omni 1.2"
                       : p === "gemini-flash"
                         ? "Omni Flash"
                         : p === "seedance"
@@ -1510,7 +1508,7 @@ export default function OriginalVideoTab({
                   color: theme.primary,
                 }}
               >
-                Fixed 10s
+                Fixed 15s · 720p
               </div>
             )}
             {provider === "seedance" && (
@@ -1574,7 +1572,7 @@ export default function OriginalVideoTab({
               <Loader2 className="w-4 h-4 animate-spin" /> Generating…
             </span>
           ) : (
-            `${theme.emoji} Generate ${provider === "veo" ? "Veo" : provider === "grok" ? "Grok" : provider === "sora2" ? "Sora 2" : provider === "gemini" ? "GeminiOmni" : provider === "gemini-flash" ? "Omni Flash" : "Seedance"} Video${estCost ? ` · ~RM${estCost}` : ""}`
+            `${theme.emoji} Generate ${provider === "veo" ? "Veo" : provider === "grok" ? "Grok" : provider === "sora2" ? "Sora 2" : provider === "gemini" ? "Omni 1.2" : provider === "gemini-flash" ? "Omni Flash" : "Seedance"} Video${estCost ? ` · ~RM${estCost}` : ""}`
           )}
         </button>
 

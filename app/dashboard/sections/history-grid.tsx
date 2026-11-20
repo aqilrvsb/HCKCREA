@@ -2290,7 +2290,8 @@ function HistoryCardInner({
   // in Original Video as "Generating…". Only a genuine failure surfaces (an
   // alert), so a silent no-op can't happen. Optimistic close means clicking a
   // provider feels instant even though the fetch is still in flight.
-  async function handleGenVideoFromStoryboard(provider: "gemini" | "gemini-flash") {
+  // Since 2026-11-20 a storyboard video is ALWAYS Omni 1.2 · 15 s (ToAPIs) — no model / length choice (owner's rule).
+  async function handleGenVideoFromStoryboard() {
     if (videoing) return;
     setVidPickOpen(false); // close all the modal right away
     setVideoing(true);
@@ -2298,7 +2299,7 @@ function HistoryCardInner({
       const r = await fetch("/api/generate/storyboard/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_id: item.id, provider, duration: 10 }),
+        body: JSON.stringify({ history_id: item.id, provider: "gemini", duration: 15 }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) {
@@ -2307,7 +2308,7 @@ function HistoryCardInner({
         // Small bottom-right toast so the client knows it was submitted.
         // Auto-dismisses after 4.5s.
         setSubmitToast(
-          `🎬 Video ${provider === "gemini-flash" ? "Omni Flash" : "Omni"} dihantar — akan muncul di tab Original Video.`
+          `🎬 Video Omni 1.2 (15s) dihantar — akan muncul di tab Original Video.`
         );
         window.setTimeout(() => setSubmitToast(null), 4500);
         window.dispatchEvent(new CustomEvent("history:refresh"));
@@ -3403,7 +3404,7 @@ function HistoryCardInner({
       {tukarOpen && isStoryboard && (
         <StoryboardReplaceModal historyId={item.id} subPage={((item.metadata as any)?.sub_page === 2 ? 2 : (item.metadata as any)?.sub_page === 3 ? 3 : 1)} onClose={() => setTukarOpen(false)} />
       )}
-      {/* Generate Video — pick the provider first. Defaults: Omni, 10s, 1 video. */}
+      {/* Generate Video — one tap to confirm: always Omni 1.2 · 15s · 1 video (no other model since 2026-11-20). */}
       {vidPickOpen && isStoryboard && (
         <Portal>
         <div
@@ -3417,25 +3418,19 @@ function HistoryCardInner({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-1">🎬 Jana Video dari Storyboard</div>
-            <div className="text-[11px] text-[var(--color-text-muted)] mb-3">Tekan model — terus jana (10 saat · 1 video).</div>
+            <div className="text-[11px] text-[var(--color-text-muted)] mb-3">Tekan untuk terus jana (15 saat · 1 video).</div>
 
-            {/* Each provider fires the job + closes the modal immediately. */}
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              {([
-                { v: "gemini" as const, label: "🔷 Omni", desc: "10s · 1080p" },
-                { v: "gemini-flash" as const, label: "⚡ Omni Flash", desc: "10s · 1080p" },
-              ]).map((o) => (
-                <button
-                  key={o.v}
-                  onClick={() => void handleGenVideoFromStoryboard(o.v)}
-                  disabled={videoing}
-                  className="text-left px-3 py-3 rounded-xl transition-transform hover:scale-[1.02] disabled:opacity-40"
-                  style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
-                >
-                  <span className="block text-[12px] font-bold text-[var(--color-text-primary)]">{o.label}</span>
-                  <span className="block text-[10px] text-[var(--color-text-muted)]">{o.desc}</span>
-                </button>
-              ))}
+            {/* The only model: fires the job + closes the modal immediately. */}
+            <div className="grid grid-cols-1 gap-2 mb-3">
+              <button
+                onClick={() => void handleGenVideoFromStoryboard()}
+                disabled={videoing}
+                className="text-left px-3 py-3 rounded-xl transition-transform hover:scale-[1.02] disabled:opacity-40"
+                style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+              >
+                <span className="block text-[12px] font-bold text-[var(--color-text-primary)]">✨ Omni 1.2</span>
+                <span className="block text-[10px] text-[var(--color-text-muted)]">15s · 720p</span>
+              </button>
             </div>
 
             <button
@@ -4419,11 +4414,9 @@ function HistoryCardInner({
               // provider (cascade still recovers it on failure).
               const canPickSlot =
                 item.status === "failed" && item.tab === "original-video";
+              // Since 2026-11-20 every Original Video model runs on ToAPIs (p10) — the only provider to force.
               const SLOT_OPTS = [
-                { slot: "p2-a", label: "P2 A" },
-                { slot: "p2-b", label: "P2 B" },
-                { slot: "p6-a", label: "P6 A" },
-                { slot: "p6-b", label: "P6 B" },
+                { slot: "p10", label: "ToAPIs" },
               ];
               const pickedLabel = pickedSlot
                 ? SLOT_OPTS.find((o) => o.slot === pickedSlot)?.label

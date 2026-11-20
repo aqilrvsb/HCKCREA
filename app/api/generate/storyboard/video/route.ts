@@ -38,17 +38,10 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();
   if (!historyId) return NextResponse.json({ error: "history_id diperlukan" }, { status: 400 });
-  // Provider picked in the storyboard "Generate Video" popup. Default gemini
-  // (Omni) so older clients / retries keep the original behaviour. Seedance
-  // was replaced by Omni Flash (Gemini Omni Flash 1.1) per user direction.
-  const videoProvider: "gemini" | "gemini-flash" =
-    body?.provider === "gemini-flash" ? "gemini-flash" : "gemini";
-  // Omni Flash duration enum 4/6/8/10; Omni is fixed 10s. Popup defaults 10s.
-  const reqDur = Math.round(Number(body?.duration) || 10);
-  const duration =
-    videoProvider === "gemini-flash"
-      ? ([4, 6, 8, 10].includes(reqDur) ? reqDur : 10)
-      : 10;
+  // Since 2026-11-20 a storyboard video is ALWAYS Gemini Omni 1.2 on ToAPIs, 15 s (owner's rule: no other model,
+  // 15 s per video). Whatever an older client sends is ignored.
+  const videoProvider = "gemini" as "gemini" | "gemini-flash";
+  const duration = 15;
 
   const admin = createAdminClient();
   const { data: row } = await admin
@@ -106,7 +99,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // Omni = flat per-10s-video rate; Omni Flash = live per-second rate ×
+  // Omni = flat per-video rate (rate_gemini, whatever the length); Omni Flash = live per-second rate ×
   // duration (settle re-reads the same live rate, so admin price changes apply).
   const cost =
     videoProvider === "gemini-flash"

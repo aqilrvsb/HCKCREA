@@ -19,12 +19,21 @@ export default function ImageTabWithMode({
   allowImage?: boolean;
   allowStoryboard?: boolean;
 }) {
+  // Image Mode hidden per user direction 2026-11-20 — this tab is "StoryBoard" now (flip to false to bring it back).
+  const HIDE_IMAGE_MODE = true;
   const modes = (["image", "storyboard"] as const).filter((m) =>
-    m === "image" ? allowImage : allowStoryboard
+    m === "image" ? allowImage && !HIDE_IMAGE_MODE : allowStoryboard
   );
-  const [mode, setMode] = useState<"image" | "storyboard">(allowImage ? "image" : "storyboard");
+  const [mode, setMode] = useState<"image" | "storyboard">(modes[0] || "storyboard");
   // Keep the active mode within what's allowed (e.g. only Storyboard granted).
-  const effective = modes.includes(mode) ? mode : (modes[0] || "image");
+  const effective = modes.includes(mode) ? mode : modes[0];
+  if (!effective) {
+    return (
+      <div className="rounded-2xl p-6 text-center text-sm text-[var(--color-text-secondary)]" style={{ border: "1px solid var(--color-border)" }}>
+        Storyboard belum dibuka untuk akaun ini.
+      </div>
+    );
+  }
   return (
     <div className="space-y-4">
       {/* Only show the toggle when BOTH modes are available. */}

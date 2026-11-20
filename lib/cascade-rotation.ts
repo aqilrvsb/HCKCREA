@@ -30,12 +30,16 @@ export type SlotProvider =
   | "p5"
   | "p6-a" | "p6-b" | "p6-c" | "p6-d" | "p6-e" | "p6-f" | "p6-g" | "p6-h"
   | "p7"
+  | "p10"
   | "none";
 
 export const VIDEO_ALLOWED: SlotProvider[] = [
   "p1", "p2-a", "p2-b", "p5",
   "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
   "p7",
+  // p10 = ToAPIs (lib/p10.ts) — Omni 1.2 + Grok 1.5. Listed several times in a pool on purpose: each listing is one
+  // more ToAPIs attempt (2026-11-20: main p10 + fallback p10 ×2 = 3 tries, then the error).
+  "p10",
   "none",
 ];
 
@@ -50,9 +54,9 @@ const DEFAULT_VIDEO_MAIN: SlotProvider[] = ["p6-a", "p6-b", "p6-c", "p2-a", "p2-
 const DEFAULT_VIDEO_FALLBACK: SlotProvider[] = ["p5", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
 const DEFAULT_IMAGE_MAIN: SlotProvider[] = ["p4", "p5", "p6-a", "p2-a", "none", "none", "none", "none", "none", "none"];
 const DEFAULT_IMAGE_FALLBACK: SlotProvider[] = ["p2-b", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
-// Grok runs on APIPod (p6) primarily. Crun + APIMart support Grok too.
-const DEFAULT_GROK_MAIN: SlotProvider[] = ["p6-a", "p6-b", "p6-c", "none", "none", "none", "none", "none", "none", "none"];
-const DEFAULT_GROK_FALLBACK: SlotProvider[] = ["p2-a", "p5", "none", "none", "none", "none", "none", "none", "none", "none"];
+// Grok runs on ToAPIs (p10) since 2026-11-20: one main try + two fallback tries, all ToAPIs (owner's rule).
+const DEFAULT_GROK_MAIN: SlotProvider[] = ["p10", "none", "none", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_GROK_FALLBACK: SlotProvider[] = ["p10", "p10", "none", "none", "none", "none", "none", "none", "none", "none"];
 // Cinema/Seedance runs on GeminiGen (p1) + APIPod (p6).
 const DEFAULT_CINEMA_MAIN: SlotProvider[] = ["p1", "p6-a", "none", "none", "none", "none", "none", "none", "none", "none"];
 const DEFAULT_CINEMA_FALLBACK: SlotProvider[] = ["p6-b", "p6-c", "none", "none", "none", "none", "none", "none", "none", "none"];
@@ -67,11 +71,9 @@ const DEFAULT_SORA2_FALLBACK: SlotProvider[] = ["p6-d", "p6-e", "none", "none", 
 // rotates between the two Crun accounts (p2-a / p2-b). FALLBACK is empty
 // at launch; when a second GeminiOmni-capable provider is wired in, admin
 // adds its slot id here.
-const DEFAULT_GEMINI_MAIN: SlotProvider[] = ["p2-a", "p2-b", "none", "none", "none", "none", "none", "none", "none", "none"];
-// p5 (APIMart) hosts GeminiOmni as Omni-Flash-Ext — different vendor than
-// Crun (p2-a/p2-b in MAIN) so survives a Crun-platform-wide outage.
-// Slot 0 = p5; rest empty until more providers come online.
-const DEFAULT_GEMINI_FALLBACK: SlotProvider[] = ["p5", "none", "none", "none", "none", "none", "none", "none", "none", "none"];
+// Since 2026-11-20 Omni = Gemini Omni 1.2 on ToAPIs (p10): main p10 + fallback p10 ×2 = 3 tries, then the error.
+const DEFAULT_GEMINI_MAIN: SlotProvider[] = ["p10", "none", "none", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_GEMINI_FALLBACK: SlotProvider[] = ["p10", "p10", "none", "none", "none", "none", "none", "none", "none", "none"];
 // Seedance 2.0 Fast — its OWN pool (split out of `cinema` 2026-07-15 so admin
 // can rotate Seedance independently of the Cinema tab). APIPod (p6) resolves
 // seedance-2.0-fast-{t2v,i2v,r2v}; GeminiGen (p1) resolves seedance-2-omni;
@@ -356,10 +358,11 @@ export function walkOrder(
 // via p2GetStatus (same endpoint, just different API keys at submit time).
 // "none" should never reach here (filtered earlier) but fall back to p2
 // just in case.
-export function slotToProvider(slot: SlotProvider): "p1" | "p2" | "p4" | "p5" | "p6" | "p7" {
+export function slotToProvider(slot: SlotProvider): "p1" | "p2" | "p4" | "p5" | "p6" | "p7" | "p10" {
   if (slot === "p2-a" || slot === "p2-b") return "p2";
   if (slot.startsWith("p6-")) return "p6";
   if (slot === "p7") return "p7";
+  if (slot === "p10") return "p10";
   if (slot === "none") return "p2";
   return slot as "p1" | "p4" | "p5";
 }

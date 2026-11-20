@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   // provider" dropdown. Whitelisted to the 4 user-selectable slots so a
   // caller can't force an arbitrary/invalid slot. When set, the cascade
   // uses THIS slot for the resubmit fire (then normal cascade on failure).
-  const FORCEABLE_SLOTS = ["p2-a", "p2-b", "p6-a", "p6-b", "p7"] as const;
+  const FORCEABLE_SLOTS = ["p2-a", "p2-b", "p6-a", "p6-b", "p7", "p10"] as const;
   const rawForceSlot = String(body?.force_slot || "").trim().toLowerCase();
   const forceSlot = (FORCEABLE_SLOTS as readonly string[]).includes(rawForceSlot)
     ? (rawForceSlot as (typeof FORCEABLE_SLOTS)[number])
@@ -326,7 +326,7 @@ export async function POST(req: Request) {
   const heldReserve = reservedThisCall || priorReserved;
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" | "p10" = "p2";
   let newSlot: string | undefined = undefined;
   let newKeyIndex: number | undefined = undefined;
   let newModel: string = model;

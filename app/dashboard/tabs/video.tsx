@@ -109,7 +109,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   //   - Sora 2: text/frame mode only, 8s or 12s duration, single ref
   //   - Grok:   same frame + dialog UI as Veo; fixed 8s. Routes through
   //             /api/generate/video with provider='grok' (grok cascade).
-  const [provider, setProvider] = useState<"veo" | "sora2" | "grok">("grok");
+  // "omni" = Gemini Omni 1.2 (ToAPIs), fixed 15s, flat price — replaced Veo 3.1 here 2026-11-20 (owner's rule).
+  const [provider, setProvider] = useState<"omni" | "sora2" | "grok">("grok");
   // Sora 2 supports 8 or 12s natively. APIPod also accepts 4s but our
   // UI dropped it (too short for useful UGC). State is independent from
   // Veo's fixed 8s so switching providers doesn't reset the other.
@@ -154,8 +155,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // back to cinema_rate × 2 when admin hasn't configured sora2_rate.
   const [soraRatePerSec, setSoraRatePerSec] = useState<number | null>(null);
   const [grokRatePerSec, setGrokRatePerSec] = useState<number | null>(null);
-  // Veo is a FLAT per-video rate (fixed 8s), not per-second.
-  const [veoRatePerVideo, setVeoRatePerVideo] = useState<number | null>(null);
+  // Omni 1.2 is a FLAT per-video rate (fixed 15s), not per-second.
+  const [omniRatePerVideo, setOmniRatePerVideo] = useState<number | null>(null);
   // Tips modal (Sora 2 dialog format + medical-claim warning + image
   // dims + iteration tips). Shared component used by both Sora 2 tab
   // and UGC tab so the warnings stay in sync.
@@ -173,10 +174,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         if (!cancel && typeof d?.rate === "number") setGrokRatePerSec(d.rate);
       })
       .catch(() => {});
-    fetch("/api/veo/rate", { cache: "no-store" })
+    fetch("/api/gemini/rate", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
-        if (!cancel && typeof d?.rate === "number") setVeoRatePerVideo(d.rate);
+        if (!cancel && typeof d?.rate === "number") setOmniRatePerVideo(d.rate);
       })
       .catch(() => {});
     return () => {
@@ -327,7 +328,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 ? String(soraDuration)
                 : provider === "grok"
                   ? String(grokDuration)
-                  : duration,
+                  : provider === "omni"
+                    ? "15"
+                    : duration,
             image_mode: effectiveMode,
             aspect_ratio: aspect,
             project_id: projectId,
@@ -403,14 +406,14 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           </button>
           <button
             type="button"
-            onClick={() => setProvider("veo")}
+            onClick={() => setProvider("omni")}
             className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
             style={
-              provider === "veo"
+              provider === "omni"
                 ? {
-                    background: "linear-gradient(135deg, #facc15, #f59e0b)",
-                    color: "#1a1a1a",
-                    boxShadow: "0 4px 12px rgba(250,204,21,0.35)",
+                    background: "linear-gradient(135deg, #3b82f6, #06b6d4)",
+                    color: "white",
+                    boxShadow: "0 4px 12px rgba(59,130,246,0.35)",
                     border: "1px solid transparent",
                   }
                 : {
@@ -420,7 +423,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                   }
             }
           >
-            🎬 Veo 3.1 · 8s
+            ✨ Omni 1.2 · 15s
           </button>
           {!SORA2_DISABLED && (
             <button
@@ -447,14 +450,20 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           )}
         </div>
 
-        {/* Veo cost — fixed 8s flat per-video rate (no slider). Shown so
-            all three providers display their dynamic price. */}
-        {provider === "veo" && veoRatePerVideo != null && (
-          <div className="mt-4 flex items-center justify-between">
-            <Label>Duration (8s)</Label>
-            <span className="text-xs font-bold" style={{ color: "#b45309" }}>
-              ~RM{veoRatePerVideo.toFixed(2)} / video
-            </span>
+        {/* Omni 1.2 cost — fixed 15s flat per-video rate (no slider). */}
+        {provider === "omni" && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between">
+              <Label>Duration (15s)</Label>
+              {omniRatePerVideo != null && (
+                <span className="text-xs font-bold" style={{ color: "#b45309" }}>
+                  ~RM{omniRatePerVideo.toFixed(2)} / video
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] mt-1.5" style={{ color: "#6b6357" }}>
+              Gemini Omni 1.2 · 15s · 720p · suara asli. Rujuk &quot;Cadangan saya&quot; di bawah (15s) untuk jumlah perkataan.
+            </p>
           </div>
         )}
 

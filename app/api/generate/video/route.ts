@@ -47,8 +47,16 @@ export async function POST(req: Request) {
   // the Dialog UGC UI is identical) — only the dispatch asset differs.
   // p6.ts auto-transforms the inline 'Spoken dialog:' format into Sora 2's
   // required Dialogue: block; Grok reads the inline format directly.
-  const provider: "veo" | "sora2" | "grok" =
-    body?.provider === "sora2" ? "sora2" : body?.provider === "grok" ? "grok" : "veo";
+  // "omni" = Gemini Omni 1.2 on ToAPIs, fixed 15 s, flat rate_gemini (replaced Veo in the Dialog UGC UI 2026-11-20).
+  const provider: "veo" | "sora2" | "grok" | "omni" =
+    body?.provider === "sora2"
+      ? "sora2"
+      : body?.provider === "grok"
+        ? "grok"
+        : body?.provider === "omni"
+          ? "omni"
+          : "veo";
+  const OMNI_DURATION = 15;
   // Grok runs 1-15s (per-second), driven by the slider. Clamp + default 8.
   const grokDuration = Math.min(
     15,
@@ -122,9 +130,9 @@ export async function POST(req: Request) {
       gender,
       age: "30s",
       hijab: isHijab,
-      // Grok's DIALOG LENGTH LOCK scales with its slider (3 words/sec);
+      // Grok's DIALOG LENGTH LOCK scales with its slider (3 words/sec); Omni 1.2 is 15s;
       // Veo + Sora stay on the 8s window.
-      durationSec: provider === "grok" ? grokDuration : 8,
+      durationSec: provider === "grok" ? grokDuration : provider === "omni" ? OMNI_DURATION : 8,
     });
 
   // Billing reason — Sora 2 always bills under video_8s for now (admin
@@ -154,6 +162,12 @@ export async function POST(req: Request) {
     const grokRate = await getGrokRate();
     grokCost = Number((grokRate * grokDuration).toFixed(4));
   }
+  // Omni 1.2 cost: flat per-video rate_gemini (settle re-reads the same live rate).
+  let omniCost = 0;
+  if (provider === "omni") {
+    const { getGeminiRate } = await import("@/lib/settings");
+    omniCost = Number((await getGeminiRate("10")).toFixed(4));
+  }
 
   // Insert placeholder NOW. task_id + cost populated by after().
   // For 16s: this row IS seg-1 of a chained 16s clip. The settle hook
@@ -174,8 +188,14 @@ export async function POST(req: Request) {
       reference_url: imageUrls[0] || null,
       task_id: null,
       duration:
-        provider === "sora2" ? soraDuration : provider === "grok" ? grokDuration : is16s ? 16 : 8,
-      cost: provider === "sora2" ? sora2Cost : provider === "grok" ? grokCost : 0,
+        provider === "sora2"
+          ? soraDuration
+          : provider === "grok"
+            ? grokDuration
+            : provider === "omni"
+              ? OMNI_DURATION
+              : is16s ? 16 : 8,
+      cost: provider === "sora2" ? sora2Cost : provider === "grok" ? grokCost : provider === "omni" ? omniCost : 0,
       segment_index: is16s ? 1 : null,
       frame_anchor: is16s ? "last" : null,
       metadata: {
@@ -196,6 +216,15 @@ export async function POST(req: Request) {
           ? {
               modelChoice: "grok",
               model: "grok-imagine",
+              resolution: "720p",
+            }
+          : {}),
+        // Omni 1.2 — modelChoice "gemini" routes Resubmit / settle retries through the Omni (ToAPIs) pool and
+        // prices it at the flat Omni rate.
+        ...(provider === "omni"
+          ? {
+              modelChoice: "gemini",
+              model: "google/gemini-omni",
               resolution: "720p",
             }
           : {}),
@@ -283,6 +312,47 @@ export async function POST(req: Request) {
             resolution: aspectRatio === "9:16" ? "720x1280" : "1280x720",
             upload_status: "queued",
             featureType: "sora2",
+          },
+        }).eq("id", historyId);
+        return;
+      }
+
+      // ─────────────── Gemini Omni 1.2 path (ToAPIs) ───────────────
+      // Same dialog scene prompt — dispatched through the Omni ("gemini") cascade pool, which is ToAPIs p10 ×3.
+      // Frame mode: the character+product image is the first frame (+ the optional end frame as last frame).
+      if (provider === "omni") {
+        const omniMeta = { aspectRatio, imageMode, modelChoice: "gemini", resolution: "720p", image_urls: imageUrls };
+        const cascaded = await generateVideoWithCascade({
+          primaryModel: "google/gemini-omni",
+          userId: user.id,
+          prompt,
+          imageUrls,
+          imageMode,
+          aspectRatio,
+          durationMode: String(OMNI_DURATION),
+          asset: "gemini",
+        });
+        if (!cascaded.ok) {
+          await admin.from("history").update({
+            status: "failed",
+            cost: omniCost,
+            error_message: cascaded.error || "Omni 1.2 cascade exhausted",
+            metadata: { ...omniMeta, model: "google/gemini-omni", tier_log: cascaded.tierLog, upload_status: "failed" },
+          }).eq("id", historyId);
+          return;
+        }
+        await admin.from("history").update({
+          task_id: cascaded.taskId,
+          cost: omniCost,
+          metadata: {
+            ...omniMeta,
+            model: cascaded.actualModel || "google/gemini-omni",
+            provider: cascaded.actualProvider,
+            slot: cascaded.actualSlot,
+            fallback_used: cascaded.fallbackUsed,
+            tier_log: cascaded.tierLog,
+            upload_status: "queued",
+            featureType: "omni",
           },
         }).eq("id", historyId);
         return;

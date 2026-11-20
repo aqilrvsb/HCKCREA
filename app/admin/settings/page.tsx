@@ -210,6 +210,7 @@ export default function AdminSettings() {
     | "p1" | "p2-a" | "p2-b" | "p5"
     | "p6-a" | "p6-b" | "p6-c" | "p6-d" | "p6-e" | "p6-f" | "p6-g" | "p6-h"
     | "p7"
+    | "p10"
     | "none";
   type SlotI =
     | "p1" | "p2-a" | "p2-b" | "p4" | "p5"
@@ -579,6 +580,7 @@ export default function AdminSettings() {
           "p1", "p2-a", "p2-b", "p5",
           "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
           "p7",
+          "p10",
           "none",
         ];
         const allowedI: string[] = [
@@ -1753,6 +1755,7 @@ export default function AdminSettings() {
             asset: "grok",
             color: "#fb923c",
             options: [
+              { value: "p10", label: "P10 — ToAPIs (Grok 1.5) ★" },
               { value: "p1", label: "P1 — GeminiGen" },
               { value: "p2-a", label: "P2 — Crun (key A)" },
               { value: "p2-b", label: "P2 — Crun (key B)" },
@@ -1844,6 +1847,7 @@ export default function AdminSettings() {
             asset: "gemini",
             color: "#06b6d4", // cyan — matches GeminiOmni chip theme
             options: [
+              { value: "p10", label: "P10 — ToAPIs (Omni 1.2) ★" },
               { value: "p1", label: "P1 — GeminiGen" },
               { value: "p2-a", label: "P2 — Crun (key A)" },
               { value: "p2-b", label: "P2 — Crun (key B)" },

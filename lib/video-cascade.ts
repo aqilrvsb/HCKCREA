@@ -49,7 +49,7 @@ import {
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 
-export type VideoCascadeProvider = "p1" | "p2" | "p5" | "p6" | "p7";
+export type VideoCascadeProvider = "p1" | "p2" | "p5" | "p6" | "p7" | "p10";
 
 export type VideoCascadeInput = {
   /** Veo or Crun model name in p2/Crun format. */
@@ -228,6 +228,17 @@ async function fireVideoSlot(slot: SlotProvider, input: VideoCascadeInput, promp
         taskId: r.ok ? (r.task_id ?? null) : null,
         error: r.ok ? null : (r.error ?? null),
         model: primaryModel,
+      };
+    }
+    if (slot === "p10") {
+      // ToAPIs — Gemini Omni 1.2 + Grok Video 1.5 (lib/p10.ts). The cascade's model id picks which one.
+      const { p10CreateVideo } = await import("@/lib/p10");
+      const r = await p10CreateVideo({ prompt, model: primaryModel, aspectRatio, imageUrls, imageMode, durationMode, refVideoUrl });
+      return {
+        ok: r.ok,
+        taskId: r.ok ? r.task_id : null,
+        error: r.ok ? null : r.error,
+        model: r.ok ? r.model : primaryModel,
       };
     }
     if (slot === "p7") {

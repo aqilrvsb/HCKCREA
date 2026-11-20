@@ -43,11 +43,14 @@ export async function generateIntroVideo(opts: {
   const grokModel = "grok-imagine-1.5-preview";
 
   // MAIN slots then FALLBACK slots, in the admin's configured order, deduped
-  // and with "none" stripped.
+  // and with "none" stripped — except ToAPIs (p10): each p10 listing is one more attempt there (since 2026-11-20
+  // the Grok pool is p10 ×3 → three ToAPIs tries, then the error).
   const [mains, fbs] = await Promise.all([getGrokMainSlots(), getGrokFallbackSlots()]);
   const seen = new Set<SlotProvider>();
   const order: SlotProvider[] = [...mains, ...fbs].filter((s) => {
-    if (s === "none" || seen.has(s)) return false;
+    if (s === "none") return false;
+    if (s === "p10") return true;
+    if (seen.has(s)) return false;
     seen.add(s);
     return true;
   });
@@ -84,6 +87,7 @@ export async function generateIntroVideo(opts: {
     const actualSlot = sub.actualSlot || slot;
     const provider = sub.actualProvider;
     const isP6 = String(actualSlot || provider || "").startsWith("p6");
+    const isP10 = actualSlot === "p10" || provider === "p10";
 
     const startedAt = Date.now();
     let pollErr = "";
@@ -93,7 +97,11 @@ export async function generateIntroVideo(opts: {
         let status = "pending";
         let outputUrl: string | undefined;
         let err: string | undefined;
-        if (isP6) {
+        if (isP10) {
+          const { p10GetStatus } = await import("@/lib/p10");
+          const s = await p10GetStatus(taskId);
+          status = s.status; outputUrl = s.outputUrl; err = s.error;
+        } else if (isP6) {
           const s = await p6GetStatus(taskId, actualSlot as P6Slot, "video");
           status = s.status; outputUrl = s.outputUrl; err = s.error;
         } else {

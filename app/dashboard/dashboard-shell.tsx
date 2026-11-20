@@ -90,7 +90,8 @@ function canSeeAutoUgc(_email: string): boolean {
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Tab order per user direction 2026-06-30: Image → Dialog UGC →
   // Original Video → Auto Content → Storytelling.
-  { key: "image",     label: "Image",        icon: ImageIcon, tag: "01" },
+  // Renamed "Image" → "StoryBoard" per user direction 2026-11-20 (Image Mode hidden — see tabs/image-with-mode.tsx).
+  { key: "image",     label: "StoryBoard",   icon: ImageIcon, tag: "01" },
   // Dialog UGC tab — re-enabled 2026-06-10 per user direction. Dialog-only
   // input; exposes Grok Imagine 1.5 (default) · Veo 3.1.
   { key: "video",     label: "Dialog UGC",   icon: Video,     tag: "02" },
@@ -221,7 +222,7 @@ export default function DashboardShell({
     if (partnerRestricted) {
       return base.filter((t) =>
         t.key === "image"
-          ? allowImageMode || allowStoryboardMode
+          ? allowStoryboardMode // the tab is StoryBoard-only since 2026-11-20 (Image Mode hidden)
           : partnerVisibleTabs!.includes(t.key)
       );
     }
