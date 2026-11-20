@@ -10,7 +10,7 @@
 // Port of creative-hack-auto/background.js analyzeProductText + productTextLockBlock.
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getSettings } from "@/lib/settings";
+import { orChatVision } from "@/lib/openrouter";
 
 export type ProductOcr = {
   main_text: string | null;
@@ -42,62 +42,25 @@ export async function analyzeProductText(
 ): Promise<{ ok: boolean; data?: ProductOcr; error?: string }> {
   if (!imageUrl) return { ok: false, error: "Missing image URL" };
 
-  const s = await getSettings(["or_base", "or_key", "model_product_ocr"]);
-  const base = s.or_base?.url;
-  const key = s.or_key?.key;
-  const model = s.model_product_ocr?.model;
-  if (!base || !key || !model) {
-    return { ok: false, error: "Product OCR not configured" };
-  }
-
+  // model_product_ocr cascade (code28 → DragonAPI → GRSAI → …, set in /admin/settings) — no longer OpenRouter-only.
+  const r = await orChatVision({
+    modelKey: "model_product_ocr",
+    systemPrompt: OCR_SYSTEM_PROMPT,
+    textPrompt: "Analyze this product package image. Return STRICT JSON only (no markdown, no commentary).",
+    images: [imageUrl],
+    temperature: 0,
+    maxTokens: 400,
+    timeoutMs: 60_000,
+  });
+  if (!r.ok) return { ok: false, error: `OCR: ${r.error || "no model answered"}` };
+  const raw = r.content || "";
+  // Strip markdown fences / any words around the object (Claude tends to wrap JSON in ```json)
+  const cleaned = raw.trim().replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```\s*$/, "").trim();
+  const obj = cleaned.match(/\{[\s\S]*\}/)?.[0] ?? cleaned;
   try {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: OCR_SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Analyze this product package image. Return STRICT JSON only (no markdown, no commentary).",
-              },
-              { type: "image_url", image_url: { url: imageUrl } },
-            ],
-          },
-        ],
-        temperature: 0,
-        max_tokens: 400,
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      return { ok: false, error: `OCR HTTP ${res.status}: ${txt.substring(0, 200)}` };
-    }
-    const j = await res.json().catch(() => null);
-    const raw = j?.choices?.[0]?.message?.content || "";
-    // Strip markdown fences if model added them
-    const cleaned = raw
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/, "")
-      .replace(/```\s*$/, "")
-      .trim();
-    let parsed: ProductOcr;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch {
-      return { ok: false, error: `OCR JSON parse failed: ${raw.substring(0, 120)}` };
-    }
-    return { ok: true, data: parsed };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || "OCR network error" };
+    return { ok: true, data: JSON.parse(obj) as ProductOcr };
+  } catch {
+    return { ok: false, error: `OCR JSON parse failed: ${raw.substring(0, 120)}` };
   }
 }
 

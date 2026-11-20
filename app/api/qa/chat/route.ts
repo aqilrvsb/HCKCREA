@@ -79,6 +79,7 @@ export async function POST(req: Request) {
   const s = await getSettings([
     "or_base", "or_key",
     "p4_key", // Grsai shares the existing image-gen key (see lib/openrouter.ts providerCreds)
+    "dragon_key", "code28_key", // Claude relays (model_qa main is code28 → DragonAPI → GRSAI since 2026-11-20)
     "model_qa", "model_auto",
   ]);
 
@@ -139,7 +140,11 @@ export async function POST(req: Request) {
             temperature: 0.5,
             max_tokens: 1200,
             stream: false,
+            // Claude on the Kiro relays thinks out loud unless told not to (see lib/openrouter.ts).
+            ...(slot.provider === "code28" || slot.provider === "dragon" ? { reasoning_effort: "none" } : {}),
           }),
+          // A hung provider must not eat the whole request — the next slot gets its turn.
+          signal: AbortSignal.timeout(60_000),
         });
         const text = await res.text().catch(() => "");
         let json: any = null;

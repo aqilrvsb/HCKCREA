@@ -15,6 +15,8 @@
 //   • openrouter (https://openrouter.ai/api/v1)
 //   • grsai     (https://grsaiapi.com or https://grsai.dakka.com.cn)
 //   • dragon    (DragonAPI relay, https://newapi.dragon3api.com — key in app_settings.dragon_key)
+//   • code28    (code28 relay, https://code28.ccwu.cc — key in app_settings.code28_key; Claude Kiro pool,
+//                ~60% cheaper than DragonAPI on the same Sonnet 5.5 calls, measured 2026-11-20)
 // All expose the OpenAI-compatible POST /v1/chat/completions endpoint.
 // Add a new provider by extending Provider, asProvider() and providerCreds().
 
@@ -41,9 +43,14 @@ const attemptBudget = (timeoutMs: number | undefined, end: number): number | und
   return timeoutMs ? Math.min(timeoutMs, left) : left;
 };
 
-export type Provider = "openrouter" | "grsai" | "dragon";
+export type Provider = "openrouter" | "grsai" | "dragon" | "code28";
 /** A stored provider name → a known Provider (anything unknown = openrouter). */
-export const asProvider = (p: unknown): Provider => (p === "grsai" || p === "dragon" ? p : "openrouter");
+export const asProvider = (p: unknown): Provider =>
+  p === "grsai" || p === "dragon" || p === "code28" ? p : "openrouter";
+/** Relays over a pool of upstream Claude accounts (Kiro): a stalled request is rescued by sending the same model again. */
+const POOLED_PROVIDERS = new Set<Provider>(["dragon", "code28"]);
+/** Per-attempt cap on a pooled relay when the caller gives none (8k tokens of Sonnet 5.5 finish well inside it). */
+const POOLED_DEFAULT_TIMEOUT_MS = 150_000;
 
 // Feature tag for chat_usage rows. Currently only the Custom Idea
 // cascade gets logged — add more buckets here as the admin Usage Chat
@@ -229,8 +236,9 @@ async function callProvider(opts: {
         stream: !!opts.stream,
         // DragonAPI's Claude started "thinking out loud" on long prompts (2026-11-14): a 20-s video's director plan
         // ran 19–56k tokens of reasoning, hit the 150-s cut, and 5 Motion videos failed. reasoning_effort "none"
-        // turns it off (measured: the same plans in 17–35 s, normal size; `thinking: disabled` does NOT work there)
-        ...(opts.provider === "dragon" ? { reasoning_effort: "none" } : {}),
+        // turns it off (measured: the same plans in 17–35 s, normal size; `thinking: disabled` does NOT work there).
+        // code28 is the same kind of Kiro relay — same switch (verified 2026-11-20: reasoning_tokens 0).
+        ...(POOLED_PROVIDERS.has(opts.provider) ? { reasoning_effort: "none" } : {}),
       }),
       ...(signal ? { signal } : {}),
     });
@@ -317,6 +325,14 @@ export async function providerCreds(
       key: String(cache.dragon_key?.key || ""),
     };
   }
+  if (provider === "code28") {
+    // code28 (new-api relay), key in group claude-kiro-超低价版(80缓) — Motion / CLIPPER's main since 2026-11-20,
+    // with DragonAPI as the fallback slots. Its Kiro channel adds a ~600-token hidden system prompt (DragonAPI ~850).
+    return {
+      base: "https://code28.ccwu.cc/v1",
+      key: String(cache.code28_key?.key || ""),
+    };
+  }
   return { base: "", key: "" };
 }
 
@@ -339,8 +355,11 @@ async function runCascade(
   const end = Math.min(o.deadline ?? Infinity, currentDeadline() ?? Infinity);
   const record = (slot: ProviderSlot, r: ChatResult, t0: number) =>
     o.trace?.push({ provider: slot.provider, model: slot.model, ok: r.ok, error: r.ok ? undefined : r.error, ms: Date.now() - t0 });
+  // A pooled relay's request can stall silently (one upstream account hangs): when the caller set no per-attempt
+  // timeout, cap it so the next provider still gets its turn instead of the whole call hanging.
+  const slotTimeout = (slot: ProviderSlot) => o.timeoutMs ?? (POOLED_PROVIDERS.has(slot.provider) ? POOLED_DEFAULT_TIMEOUT_MS : undefined);
   const run = (slot: ProviderSlot, signal?: AbortSignal) =>
-    attempt(slot, attemptBudget(o.timeoutMs, end), signal)
+    attempt(slot, attemptBudget(slotTimeout(slot), end), signal)
       .then((r): ChatResult => (r.ok && o.validate && !o.validate(r.content ?? "")
         ? { ok: false, error: `${slot.model}: unusable output (finish_reason=${r.finishReason || "unknown"})` }
         : { ...r, provider: slot.provider, model: slot.model }))
@@ -359,12 +378,12 @@ async function runCascade(
     return { ok: false, error: lastError };
   }
 
-  // The same model twice in one race only doubles the wait — except on DragonAPI, a relay over a pool of upstream
-  // accounts: one request can stall (2026-11-14: Sonnet 5.5 silent for 60+ s on 3 of 5 plans) while a second one,
-  // served by another account, answers in ~20 s. There a model listed again is its own backup (the owner: Motion's
+  // The same model twice in one race only doubles the wait — except on a pooled relay (DragonAPI, code28) over many
+  // upstream accounts: one request can stall (2026-11-14: Sonnet 5.5 silent for 60+ s on 3 of 5 plans) while a second
+  // one, served by another account, answers in ~20 s. There a model listed again is its own backup (the owner: Motion's
   // director must be Sonnet 5.5, never Sonnet 5 / Opus).
   const seen = new Set<string>();
-  const queue = slots.filter((x) => x.provider === "dragon" || (!seen.has(`${x.provider}:${x.model}`) && !!seen.add(`${x.provider}:${x.model}`)));
+  const queue = slots.filter((x) => POOLED_PROVIDERS.has(x.provider) || (!seen.has(`${x.provider}:${x.model}`) && !!seen.add(`${x.provider}:${x.model}`)));
   return new Promise<ChatResult>((resolve) => {
     const ctrls: AbortController[] = [];
     let next = 0;
@@ -407,7 +426,8 @@ async function runCascade(
 }
 
 /** Model slots that never fall through to the shared model_auto (a light Gemini): Motion + CLIPPER stay on their own
- *  models (Claude on DragonAPI). When all of those fail, the call fails — the owner's call (2026-11-11), after the
+ *  models (Claude Sonnet 5.5 — code28 first, DragonAPI as fallback since 2026-11-20). When all of those fail, the call
+ *  fails — the owner's call (2026-11-11), after the
  *  29 Oct–2 Nov DragonAPI outage put ~110 videos on Gemini Flash Lite plans that clients called "tak cantik". */
 const NO_AUTO_FALLBACK = new Set(["model_motion", "model_motion_guard"]);
 
@@ -475,9 +495,9 @@ export async function orChat(opts: {
   logUserId?: string | null;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string; provider?: Provider; model?: string }> {
   const requestedKey = opts.modelKey || "model_auto";
-  // Fetch all 4 credential keys + the requested model key + model_auto
+  // Fetch all credential keys + the requested model key + model_auto
   // fallback in ONE round-trip. getSettings batches these via cache.
-  const fetchKeys = ["or_base", "or_key", "p4_key", "dragon_key", requestedKey];
+  const fetchKeys = ["or_base", "or_key", "p4_key", "dragon_key", "code28_key", requestedKey];
   if (requestedKey !== "model_auto") fetchKeys.push("model_auto");
   // model_editor_text is an OPT-IN override. When admin hasn't set it the
   // Editor must behave exactly as before — i.e. fall through to
@@ -548,6 +568,7 @@ export async function orChat(opts: {
     },
     { timeoutMs: opts.timeoutMs, deadline: opts.deadline, hedgeAfterMs: opts.hedgeAfterMs, validate: opts.validate, trace, fallbackError: "All providers exhausted" },
   );
+  await alertRefusedKeys(trace);
   if (r.ok) {
     if (opts.logFeature) {
       logChatUsage({
@@ -583,7 +604,7 @@ export async function orChat(opts: {
 // caller has a specific model in mind (e.g. scrape-rank pins Gemini
 // Flash Lite regardless of what's set in admin).
 export async function orChatVision(opts: {
-  modelKey?: "model_clone" | "model_vision" | "model_product_ocr" | "model_auto" | "model_motion";
+  modelKey?: "model_clone" | "model_vision" | "model_product_ocr" | "model_auto" | "model_motion" | "model_agent_vision";
   modelOverride?: string;
   systemPrompt: string;
   textPrompt: string;
@@ -598,7 +619,7 @@ export async function orChatVision(opts: {
   stream?: boolean;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
   const requestedKey = opts.modelKey || "model_clone";
-  const fetchKeys = ["or_base", "or_key", "p4_key", "dragon_key", requestedKey];
+  const fetchKeys = ["or_base", "or_key", "p4_key", "dragon_key", "code28_key", requestedKey];
   if (requestedKey !== "model_auto") fetchKeys.push("model_auto");
   const s = await getSettings(fetchKeys);
 
@@ -628,7 +649,8 @@ export async function orChatVision(opts: {
     return { ok: false, error: "No vision model configured" };
   }
 
-  return runCascade(
+  const trace: CascadeAttempt[] = [];
+  const r = await runCascade(
     layers.flatMap((l) => [l.main, ...l.fallbacks]),
     async (slot, timeoutMs, signal) => {
       const { base, key } = await providerCreds(slot.provider, s);
@@ -647,6 +669,21 @@ export async function orChatVision(opts: {
         base, key,
       });
     },
-    { timeoutMs: opts.timeoutMs, deadline: opts.deadline, hedgeAfterMs: opts.hedgeAfterMs, fallbackError: "All providers exhausted (vision)" },
+    { timeoutMs: opts.timeoutMs, deadline: opts.deadline, hedgeAfterMs: opts.hedgeAfterMs, trace, fallbackError: "All providers exhausted (vision)" },
   );
+  await alertRefusedKeys(trace);
+  return r;
+}
+
+// A relay that refused our key (balance out, key disabled) — the cascade quietly moves on to the next provider, so
+// the client's video still works, but on the dearer one (code28 empty → everything runs on DragonAPI). The admins get a
+// WhatsApp (at most every 3 h per provider) to top it up. Image-download errors ("status code: 403") are not key errors.
+const KEY_REFUSED = /\b(401|402)\b|quota|insufficient|额度|余额|无效的令牌|令牌已|invalid api key|unauthori[sz]ed/i;
+async function alertRefusedKeys(trace: CascadeAttempt[]): Promise<void> {
+  const hit = trace.find((t) => t.provider === "code28" && !t.ok && t.error && KEY_REFUSED.test(t.error) && !/download/i.test(t.error));
+  if (!hit) return;
+  try {
+    const { alertProviderKeyRefused } = await import("@/lib/ai-down-alert");
+    await alertProviderKeyRefused(hit.provider, hit.error || "");
+  } catch { /* alerting must never break a generation */ }
 }

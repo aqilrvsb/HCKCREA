@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     fallbacks: [],
   };
 
-  const cache = await getSettings(["or_base", "or_key", "p4_key"]);
+  const cache = await getSettings(["or_base", "or_key", "p4_key", "dragon_key", "code28_key"]);
   const slots: { base: string; key: string; model: string; provider: string }[] = [];
   for (const slot of [parsed.main, ...parsed.fallbacks]) {
     const creds = await providerCreds(slot.provider, cache);

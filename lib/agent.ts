@@ -20,7 +20,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettings } from "@/lib/settings";
-import { parseModelSetting, providerCreds } from "@/lib/openrouter";
+import { orChatVision, parseModelSetting, providerCreds } from "@/lib/openrouter";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types
@@ -137,7 +137,7 @@ type OrChatToolCallOpts = {
   // Pre-resolved provider attempts (main + fallbacks), hoisted by runAgentTurn.
   // Tried in order until one returns — so a slow/hung primary (e.g. grsai)
   // falls back to the next provider (e.g. openrouter) instead of failing.
-  attempts?: Array<{ base: string; key: string; model: string }>;
+  attempts?: Array<{ base: string; key: string; model: string; provider?: string }>;
 };
 
 async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
@@ -187,7 +187,10 @@ async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
       stream: false,
       // Cap reasoning budget for thinking models so they don't burn all tokens
       // on chain-of-thought; ignored by non-reasoning models (Gemini Flash).
-      reasoning: { effort: "low" },
+      // Claude on the Kiro relays (code28, DragonAPI) needs it OFF: reasoning_effort "none" (see lib/openrouter.ts).
+      ...(at.provider === "code28" || at.provider === "dragon"
+        ? { reasoning_effort: "none" }
+        : { reasoning: { effort: "low" } }),
     };
     if (opts.tools && opts.tools.length > 0) {
       body.tools = opts.tools;
@@ -279,48 +282,20 @@ export async function describeImageForAgent(
 ): Promise<{ ok: boolean; description?: string; error?: string }> {
   if (!imageUrl) return { ok: false, error: "No image" };
 
-  const s = await getSettings(["or_base", "or_key", "model_agent_vision"]);
-  const base = s.or_base?.url;
-  const key = s.or_key?.key;
-  const model = s.model_agent_vision?.model;
-  if (!base || !key || !model)
-    return { ok: false, error: "Vision model not configured" };
-
-  const res = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You describe images for a downstream prompt-planning agent. Output ONE concise paragraph (<=120 words) covering: what's in the image, packaging/text visible (verbatim), colors, style, and any notable features. No commentary. No questions. Just the description.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Describe this image for prompt planning:" },
-            { type: "image_url", image_url: { url: imageUrl } },
-          ],
-        },
-      ],
-      temperature: 0.2,
-      // Bump for reasoning models that may consume tokens on internal thought
-      // before emitting the description. Non-reasoning models stop early so
-      // no cost penalty.
-      max_tokens: 1500,
-    }),
+  // model_agent_vision cascade (code28 → DragonAPI → GRSAI → …, set in /admin/settings) — no longer OpenRouter-only.
+  const r = await orChatVision({
+    modelKey: "model_agent_vision",
+    systemPrompt:
+      "You describe images for a downstream prompt-planning agent. Output ONE concise paragraph (<=120 words) covering: what's in the image, packaging/text visible (verbatim), colors, style, and any notable features. No commentary. No questions. Just the description.",
+    textPrompt: "Describe this image for prompt planning:",
+    images: [imageUrl],
+    temperature: 0.2,
+    // Room for reasoning models that think before answering; others stop early.
+    maxTokens: 1500,
+    timeoutMs: 60_000,
   });
-  const json = await res.json().catch(() => null);
-  if (!res.ok || !json) {
-    return { ok: false, error: `Vision HTTP ${res.status}` };
-  }
-  const desc = json?.choices?.[0]?.message?.content?.trim();
-  if (!desc) return { ok: false, error: "Empty vision response" };
+  const desc = r.ok ? r.content?.trim() : "";
+  if (!desc) return { ok: false, error: r.error || "Empty vision response" };
   return { ok: true, description: desc };
 }
 
@@ -521,6 +496,7 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
     "or_key",
     "p4_key", // grsai chat key (for model settings routed to the grsai provider)
     "dragon_key", // DragonAPI chat key (model settings routed to the dragon provider)
+    "code28_key", // code28 chat key (model settings routed to the code28 provider)
     modelKey,
     "model_agent_vision",
   ]);
@@ -539,14 +515,14 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
   // gemini-3.5-flash). We use the MAIN slot's provider creds (grsai uses the
   // p4 chat key + grsaiapi base; openrouter uses or_base/or_key).
   const parsedModel = parseModelSetting(settings[modelKey]);
-  const attemptsText: Array<{ base: string; key: string; model: string }> = [];
+  const attemptsText: Array<{ base: string; key: string; model: string; provider?: string }> = [];
   if (parsedModel) {
     // main + every fallback, resolved to real creds — orChatWithTools tries
-    // them in order so a slow/hung primary (grsai) falls back to openrouter.
+    // them in order so a slow/hung primary (code28) falls back to the next.
     for (const slot of [parsedModel.main, ...parsedModel.fallbacks]) {
       const creds = await providerCreds(slot.provider, settings);
       if (creds.base && creds.key) {
-        attemptsText.push({ base: creds.base, key: creds.key, model: slot.model });
+        attemptsText.push({ base: creds.base, key: creds.key, model: slot.model, provider: slot.provider });
       }
     }
   }

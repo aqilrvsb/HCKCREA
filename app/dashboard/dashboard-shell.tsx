@@ -100,10 +100,14 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "motion",    label: "Motion",       icon: Clapperboard, tag: "03b" },
   // CLIPPER — a long video (YouTube / Google Drive / upload) → its most viral clips, rendered 9:16 by the Motion engine
   { key: "clipper",   label: "Clipper",      icon: ScissorsLineDashed, tag: "03c" },
-  { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "04" },
+  // Auto Content + Auto UGC hidden per user direction 2026-11-20. Routes, tab
+  // bodies + imports kept so existing history rows still render; re-enable by
+  // uncommenting. (Their AI settings model_custom_idea / model_product_ocr are
+  // shared with Storyboard + post captions, so those stay wired.)
+  // { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "04" },
   // Auto UGC — Grok-Imagine avatar UGC with 30s split into Seg 1/Seg 2.
   // Open to everyone (canSeeAutoUgc gate kept for easy re-restriction).
-  { key: "auto-ugc",  label: "Auto UGC",     icon: Sparkles,  tag: "4b" },
+  // { key: "auto-ugc",  label: "Auto UGC",     icon: Sparkles,  tag: "4b" },
   // Editor — collect transferred videos, bulk-generate caption + cover.
   // Special: clicking it opens the /editor page in a NEW browser tab (handled
   // in onTabChange), it is NOT an in-page tab body.
