@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
 import { validateMcpKey } from "@/lib/mcp-auth";
-import {
-  getBananaProRate,
-  getGptImageRate,
-  getVeoRate,
-  getGrokRate,
-  getSeedanceRate,
-  getGeminiRate,
-  getSetting,
-} from "@/lib/settings";
-import { SORA2_DISABLED } from "@/lib/feature-flags";
+import { getBananaProRate, getGptImageRate, getGrokRate, getGeminiRate } from "@/lib/settings";
 
 // GET /api/mcp/models — list every generation model with its rate +
 // machine-readable constraints (duration, image_urls limits, supported
@@ -35,12 +26,12 @@ type ModelEntry = {
   name: string;
   type: "image" | "video";
   rate: number;
-  unit: "per_image" | "per_second" | "per_video_8s" | "per_video_10s";
+  unit: "per_image" | "per_second" | "per_video";
   constraints: ModelConstraints;
 };
 
 const IMAGE_ASPECTS = ["1:1", "9:16", "16:9", "2:3", "3:2"];
-const VIDEO_ASPECTS = ["9:16", "16:9", "1:1"];
+const VIDEO_ASPECTS = ["9:16", "16:9"];
 const VIDEO_MODES: ("text" | "frame" | "ingredient")[] = ["text", "frame", "ingredient"];
 
 export async function GET(req: Request) {
@@ -49,17 +40,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const [bananaPro, gptImage, veo, grok, seedance, gemini, sora2] = await Promise.all([
+  const [bananaPro, gptImage, grok, gemini] = await Promise.all([
     getBananaProRate(),
     getGptImageRate(),
-    getVeoRate("8"),
     getGrokRate(),
-    getSeedanceRate(),
     getGeminiRate("10"),
-    (async () => {
-      const cfg = await getSetting<{ rate: number }>("sora2_rate");
-      return typeof cfg?.rate === "number" ? cfg.rate : (await getGrokRate()) * 2;
-    })(),
   ]);
 
   const models: ModelEntry[] = [
@@ -102,70 +87,30 @@ export async function GET(req: Request) {
       },
     },
     {
-      name: "veo", type: "video", rate: veo, unit: "per_video_8s",
+      // Gemini Omni 1.2 Flash via ToAPIs (p10). Flat price per video, always
+      // 15 s / 720p. frame = first (+ optional last) frame; ingredient ≤5 refs.
+      name: "gemini", type: "video", rate: gemini, unit: "per_video",
       constraints: {
-        duration: { fixed: 8 },
-        image_urls: { max: 3 },
-        image_modes: VIDEO_MODES,
-        aspect_ratios: VIDEO_ASPECTS,
-        resolutions: ["720p"],
-      },
-    },
-    {
-      // Grok Imagine 1.5 Preview (xAI via APIPod) — replaces legacy
-      // grok-imagine-t2v/-i2v entirely. Image-to-video only: requires
-      // a single reference image (image_url, singular per APIPod spec).
-      // Five aspect ratios, 1-15s duration, 720p only.
-      name: "grok", type: "video", rate: grok, unit: "per_second",
-      constraints: {
-        duration: { min: 1, max: 15, default: 10 },
-        image_urls: { max: 1 },
-        image_modes: ["frame"],
-        aspect_ratios: ["1:1", "2:3", "3:2", "9:16", "16:9"],
-        resolutions: ["720p"],
-      },
-    },
-    {
-      name: "sora2", type: "video", rate: sora2, unit: "per_second",
-      constraints: {
-        duration: { enum: [8, 12] },
-        image_urls: { max: 1 },
-        image_modes: ["text", "frame"],
-        aspect_ratios: VIDEO_ASPECTS,
-        resolutions: ["720p", "480p"],
-      },
-    },
-    {
-      name: "gemini", type: "video", rate: gemini, unit: "per_video_10s",
-      constraints: {
-        // APIPod splits Gemini Omni into i2v + t2v variants. Both fixed
-        // at 10s / 720p, aspect enum locked to 16:9 | 9:16, image_urls
-        // optional (presence chooses i2v vs t2v).
-        duration: { fixed: 10 },
-        image_urls: { max: 3 },
-        image_modes: ["text", "ingredient"],
-        aspect_ratios: ["16:9", "9:16"],
-        resolutions: ["720p"],
-      },
-    },
-    {
-      name: "seedance", type: "video", rate: seedance, unit: "per_second",
-      constraints: {
-        duration: { min: 4, max: 15, default: 5 },
+        duration: { fixed: 15 },
         image_urls: { max: 5 },
         image_modes: VIDEO_MODES,
         aspect_ratios: VIDEO_ASPECTS,
-        resolutions: ["720p", "480p"],
+        resolutions: ["720p"],
+      },
+    },
+    {
+      // Grok Video 1.5 via ToAPIs (p10). Priced per second, 1–15 s, 720p.
+      // frame = first frame (1 image); ingredient = reference images (≤7).
+      name: "grok", type: "video", rate: grok, unit: "per_second",
+      constraints: {
+        duration: { min: 1, max: 15, default: 10 },
+        image_urls: { max: 7 },
+        image_modes: VIDEO_MODES,
+        aspect_ratios: VIDEO_ASPECTS,
+        resolutions: ["720p"],
       },
     },
   ];
 
-  // Kill-switch for known-broken upstream providers. Currently strips
-  // Sora 2 when APIPod's worker-side registry can't resolve the
-  // canonical model id (SORA2_DISABLED in lib/feature-flags.ts).
-  const filtered = models.filter(
-    (m) => !(SORA2_DISABLED && m.name === "sora2")
-  );
-
-  return NextResponse.json({ ok: true, models: filtered });
+  return NextResponse.json({ ok: true, models });
 }

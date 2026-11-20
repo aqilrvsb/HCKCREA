@@ -1,28 +1,29 @@
 import { NextResponse, after } from "next/server";
 import { validateMcpKey, validateMcpKeyString, mcpCallerId, getOrCreateGptProjectId } from "@/lib/mcp-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { priceFor, hasEnoughCredits } from "@/lib/deduct";
-import { getP2Config, getCinemaRate, getVeoRate, getGeminiRate, getSeedanceRate, getSetting } from "@/lib/settings";
+import { hasEnoughCredits } from "@/lib/deduct";
+import { getGeminiRate, getGrokRate } from "@/lib/settings";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // POST /api/mcp/generate/video — MCP-triggered video generation.
 //
-// Reuses the cinema route's cascade dispatch logic but with:
-//   1. API-key auth instead of session
-//   2. Explicit pre-flight credit check
-//   3. mcp_caller_id stamped for audit
-//   4. Accepts model name directly (veo / sora2 / gemini / seedance / grok)
-//
-// Model → cascade asset mapping (same as cinema route):
-//   veo / unset → "video"  (cfg.videoT2V / I2V / R2V)
-//   sora2       → "sora2"
-//   gemini      → "gemini"
-//   seedance    → "cinema"
-//   grok        → "grok"
+// Since 2026-11-20 every video runs on ToAPIs (cascade slot "p10"), so the MCP
+// offers exactly the two models the app sells:
+//   gemini (alias omni) → Gemini Omni 1.2 Flash, fixed 15 s, 720p, flat price
+//                         per video (rate_gemini)
+//   grok                → Grok Video 1.5, 1–15 s (default 10), 720p, priced
+//                         per second (rate_grok)
+// Both accept image_mode text | frame | ingredient. Retired models (veo, sora2,
+// seedance) and video_url references get a clear 400 instead of a silent swap.
+// The poll-pending cron settles the row (polls ToAPIs, re-hosts to B2,
+// deducts); /api/mcp/status/:id just reads it.
 
 export const dynamic = "force-dynamic";
 
-type ModelChoice = "veo" | "sora2" | "gemini" | "seedance" | "grok";
+type ModelChoice = "gemini" | "grok";
+
+const RETIRED = new Set(["veo", "veo3", "veo-3", "sora2", "sora-2", "seedance"]);
+const MODEL_HELP = "Available video models: 'gemini' (Omni 1.2, fixed 15s) or 'grok' (Grok 1.5, 1-15s).";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -34,15 +35,12 @@ export async function POST(req: Request) {
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
-  const prompt = String(body?.prompt || "").trim().substring(0, 5000);
+  const prompt = String(body?.prompt || "").trim().substring(0, 4000);
   const requestedModel = String(body?.model || "").trim().toLowerCase();
   const imageUrls: string[] = Array.isArray(body?.image_urls)
-    ? body.image_urls.filter((x: any) => typeof x === "string" && !!x)
+    ? body.image_urls.filter((x: any) => typeof x === "string" && /^https?:\/\//i.test(x))
     : [];
-  const aspectRatio = String(body?.aspect_ratio || "9:16");
-  // GeminiOmni Video Reference — a source/reference video URL. Both
-  // providers support it (P2 Crun video_list / P6 APIPod gemini-omni-extend).
-  const videoRefUrl = String(body?.video_url || "").trim();
+  const aspectRatio = String(body?.aspect_ratio || "") === "16:9" ? "16:9" : "9:16";
   const imageMode: "text" | "frame" | "ingredient" =
     body?.image_mode === "ingredient"
       ? "ingredient"
@@ -53,45 +51,51 @@ export async function POST(req: Request) {
   if (!prompt) {
     return NextResponse.json({ error: "prompt required" }, { status: 400 });
   }
-
-  const modelChoice: ModelChoice =
-    requestedModel === "sora2" ? "sora2" :
-    requestedModel === "gemini" ? "gemini" :
-    requestedModel === "seedance" ? "seedance" :
-    requestedModel === "grok" ? "grok" :
-    "veo";
-
-  // Per-provider duration validation (same as cinema route)
-  const duration =
-    modelChoice === "veo" ? 8 :
-    modelChoice === "sora2" ? (body?.duration === 12 || body?.duration === "12" ? 12 : 8) :
-    modelChoice === "gemini" ? 10 :
-    modelChoice === "seedance"
-      ? Math.min(15, Math.max(4, Math.round(Number(body?.duration || 5))))
-      : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
-
-  // Resolution: Gemini fixed 1080p, others default 720p
-  const resolution =
-    modelChoice === "gemini" ? "1080p"
-      : (body?.resolution === "480p" ? "480p" : "720p");
-
-  // Pre-flight cost calculation
-  let cost = 0;
-  if (modelChoice === "veo") {
-    cost = Number((await getVeoRate("8")).toFixed(4));
-  } else if (modelChoice === "sora2") {
-    const setting = await getSetting<{ rate: number }>("sora2_rate");
-    const cinemaRate = await getCinemaRate();
-    const ratePerSec = typeof setting?.rate === "number" ? setting.rate : cinemaRate * 2;
-    cost = Number((ratePerSec * duration).toFixed(4));
-  } else if (modelChoice === "gemini") {
-    cost = Number((await getGeminiRate("10")).toFixed(4));
-  } else if (modelChoice === "seedance") {
-    cost = Number(((await getSeedanceRate()) * duration).toFixed(4));
-  } else {
-    // grok
-    cost = Number(((await getCinemaRate()) * duration).toFixed(4));
+  if (RETIRED.has(requestedModel)) {
+    return NextResponse.json(
+      { error: `Model '${requestedModel}' is no longer available. ${MODEL_HELP}` },
+      { status: 400 }
+    );
   }
+  if (String(body?.video_url || "").trim()) {
+    return NextResponse.json(
+      { error: "video_url (video reference) is no longer supported — use image_urls with image_mode frame or ingredient." },
+      { status: 400 }
+    );
+  }
+  if (imageMode !== "text" && imageUrls.length === 0) {
+    return NextResponse.json(
+      { error: `image_mode '${imageMode}' needs at least one image_urls entry.` },
+      { status: 400 }
+    );
+  }
+
+  let modelChoice: ModelChoice;
+  if (!requestedModel || requestedModel === "gemini" || requestedModel === "omni" || requestedModel.startsWith("gemini-omni") || requestedModel.startsWith("omni-")) {
+    modelChoice = "gemini";
+  } else if (requestedModel === "grok" || requestedModel.startsWith("grok-")) {
+    modelChoice = "grok";
+  } else {
+    return NextResponse.json({ error: `Unknown model '${requestedModel}'. ${MODEL_HELP}` }, { status: 400 });
+  }
+
+  const duration =
+    modelChoice === "gemini"
+      ? 15
+      : Math.min(15, Math.max(1, Math.round(Number(body?.duration) || 10)));
+  const resolution = "720p";
+
+  // Ref-image caps per ToAPIs: Omni frame = first(+last) frame, ingredient ≤5;
+  // Grok frame = first frame, ingredient (reference_images) ≤7.
+  const imgs =
+    imageMode === "text" ? []
+      : imageMode === "frame" ? imageUrls.slice(0, modelChoice === "gemini" ? 2 : 1)
+      : imageUrls.slice(0, modelChoice === "gemini" ? 5 : 7);
+
+  const cost =
+    modelChoice === "gemini"
+      ? Number((await getGeminiRate("10")).toFixed(4)) // flat per Omni video
+      : Number(((await getGrokRate()) * duration).toFixed(4));
 
   // Pre-flight funds check
   const hasFunds = await hasEnoughCredits(auth.userId, cost);
@@ -103,18 +107,25 @@ export async function POST(req: Request) {
       .eq("id", auth.userId)
       .maybeSingle();
     return NextResponse.json(
-      {
-        error: "Insufficient credits",
-        balance: Number(p?.credits ?? 0),
-        needed: cost,
-      },
+      { error: "Insufficient credits", balance: Number(p?.credits ?? 0), needed: cost },
       { status: 402 }
     );
   }
 
-  // Insert placeholder row. GPT-generated videos are filed under the
-  // client's auto "GPT" project → they show in that project's Original
-  // Video history (tab='original-video').
+  const primaryModel = modelChoice === "gemini" ? "google/gemini-omni" : "grok-video-1.5";
+  const baseMeta = {
+    imageMode,
+    resolution,
+    aspectRatio,
+    cinemaProvider: "toapis",
+    modelChoice,
+    featureType: "original-video",
+    image_urls: imgs,
+    mcp_caller_id: mcpCallerId(auth.keyPrefix),
+  };
+
+  // Insert placeholder row. MCP/GPT videos are filed under the client's auto
+  // "GPT" project → they show in that project's Original Video history.
   const admin = createAdminClient();
   const gptProjectId = await getOrCreateGptProjectId(auth.userId);
   const { data: hist, error: insErr } = await admin
@@ -126,100 +137,39 @@ export async function POST(req: Request) {
       tab: "original-video",
       status: "pending",
       prompt,
-      reference_url: imageUrls[0] || null,
+      reference_url: imgs[0] || null,
       task_id: null,
       duration,
       cost,
-      metadata: {
-        imageMode,
-        resolution,
-        aspectRatio: imageMode !== "text" ? null : aspectRatio,
-        cinemaProvider:
-          modelChoice === "veo" ? "veo" :
-          modelChoice === "sora2" ? "apipod" :
-          modelChoice === "gemini" ? "crun" :
-          modelChoice === "seedance" ? "bytedance" :
-          "grok-imagine",
-        modelChoice,
-        featureType: "original-video",
-        image_urls: imageUrls,
-        upload_status: "queued",
-        mcp_caller_id: mcpCallerId(auth.keyPrefix),
-        ...(modelChoice === "sora2" ? { model: "sora-2-vip", sora2Provider: "apipod" } : {}),
-        ...(modelChoice === "gemini" ? { model: "google/gemini-omni" } : {}),
-      },
+      metadata: { ...baseMeta, upload_status: "queued", model: primaryModel },
     })
     .select("id")
     .single();
 
   if (insErr || !hist) {
-    return NextResponse.json(
-      { error: "DB insert failed", detail: insErr?.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "DB insert failed", detail: insErr?.message }, { status: 500 });
   }
   const historyId = hist.id;
 
-  // Background fire — resolves model id, fires cascade, updates row.
+  // Background fire — ToAPIs via the video cascade (p10 main + p10 fallbacks).
   after(async () => {
     try {
-      const cfg = await getP2Config();
-      let model: string;
-      if (modelChoice === "veo") {
-        model = imageMode === "ingredient" ? cfg.videoR2V
-          : imageMode === "frame" ? cfg.videoI2V
-          : cfg.videoT2V;
-      } else if (modelChoice === "sora2") {
-        model = "sora2";
-      } else if (modelChoice === "gemini") {
-        model = "google/gemini-omni";
-      } else if (modelChoice === "seedance") {
-        model = "seedance"; // p2/p6 adapters auto-resolve t2v/i2v/r2v
-      } else {
-        model = imageMode !== "text" ? cfg.grokI2V : cfg.grokT2V;
-      }
-
-      // Video Reference (gemini only) is video-only — no images.
-      const useVideoRef = modelChoice === "gemini" && !!videoRefUrl;
-      const imgs = useVideoRef ? []
-        : imageMode === "text" ? []
-        : modelChoice === "sora2" ? imageUrls.slice(0, 1)
-        : modelChoice === "seedance" ? imageUrls.slice(0, 5)
-        : imageUrls.slice(0, 3);
-
       const result = await generateVideoWithCascade({
-        primaryModel: model,
+        primaryModel,
         prompt,
         imageUrls: imgs,
-        refVideoUrl: useVideoRef ? videoRefUrl : undefined,
         durationMode: String(duration),
         aspectRatio,
         imageMode,
-        asset:
-          modelChoice === "grok" ? "grok" :
-          modelChoice === "sora2" ? "sora2" :
-          modelChoice === "gemini" ? "gemini" :
-          modelChoice === "seedance" ? "cinema" :
-          "video",
+        asset: modelChoice,
       });
 
       if (result.ok) {
         await admin.from("history").update({
           task_id: result.taskId,
           metadata: {
-            imageMode, resolution,
-            aspectRatio: imageMode !== "text" ? null : aspectRatio,
-            cinemaProvider:
-              modelChoice === "veo" ? "veo" :
-              modelChoice === "sora2" ? "apipod" :
-              modelChoice === "gemini" ? "crun" :
-              modelChoice === "seedance" ? "bytedance" :
-              "grok-imagine",
-            modelChoice,
-            featureType: "original-video",
-            image_urls: imageUrls,
+            ...baseMeta,
             upload_status: "done",
-            mcp_caller_id: mcpCallerId(auth.keyPrefix),
             model: result.actualModel,
             provider: result.actualProvider,
             slot: result.actualSlot,
@@ -232,31 +182,13 @@ export async function POST(req: Request) {
         await admin.from("history").update({
           status: "failed",
           error_message: result.error,
-          metadata: {
-            imageMode, resolution,
-            aspectRatio: imageMode !== "text" ? null : aspectRatio,
-            cinemaProvider:
-              modelChoice === "veo" ? "veo" :
-              modelChoice === "sora2" ? "apipod" :
-              modelChoice === "gemini" ? "crun" :
-              modelChoice === "seedance" ? "bytedance" :
-              "grok-imagine",
-            modelChoice,
-            featureType: "original-video",
-            image_urls: imageUrls,
-            upload_status: "failed",
-            mcp_caller_id: mcpCallerId(auth.keyPrefix),
-            tier_log: result.tierLog,
-          },
+          metadata: { ...baseMeta, upload_status: "failed", tier_log: result.tierLog },
         }).eq("id", historyId);
       }
     } catch (e: any) {
       await admin
         .from("history")
-        .update({
-          status: "failed",
-          error_message: e?.message || "Background error",
-        })
+        .update({ status: "failed", error_message: e?.message || "Background error" })
         .eq("id", historyId);
     }
   });
