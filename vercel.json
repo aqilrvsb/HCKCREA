@@ -20,10 +20,6 @@
     {
       "path": "/api/worker/gpu-billing",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/worker/toapis-balance",
-      "schedule": "*/15 * * * *"
     }
   ]
 }

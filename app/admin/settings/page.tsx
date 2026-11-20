@@ -120,14 +120,6 @@ export default function AdminSettings() {
   const [savingP7, setSavingP7] = useState(false);
   const [p7Msg, setP7Msg] = useState<string | null>(null);
 
-  // ToAPIs (p10) low-balance WhatsApp alert — app_settings.toapis_system_token
-  // = { token } (System Access Token, reads the account balance) and
-  // toapis_low_balance_usd = { usd }. Cron: /api/worker/toapis-balance.
-  const [toapisToken, setToapisToken] = useState("");
-  const [toapisThreshold, setToapisThreshold] = useState("5");
-  const [savingToapis, setSavingToapis] = useState(false);
-  const [toapisMsg, setToapisMsg] = useState<string | null>(null);
-
   // Touch 'n Go manual top-up destination (shown to clients on the top-up page).
   const [tngNumber, setTngNumber] = useState("");
   const [tngName, setTngName] = useState("");
@@ -451,12 +443,6 @@ export default function AdminSettings() {
         if (row.key === "tng_qr_url") setTngQr(String(row.value?.url || ""));
         if (row.key === "p7_key") {
           setP7Key(String(row.value?.key || ""));
-        }
-        if (row.key === "toapis_system_token") {
-          setToapisToken(String(row.value?.token || ""));
-        }
-        if (row.key === "toapis_low_balance_usd") {
-          setToapisThreshold(String(row.value?.usd ?? "5"));
         }
         if (row.key === "extension_download_url") {
           setExtDownloadUrl(String(row.value?.url || ""));
@@ -1132,50 +1118,6 @@ export default function AdminSettings() {
     }
   }
 
-  async function saveToapisAlert() {
-    setSavingToapis(true);
-    setToapisMsg(null);
-    try {
-      const usd = Number(toapisThreshold);
-      if (!Number.isFinite(usd) || usd <= 0) {
-        setToapisMsg("✗ Paras amaran mesti nombor lebih dari 0 (USD).");
-        return;
-      }
-      await fetch("/api/admin/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: "toapis_system_token", value: { token: toapisToken.trim() } }),
-      });
-      await fetch("/api/admin/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: "toapis_low_balance_usd", value: { usd } }),
-      });
-      setToapisMsg("✓ Saved. Tekan \"Check now\" untuk uji token.");
-      void load();
-    } finally {
-      setSavingToapis(false);
-    }
-  }
-
-  async function checkToapisNow() {
-    setToapisMsg("Checking…");
-    try {
-      const r = await fetch("/api/admin/toapis-balance", { cache: "no-store" });
-      const d = await r.json();
-      if (d?.ok) {
-        const low = d.remainingUsd < d.thresholdUsd;
-        setToapisMsg(
-          `${low ? "⚠️" : "✓"} Baki ToAPIs: $${Number(d.remainingUsd).toFixed(2)} (${Math.round(d.remainingCredits)} credits) · amaran bawah $${Number(d.thresholdUsd).toFixed(2)}${low ? " — RENDAH, sila top up" : ""}`
-        );
-      } else {
-        setToapisMsg(`✗ ${d?.error || "Gagal baca baki"}`);
-      }
-    } catch (e: any) {
-      setToapisMsg(`✗ ${e?.message || "Network error"}`);
-    }
-  }
-
   async function saveP7Key() {
     setSavingP7(true);
     setP7Msg(null);
@@ -1573,9 +1515,7 @@ export default function AdminSettings() {
     // Manual Touch 'n Go top-up — edited via the dedicated card above.
     "tng_account",
     "tng_qr_url",
-    // ToAPIs low-balance alert — dedicated card (token must not show raw).
-    "toapis_system_token",
-    "toapis_low_balance_usd",
+    // ToAPIs out-of-credit alert bookkeeping (lib/toapis-balance.ts).
     "toapis_balance_alert_state",
     "price_video_16s",
     "rate_banana_pro",
@@ -2720,41 +2660,6 @@ export default function AdminSettings() {
           the version + download URL the extension reads. The extension
           calls /api/extension/verify on launch; if its bundled version
           doesn't match this, it tells the user to update. */}
-      {/* ToAPIs (p10) low-balance alert — every video runs on ToAPIs. */}
-      <div className="card p-6 mb-6 border-2 border-sky-200 bg-sky-50/40">
-        <div className="flex items-center gap-2 mb-1">
-          <Wallet className="w-5 h-5 text-sky-600" />
-          <h2 className="font-display font-bold text-lg">ToAPIs — Low Balance Alert</h2>
-        </div>
-        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Semua video guna ToAPIs. Setiap 15 minit PeningLab semak baki akaun ToAPIs dan
-          WhatsApp admin bila baki bawah paras amaran (ulang paling kerap 6 jam sekali).
-          Kalau ToAPIs tolak video sebab kredit habis, admin dapat WhatsApp serta-merta
-          (yang ni tak perlu token).
-          <br />
-          Token: toapis.com → <b>Settings</b> → <b>System Access Token</b> → Generate, kemudian paste di sini.
-          (Bukan API key sk-…)
-        </p>
-        <div className="grid md:grid-cols-[1fr_180px] gap-4">
-          <div>
-            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">ToAPIs System Access Token</label>
-            <input type="password" value={toapisToken} onChange={(e) => setToapisToken(e.target.value)} placeholder="paste token" className="input" autoComplete="off" />
-          </div>
-          <div>
-            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">Amaran bawah (USD)</label>
-            <input type="number" min={1} step={1} value={toapisThreshold} onChange={(e) => setToapisThreshold(e.target.value)} className="input" />
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2 mt-4">
-          <button onClick={saveToapisAlert} disabled={savingToapis} className="btn-primary disabled:opacity-50">
-            {savingToapis ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save
-          </button>
-          <button onClick={checkToapisNow} className="btn-secondary">Check now</button>
-        </div>
-        {toapisMsg && <div className="text-xs mt-2 font-semibold">{toapisMsg}</div>}
-      </div>
-
       {/* Touch 'n Go manual top-up — account + QR shown to clients. */}
       <div className="card p-6 mb-6 border-2 border-amber-200 bg-amber-50/40">
         <div className="flex items-center gap-2 mb-1">
