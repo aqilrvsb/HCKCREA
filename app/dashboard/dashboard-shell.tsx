@@ -759,7 +759,7 @@ function ProjectView({
               <div className="max-w-5xl mx-auto w-full">
                 <ImageTabWithMode projectId={project.id} allowImage={allowImageMode} allowStoryboard={allowStoryboardMode} />
               </div>
-              <HistoryGrid tab="image" title={`Image — ${project.name}`} projectId={project.id} />
+              <HistoryGrid tab="image" title={`StoryBoard — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "video" && (

@@ -73,7 +73,7 @@ export default function CheckStatusButton({
           onClick={check}
           disabled={loading}
           title="Check status with Chip"
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-[var(--color-border)] hover:border-violet-300 transition text-xs font-semibold disabled:opacity-50"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--color-bg-card)] text-[var(--color-text-primary)] border border-[var(--color-border)] hover:border-amber-400 transition text-xs font-semibold disabled:opacity-50"
         >
           {loading ? (
             <Loader2 className="w-3 h-3 animate-spin" />
