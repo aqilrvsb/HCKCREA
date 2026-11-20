@@ -2,7 +2,7 @@
 
 // Storyboard mode (Images tab) — same Load Data → MAIN → SUB flow as the
 // livechat, plus a quantity selector. Generate fires N 9:16 storyboard GRID
-// images (gpt-image-2) that land in the Images history grid below.
+// images (gpt-image-2.6) that land in the Images history grid below.
 
 import { useEffect, useState } from "react";
 import { Loader2, Sparkles, UserRound } from "lucide-react";
@@ -162,7 +162,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
 
   // A loaded attachment that fails to render (dead/expired/hotlink-blocked URL —
   // e.g. an old scraped image that 403s) is CLEARED so the slot goes back to an
-  // empty uploader. The product's images are the gpt-image-2 visual reference,
+  // empty uploader. The product's images are the gpt-image-2.6 visual reference,
   // so a dead image would produce a broken storyboard/video — better to force a
   // fresh upload. Guarded so a genuinely-empty slot doesn't loop.
   function clearInvalidSlot(i: number) {
@@ -448,7 +448,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
             </div>
           );
         })()}
-        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload minimum 1 attachment produk (wajib) — 2 lagi optional (lagi banyak angle = rujukan visual gpt-image-2 lebih tepat). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan (atau link Shopee) → Tiada Link Product. Paste link TikTok Shop / Shopee + tekan ⚡ Tarik Info → nama, detail &amp; sampai 3 gambar diisi automatik.</p>
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload minimum 1 attachment produk (wajib) — 2 lagi optional (lagi banyak angle = rujukan visual GPT Image 2.6 lebih tepat). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan (atau link Shopee) → Tiada Link Product. Paste link TikTok Shop / Shopee + tekan ⚡ Tarik Info → nama, detail &amp; sampai 3 gambar diisi automatik.</p>
         {/* Make the reference budget visible BEFORE generating. Products loaded
             from the extension arrive with only 1 photo, and 1 angle is a much
             weaker identity lock than 3 — the client should see that and can

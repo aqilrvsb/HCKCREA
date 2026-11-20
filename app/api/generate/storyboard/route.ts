@@ -24,9 +24,9 @@ export const dynamic = "force-dynamic";
 //   • 2+ subs selected  → a CONNECTED campaign storyline: one storyboard per
 //                         sub, in order, that continue each other (opening →
 //                         … → closing/CTA). quantity is ignored.
-// Each fires a 9:16 storyboard GRID image (gpt-image-2) into the Images grid.
+// Each fires a 9:16 storyboard GRID image (gpt-image-2.6) into the Images grid.
 
-const STORYBOARD_MODEL = "gpt-image-2";
+const STORYBOARD_MODEL = "gpt-image-2.6"; // GPT Image 2.6 since 2026-11-20 (Grsai p4 first; other slots fall back to gpt-image-2)
 
 // HARD RULE — storyboard grids must be 100% caption/subtitle free. Appended to
 // every final image prompt so it holds no matter what the planner wrote. The
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
   }
   // At least ONE product photo is mandatory. The check above is an AND, so a
   // request carrying a product NAME but zero photos used to pass — and a
-  // storyboard with no product reference means gpt-image-2 invents the
+  // storyboard with no product reference means gpt-image-2.6 invents the
   // packaging wholesale (wrong colour/cap/shape/label), which is the single
   // worst version of the "produk tak sama" complaint. The UI already gates on
   // name + >=1 attachment; this closes the API-level hole.
