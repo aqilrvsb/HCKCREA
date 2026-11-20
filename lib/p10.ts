@@ -137,6 +137,12 @@ export async function p10CreateVideo(input: {
     if (ok && id) return { ok: true, task_id: String(id), model: body.model, raw: data, provider: "p10" };
     lastErr = errOf(data, status, text);
     lastRaw = data;
+    // Out of ToAPIs credit → retrying can't help; WhatsApp the admins now.
+    const { isToapisOutOfCredit, alertToapisOutOfCredit } = await import("@/lib/toapis-balance");
+    if (status === 402 || isToapisOutOfCredit(lastErr)) {
+      await alertToapisOutOfCredit(lastErr);
+      return { ok: false, error: `ToAPIs: ${lastErr}`, raw: lastRaw, provider: "p10" };
+    }
     if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
   }
   return { ok: false, error: `ToAPIs: ${lastErr} (3 attempts)`, raw: lastRaw, provider: "p10" };
