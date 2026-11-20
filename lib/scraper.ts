@@ -279,7 +279,10 @@ async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
   const pm = productInfo?.product_model || {};
   const promo = productInfo?.promotion_model?.promotion_product_price;
 
-  const productName: string = pm.name || "";
+  // Late-2026 TikTok payload: product_info carries title / images /
+  // desc_blocks / price / sold_count directly (product_model is gone).
+  // Read the new fields when the old ones are missing.
+  const productName: string = pm.name || productInfo?.title || "";
 
   // Cover image — TikTok keeps two completely separate image sets:
   //   • pm.images[]    — promo / lifestyle / hero shots used on home
@@ -300,7 +303,11 @@ async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
     return `https://p16-oec-sg.ibyteimg.com/${uri}~tplv-${bucketId}-crop-webp:1000:1000.webp`;
   }
 
-  const galleryImages: any[] = Array.isArray(pm.images) ? pm.images : [];
+  const galleryImages: any[] = Array.isArray(pm.images)
+    ? pm.images
+    : Array.isArray(productInfo?.images)
+      ? productInfo.images
+      : [];
   const firstSkuImage = pm?.skus?.[0]?.sku_image;
   const skuConstructedUrl = buildTikTokImageUrl(firstSkuImage?.uri || "");
   // Fall back order:
@@ -329,15 +336,28 @@ async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
     "";
   const priceText =
     rangeStr && rangeStr.includes("-") ? rangeStr : minSale || "";
-  const price = priceText ? `${symbol} ${priceText}`.trim() : "";
+  const price = priceText
+    ? `${symbol} ${priceText}`.trim()
+    : String(productInfo?.price?.real_price || "").trim();
 
-  const totalSold: string = pm.sold_count ? String(pm.sold_count) : "";
+  const totalSold: string = pm.sold_count
+    ? String(pm.sold_count)
+    : productInfo?.sold_count
+      ? String(productInfo.sold_count)
+      : "";
 
   // description is a JSON-encoded array of structured blocks:
   //   [{type:"text", text:"..."}, {type:"image", ...}, ...]
   // Pull just the text entries and join — those are the user-readable
   // marketing copy. Falls back to raw if it isn't JSON-encoded.
   const description = (() => {
+    if (!pm.description && Array.isArray(productInfo?.desc_blocks)) {
+      return productInfo.desc_blocks
+        .filter((b: any) => b?.type === "text" && typeof b.text === "string")
+        .map((b: any) => b.text.trim())
+        .filter(Boolean)
+        .join("\n");
+    }
     if (!pm.description) return "";
     try {
       const blocks = JSON.parse(pm.description);

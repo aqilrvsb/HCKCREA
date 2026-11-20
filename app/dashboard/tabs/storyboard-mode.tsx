@@ -59,6 +59,8 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [slotUploading, setSlotUploading] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  // "⚡ Tarik Info" — TikTok Shop / Shopee link → name + detail + ≤3 photos.
+  const [pulling, setPulling] = useState(false);
   const [main, setMain] = useState<"ugc" | "pc" | "custom" | null>(null);
   // Multi-select, CROSS-MAIN. 1 sub → quantity mode (1–10 of the same sub).
   // 2+ subs → connected campaign storyline (one storyboard per sub, in order);
@@ -153,6 +155,37 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       return a;
     });
     setSavedMsg(`⚠ Attachment ${i + 1} tak sah / dah expired — dah dibuang. Upload gambar baru untuk slot tu.`);
+  }
+
+  // Paste a TikTok Shop (beg kuning) or Shopee link → pull the real product
+  // name, a Detail Product draft and up to 3 photos into the form. The client
+  // reviews, then presses Save Info Product as usual.
+  async function pullFromLink() {
+    const url = pLink.trim();
+    if (!/^https?:\/\//i.test(url)) { setSavedMsg("Paste link produk TikTok Shop / Shopee dulu."); return; }
+    setPulling(true);
+    setSavedMsg(null);
+    setErr(null);
+    try {
+      const r = await fetch("/api/product/from-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal tarik info produk");
+      if (d.name) setPName(String(d.name));
+      if (d.detail) setPDetail(String(d.detail));
+      if (Array.isArray(d.images) && d.images.length) setPImgs(d.images.slice(0, 3));
+      setMain(null);
+      setSubs([]);
+      const src = d.source === "shopee" ? "Shopee" : "TikTok Shop";
+      setSavedMsg(`✓ Info ditarik dari ${src} (${(d.images || []).length} gambar). Semak dulu, kemudian tekan Save Info Product.${d.note ? ` ⚠ ${d.note}` : ""}`);
+    } catch (e: any) {
+      setSavedMsg(e?.message || "Gagal tarik info produk");
+    } finally {
+      setPulling(false);
+    }
   }
 
   // Save the current form as a reusable preset. Beg Kuning link present →
@@ -322,8 +355,13 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         <input type="text" maxLength={120} value={pName} onChange={(e) => setPName(e.target.value)} placeholder="e.g. LUQFA Lotion 100ml" className="w-full p-2 rounded text-xs outline-none mb-2 text-[var(--color-text-primary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }} />
         <label className="block text-[9px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Detail Product</label>
         <textarea rows={3} maxLength={3000} value={pDetail} onChange={(e) => setPDetail(e.target.value)} placeholder="Price, USP, ingredients, benefits…" className="w-full p-2 rounded text-xs resize-y outline-none mb-2 text-[var(--color-text-primary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }} />
-        <label className="block text-[9px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Link Beg Kuning <span style={{ color: "var(--color-text-muted)" }}>(optional)</span></label>
-        <input type="url" value={pLink} onChange={(e) => setPLink(e.target.value)} placeholder="https://www.tiktok.com/... (kosongkan = Tiada Link Product)" className="w-full p-2 rounded text-xs outline-none mb-2 text-[var(--color-text-primary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }} />
+        <label className="block text-[9px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Link Beg Kuning / Shopee <span style={{ color: "var(--color-text-muted)" }}>(optional — tekan ⚡ Tarik Info untuk isi auto)</span></label>
+        <div className="flex gap-2 mb-2">
+          <input type="url" value={pLink} onChange={(e) => setPLink(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !pulling) { e.preventDefault(); void pullFromLink(); } }} placeholder="https://www.tiktok.com/... atau https://shopee.com.my/... (kosongkan = Tiada Link Product)" className="flex-1 min-w-0 p-2 rounded text-xs outline-none text-[var(--color-text-primary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }} />
+          <button type="button" onClick={() => void pullFromLink()} disabled={pulling || !pLink.trim()} title="Tarik nama, detail & sampai 3 gambar dari link TikTok Shop / Shopee" className="px-3 rounded text-xs font-extrabold whitespace-nowrap disabled:opacity-40 inline-flex items-center gap-1.5" style={{ background: THEME, color: "#1a1a1a" }}>
+            {pulling ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Menarik…</> : "⚡ Tarik Info"}
+          </button>
+        </div>
 
         {/* Attachment slots — only slot 1 is required; slots 2 & 3 optional. */}
         <div className="flex items-stretch gap-2 mt-1">
@@ -350,7 +388,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         {savedMsg && (
           <div className="text-[11px] mt-1.5 font-semibold" style={{ color: savedMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>{savedMsg}</div>
         )}
-        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload minimum 1 attachment produk (wajib) — 2 lagi optional (lagi banyak angle = rujukan visual gpt-image-2 lebih tepat). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan → Tiada Link Product.</p>
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload minimum 1 attachment produk (wajib) — 2 lagi optional (lagi banyak angle = rujukan visual gpt-image-2 lebih tepat). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan (atau link Shopee) → Tiada Link Product. Paste link TikTok Shop / Shopee + tekan ⚡ Tarik Info → nama, detail &amp; sampai 3 gambar diisi automatik.</p>
         {/* Make the reference budget visible BEFORE generating. Products loaded
             from the extension arrive with only 1 photo, and 1 angle is a much
             weaker identity lock than 3 — the client should see that and can

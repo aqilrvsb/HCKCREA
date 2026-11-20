@@ -56,7 +56,9 @@ export async function POST(req: Request) {
   // beg_kuning_url; legacy callers may still send kind + product_id.
   const begKuningUrl = String(body?.beg_kuning_url || "").trim();
   let productId = body?.product_id ? String(body.product_id).trim() : null;
-  if (!productId && begKuningUrl) {
+  // Only TikTok links carry a Beg Kuning product id — a Shopee link (or its
+  // long tracking params) must not be mistaken for one → Tiada Link Product.
+  if (!productId && begKuningUrl && /^https?:\/\/([a-z0-9-]+\.)*tiktok\.com\//i.test(begKuningUrl)) {
     const m =
       begKuningUrl.match(/(?:product|pdp(?:\/[^/?]+)*)\/(\d{13,20})(?:[/?#]|$)/i) ||
       begKuningUrl.match(/\/(\d{13,20})(?:[/?#]|$)/) ||
