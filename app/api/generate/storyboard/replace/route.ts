@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 // avatar stored on the row's metadata; rebuilds the prompt from the new sub's
 // card. Used from the History card when a storyboard is broken/unwanted.
 
-const STORYBOARD_MODEL = "gpt-image-2.6"; // GPT Image 2.6 since 2026-11-20 (Grsai p4 first; other slots fall back to gpt-image-2)
+const STORYBOARD_MODEL = "nano-banana-2.1"; // Nano Banana 2.1 since 2026-11-20 — side-by-side test kept the real packaging (GPT Image 2.6 recoloured it). Grsai p4 first at 2K; other slots fall back to nano-banana-2
 const mainLabelOf = (m: "ugc" | "pc") => (m === "pc" ? "Product Commercial (polished, cinematic)" : "UGC (realistic, TikTok/Reels)");
 
 export async function POST(req: Request) {
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     .slice(0, 2);
   const avatarUrl = avatarUrls[0] || "";
 
-  const unit = await priceFor(user.id, "image_generate", "gpt_image");
+  const unit = await priceFor(user.id, "image_generate", "banana_pro"); // same rate settle.ts charges for nano-banana models
   if (!(await hasEnoughCredits(user.id, unit))) {
     return NextResponse.json({ error: `Kredit tak cukup (perlu RM ${unit.toFixed(2)}).` }, { status: 402 });
   }
