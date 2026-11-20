@@ -271,7 +271,7 @@ export async function POST(req: Request) {
       // their ACTIONS differ; standalone grids must also differ VISUALLY.
       const dedupWhat = job.campaign
         ? `a different moment of the story — different actions, opening scene, framing and props (the campaign's shared look and presenter stay the same)`
-        : `a different hook, opening scene, setting/location, presenter wardrobe and styling, light/time of day, camera framing, panel layout and colour mood`;
+        : `a different hook, opening scene, setting/location, ${avatarUrl ? "presenter wardrobe and styling" : "presenter (age, ethnicity — Melayu, Cina or India — hijab or not) with their own wardrobe and styling"}, light/time of day, camera framing, panel layout and colour mood`;
       const dedupSection = avoidList.length
         ? `\n\n<already_used_concepts>\nThese concepts were already made for this client in the past 7 days or earlier in this batch. TikTok treats look-alike creatives on one account as duplicates and limits their reach, so this storyboard needs ${dedupWhat}. Reusing the same sub-style is fine; reusing a hook, scene or look is not.\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n</already_used_concepts>`
         : ``;
@@ -281,7 +281,7 @@ export async function POST(req: Request) {
       // so segments stay visually coherent.
       const visualDistinct = job.campaign
         ? ``
-        : `\n\n<art_direction>\nChoose this grid's look on purpose instead of a default template: a specific setting/location, presenter wardrobe and styling, light and time of day, camera framing, panel layout (for example 3x3, 2x3 or 2x4) and colour mood. Only the product packaging/label and the ${avatarUrl ? "locked presenter face" : "presenter"} stay fixed — everything else should feel freshly chosen.\n</art_direction>`;
+        : `\n\n<art_direction>\nChoose this grid's look on purpose instead of a default template: a specific setting/location, ${avatarUrl ? "presenter wardrobe and styling" : "presenter (age, ethnicity — Melayu, Cina or India to suit the product — hijab or not)"}, light and time of day, camera framing, panel layout (for example 3x3, 2x3 or 2x4) and colour mood. Inside this grid keep the product packaging/label and ${avatarUrl ? "the locked presenter face" : "the one chosen presenter"} the same in every panel; everything else should feel freshly chosen.\n</art_direction>`;
 
       const userPrompt =
         `<brief>\nProduct: ${productName || "(unnamed)"}\nDetail: ${productDetail || "(none)"}\n` +
