@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
-import { buildVeoLocks, getVoiceDescription } from "@/lib/veo-voices";
+import { buildVeoLocks, buildOmniGrokLocks, getVoiceDescription } from "@/lib/veo-voices";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // POST /api/generate/video — UGC tab. Placeholder-first + auth-light.
@@ -109,7 +109,11 @@ export async function POST(req: Request) {
   // consistent. Kept concise on purpose so every model (Veo / Sora 2)
   // parses it cleanly. For Sora 2, p6.transformPromptForSora2 rewrites
   // the quoted `Spoken dialog: "..."` line into a Dialogue: block.
-  const rawPrompt = buildUgcScenePrompt({ imageMode, imageUrls, hasAvatar, dialog, gender });
+  // Omni 1.2 / Grok 1.5 (the two engines the Dialog UGC UI offers since
+  // 2026-11-20) get a UGC-consistent scene + their own plain-language lock
+  // block; the legacy Veo / Sora 2 paths keep the original Veo locks.
+  const omniOrGrok = provider === "omni" || provider === "grok";
+  const rawPrompt = buildUgcScenePrompt({ imageMode, imageUrls, hasAvatar, dialog, gender, ugcLook: omniOrGrok });
 
   // Append the canonical Veo lock block (same one used by UGC agent + Auto
   // Content). Voice character — STRICT pick from the 30-voice catalog:
@@ -125,15 +129,22 @@ export async function POST(req: Request) {
   // pickVoiceByPersona.
   const prompt =
     rawPrompt +
-    buildVeoLocks({
-      voiceId: voiceId || undefined,
-      gender,
-      age: "30s",
-      hijab: isHijab,
-      // Grok's DIALOG LENGTH LOCK scales with its slider (3 words/sec); Omni 1.2 is 15s;
-      // Veo + Sora stay on the 8s window.
-      durationSec: provider === "grok" ? grokDuration : provider === "omni" ? OMNI_DURATION : 8,
-    });
+    (omniOrGrok
+      ? buildOmniGrokLocks({
+          voiceId: voiceId || undefined,
+          gender,
+          age: "30s",
+          hijab: isHijab,
+          durationSec: provider === "grok" ? grokDuration : OMNI_DURATION,
+        })
+      : buildVeoLocks({
+          voiceId: voiceId || undefined,
+          gender,
+          age: "30s",
+          hijab: isHijab,
+          // Veo + Sora stay on the 8s window.
+          durationSec: 8,
+        }));
 
   // Billing reason — Sora 2 always bills under video_8s for now (admin
   // can refine later). Veo uses the canonical video_8s / video_16s split.
@@ -531,6 +542,10 @@ function buildUgcScenePrompt(opts: {
   hasAvatar: boolean;
   dialog: string;
   gender: "male" | "female";
+  /** Omni / Grok: UGC look that agrees with the lock block (the legacy
+   *  "soft studio / premium commercial" line contradicted the UGC
+   *  authenticity + negative rules). */
+  ugcLook?: boolean;
 }): string {
   // Strip quote chars: the Sora 2 transform delimits the dialog on quotes,
   // so a stray quote inside would truncate the captured line.
@@ -543,8 +558,9 @@ function buildUgcScenePrompt(opts: {
   const speak =
     "looks at the camera and speaks the dialog naturally in Malay with realistic lip sync — warm, confident, friendly seller tone";
   // Look line — lighting + render-quality only, compact (no camera move).
-  const look =
-    "Soft studio lighting, clean background, shallow depth of field, ultra realistic, premium commercial look, 720p cinematic.";
+  const look = opts.ugcLook
+    ? "Smartphone selfie-style video, natural daylight, a real Malaysian home in the background, sharp focus on the face and the product, photorealistic."
+    : "Soft studio lighting, clean background, shallow depth of field, ultra realistic, premium commercial look, 720p cinematic.";
 
   let scene: string;
   if (opts.imageMode === "frame") {

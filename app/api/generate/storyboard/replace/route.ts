@@ -1,11 +1,17 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { orChat } from "@/lib/openrouter";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { loadSubCards, extractGlobalRules, extractSubCard } from "@/lib/storyboard-cards";
-import { productLockRule } from "@/lib/storyboard-locks";
+import {
+  productLockRule,
+  nanoBananaGuide,
+  conceptOf,
+  planStoryboardPrompt,
+  loadPastConcepts,
+  STORYBOARD_OUTPUT_FORMAT,
+} from "@/lib/storyboard-locks";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -91,7 +97,7 @@ export async function POST(req: Request) {
       ? "NO captions/subtitles/on-screen text anywhere (pure visuals only)"
       : "one short claim-safe BM caption per frame";
 
-    const sysPrompt = card
+    const sysPromptBase = card
       ? `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n${globalRules}\n\n=== SUB-CATEGORY CARD (${sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\nWrite the storyboard image prompt now: begin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, this card's Signature + shots as per-frame directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), ${captionClause}, neutral problem framing. Output ONLY the final image prompt.`
       : `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${sub}" sub-style under ${mainLabel}, Malaysian talent, ${captionClause}, product identity locked, neutral framing. Output ONLY the final image prompt.`;
 
@@ -112,8 +118,22 @@ export async function POST(req: Request) {
       roleLine += `CAMPAIGN RULES: it must CONTINUE the story of the other segments (same product identity, distinct actions — never duplicate another segment's hero action). Only the final segment has a CTA.\n`;
     }
 
+    // Render-engine notes — storyboards are drawn by Nano Banana 2.1 (2026-11-20).
+    const sysPrompt = sysPromptBase + nanoBananaGuide(meta.no_subtitle === true);
+
+    // NO-REPEAT: the replacement must also differ from this project's past-7-day
+    // concepts (the row being replaced is already deleted above).
+    const avoidList = (
+      await loadPastConcepts(admin, { projectId: (row as any).project_id ?? null, userId: user.id, excludeId: targetId })
+    ).slice(0, 24);
+    const dedupSection = avoidList.length
+      ? `\n\n<already_used_concepts>\nThese concepts were already made for this client in the past 7 days. TikTok treats look-alike creatives on one account as duplicates and limits their reach, so this storyboard needs a different hook, opening scene, setting, presenter styling, light, camera framing, panel layout and colour mood${isCampaign ? " (a campaign segment keeps the campaign's shared look and presenter; only its moment and actions change)" : ""}.\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n</already_used_concepts>`
+      : ``;
+
     const userPrompt =
-      `Product: ${productName || "(unnamed)"}\nDetail: ${productDetail || "(none)"}\nSub-style: ${sub} · Category: ${mainLabel}\n${roleLine}${avatarLine}Write the storyboard image prompt now.`;
+      `<brief>\nProduct: ${productName || "(unnamed)"}\nDetail: ${productDetail || "(none)"}\nSub-style: ${sub} · Category: ${mainLabel}\n${roleLine}${avatarLine}</brief>` +
+      dedupSection +
+      STORYBOARD_OUTPUT_FORMAT;
 
     // Built BEFORE the locks so productLockRule's index map ("images 3–5 are
     // the product") describes what is ACTUALLY sent — the cap-5 slice can drop
@@ -124,12 +144,18 @@ export async function POST(req: Request) {
     const sentProducts = refImages.length - sentAvatars;
 
     let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian UGC talent, product shown clearly with exact label.`;
+    let concept = "";
     try {
-      const llm = await orChat({ modelKey: "model_custom_idea", systemPrompt: sysPrompt, userPrompt, temperature: 0.9, maxTokens: 800 });
-      if (llm.ok && llm.content && llm.content.trim().length > 40) prompt = llm.content.trim();
+      // Sonnet 5.5 plans; a concept too close to an already-used one gets one re-ask.
+      const got = await planStoryboardPrompt({ systemPrompt: sysPrompt, userPrompt, avoidList, productName: productName || "", temperature: 0.9 });
+      if (got) {
+        prompt = got.prompt;
+        concept = got.concept;
+      }
     } catch {
       /* fall back */
     }
+    if (!concept) concept = conceptOf(prompt);
     if (avatarUrl) prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
     // Hard product lock — colour / cap / shape / label text copied verbatim.
     // Counts are taken from refImages (post cap-5 slice) so the index map
@@ -147,7 +173,7 @@ export async function POST(req: Request) {
     const r = await generateImageWithCascade({ primaryModel: STORYBOARD_MODEL, prompt, aspectRatio: "9:16", imageUrls: refImages.length > 0 ? refImages : undefined });
     if (r.ok) {
       const { data: cur } = await admin.from("history").select("metadata").eq("id", targetId).single();
-      await admin.from("history").update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel, sub_page: pick } }).eq("id", targetId);
+      await admin.from("history").update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel, sub_page: pick, concept } }).eq("id", targetId);
     } else {
       await admin.from("history").update({ status: "failed", error_message: r.error }).eq("id", targetId);
     }

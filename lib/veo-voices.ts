@@ -377,3 +377,57 @@ MODESTY LOCK (Malaysian-Muslim, ALL personas): FEMALE — loose-fit only, short-
 
 Negative: yellow shopping bag/basket/cart icon, TikTok shop badge, affiliate sticker/button, product floating icon, interface/app overlay, brand watermark/logo/text overlay, store name overlay, burned-in brand text, burned-in store name, burned-in watermark, lower-third brand text, lower-third product name text, letterbox bars, black bars top, black bars bottom, empty bottom band, cropped composition, vertical letterbox, cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, extra/fused/deformed fingers, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, second voice, whispered overdub, ghost voice, phantom audio, ambient noise, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, Bahasa Indonesia, Indonesian accent, Indonesian slang${hijabNegatives}.`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Omni 1.2 / Grok 1.5 lock block (Dialog UGC, since 2026-11-20).
+//
+// buildVeoLocks above was tuned for Veo: catalog voice NAMES ("Callirrhoe")
+// that only Veo's TTS understands, an "EXACTLY N words" rule (3 words/sec)
+// that fights the client's own dialog, ALL-CAPS NEVER/ZERO walls, and ~3.5k
+// chars that crowd Omni's 4,000-char prompt cap. Omni (Gemini) and Grok follow
+// calm, positive, concrete sentences better, so this keeps every rule
+// category — delivery, voice, language, product, hijab, UGC look + modesty,
+// anatomy, clean frame — in plain language at ~half the length. The voice is
+// described by its traits (gender / age / tone), not a catalog name.
+// ─────────────────────────────────────────────────────────────────────────
+export function buildOmniGrokLocks(opts: {
+  voiceId?: string | null;
+  gender: "male" | "female";
+  age?: AutoContentAge;
+  vibe?: VoiceVibe;
+  hijab?: boolean;
+  durationSec: number;
+}): string {
+  const gender = opts.gender;
+  const age = opts.age || "30s";
+  const id = String(opts.voiceId || "").trim() || pickVoiceByPersona(gender, age, opts.vibe);
+  // "Callirrhoe — Female, easy-going, mid-pitch. Natural conversational tone."
+  //   → "female, easy-going, mid-pitch, natural conversational tone"
+  const traits = (getVoiceDescription(id) || getVoiceDescription("callirrhoe"))
+    .replace(/^[^—]+—\s*/, "")
+    .replace(/\.\s*/g, ", ")
+    .replace(/,\s*$/, "")
+    .toLowerCase();
+  const person = gender === "male" ? "man" : "woman";
+  const d = Math.max(1, Math.round(opts.durationSec || 8));
+  const hijab = gender === "female" && !!opts.hijab;
+
+  const lines = [
+    `DELIVERY: one continuous handheld shot, no cuts and no scene changes. The ${person} speaks all of the spoken dialog above word for word — nothing added, skipped or repeated — at a natural pace that fits the ${d}-second clip, lips in sync only while speaking, then ends on a relaxed smile.`,
+    `VOICE: a single voice only — ${traits}, ${age}, a natural Malaysian Malay speaker with a Malaysian accent, clear and close to the phone mic. No music, sound effects, narration or other voices.`,
+    `LANGUAGE: Bahasa Melayu Malaysia (korang, aku, ni, tu, je, dah, lah) — never Bahasa Indonesia words or accent.`,
+    `PRODUCT: identical to the product reference in every frame — same colour, shape, cap, logo and label text, label sharp and readable, never warped, recoloured or relabelled.`,
+    ...(hijab
+      ? [`HIJAB: the woman wears a hijab that fully covers her hair, ears and neck for the whole clip, through every movement and head turn; no hair is ever visible.`]
+      : []),
+    `LOOK: authentic smartphone UGC — handheld at arm's length, natural window or room light, a real lived-in Malaysian home, natural skin texture with everyday makeup. ${
+      gender === "female"
+        ? "Modest loose-fitting clothes (long sleeves or loose short sleeves, long pants or long skirt)."
+        : "Modest casual clothes (shirt or polo, long pants)."
+    }`,
+    `ANATOMY: one person, natural hands with five fingers, a stable face that never morphs.`,
+    `CLEAN FRAME: show only the real scene — no captions, subtitles, on-screen text, stickers, icons, emojis, overlays, watermarks or app UI. "Beg kuning" is spoken only and never drawn as a yellow bag or basket icon.`,
+    `AVOID: subtitles, text overlays, background music, a second voice, Indonesian accent, letterbox bars, cartoon look, airbrushed plastic skin.`,
+  ];
+  return `\n\n${lines.join("\n")}`;
+}

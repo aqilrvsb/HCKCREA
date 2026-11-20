@@ -2,11 +2,17 @@ import { NextResponse, after } from "next/server";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { orChat } from "@/lib/openrouter";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { loadSubCards, extractGlobalRules, extractSubCard } from "@/lib/storyboard-cards";
-import { productLockRule } from "@/lib/storyboard-locks";
+import {
+  productLockRule,
+  nanoBananaGuide,
+  conceptOf,
+  planStoryboardPrompt,
+  loadPastConcepts,
+  STORYBOARD_OUTPUT_FORMAT,
+} from "@/lib/storyboard-locks";
 
 export const runtime = "nodejs";
 // 300s so a large batch's background after() (prompt planning + firing every
@@ -218,32 +224,8 @@ export async function POST(req: Request) {
     // project keeps its OWN uniqueness pool and different projects don't
     // cross-block. Falls back to user-level only for unscoped (no-project)
     // storyboards. Best-effort.
-    let pastConcepts: string[] = [];
-    try {
-      const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-      let recentQ = admin
-        .from("history")
-        .select("prompt")
-        .eq("type", "image")
-        .eq("tab", "image")
-        .filter("metadata->>feature", "eq", "storyboard")
-        .gte("created_at", weekAgo);
-      // Compare within the project ("profile") when one is set; otherwise fall
-      // back to this user's unscoped storyboards.
-      recentQ = projectId
-        ? recentQ.eq("project_id", projectId)
-        : recentQ.eq("user_id", user.id);
-      const { data: recent } = await recentQ
-        .order("created_at", { ascending: false })
-        .limit(40);
-      pastConcepts = (recent || [])
-        .map((r: any) => String(r.prompt || "").replace(/\s+/g, " ").trim())
-        // drop the boilerplate opener so the concept (hook/scene) is what compares
-        .map((p: string) => p.replace(/^ONE single 9:16 storyboard grid for ONE video only\.?\s*/i, "").slice(0, 180))
-        .filter((p: string) => p.length > 30 && !/^(Storyboard ·|Campaign \d)/i.test(p));
-    } catch {
-      /* dedup is best-effort */
-    }
+    // Concepts (not prompt boilerplate) — see lib/storyboard-locks.ts.
+    const pastConcepts = await loadPastConcepts(admin, { projectId, userId: user.id });
 
     const avatarLine = avatarUrl
       ? `KEKAL AVATAR — ${avatarUrls.length} presenter face reference photo(s) attached (the SAME person${avatarUrls.length > 1 ? ", different angles" : ""}). EVERY frame that shows a human presenter MUST use THAT exact same face/person (identical across all frames — a fixed avatar). Frames that show NO person (product-only, macro, packshot, flat-lay) must NOT add a person. Do not invent other faces.\n`
@@ -273,48 +255,56 @@ export async function POST(req: Request) {
         ? `CAMPAIGN RULES (this is ONE continuous story across: ${campaignArc}): (1) Each segment must show DISTINCT actions & scenes — NEVER duplicate the same hero action across segments. (2) ONLY the final/closing segment ends with a CTA; opening & middle end on a bridge, NO CTA. (3) Same product identity throughout. `
         : ``;
 
-      const sysPrompt =
+      const sysPromptBase =
         job.main === "custom"
           ? // Custom Idea — build around the client's own concept.
             `You are a Pening Lab storyboard specialist. The CLIENT gave their OWN idea/concept below — build ONE 9:16 storyboard GRID (6–9 panels) around IT (do not force a preset sub-style).\n\n${globalRules}\n\n=== CLIENT'S CUSTOM IDEA (execute this) ===\n"""${customIdea}"""\n\n=== TASK ===\nBegin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, then execute the client's idea as per-frame scene directions (hook → beats → CTA), Malaysian talent + local setting, product identity lock (verbatim label), ${captionClause}, neutral framing. ${campaignRule}Output ONLY the final image prompt, no preamble.`
           : card
             ? `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n${globalRules}\n\n=== SUB-CATEGORY CARD (${job.sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\nWrite the storyboard image prompt now, assembling per the "UNIVERSAL IMAGE-PROMPT ASSEMBLY RECIPE": begin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, this card's Signature + shots as per-frame scene directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), ${captionClause}, neutral problem framing. ${campaignRule}Output ONLY the final image prompt, no preamble, no headings.`
             : `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${job.sub}" sub-style under ${mainLabel}, Malaysian talent, ${captionClause}, product identity locked, neutral framing. ${campaignRule}Output ONLY the final image prompt.`;
+      // Render-engine notes — StoryBoard draws with Nano Banana 2.1 (2026-11-20).
+      const sysPrompt = sysPromptBase + nanoBananaGuide(noSubtitle);
 
-      // NO-REPEAT context: last week's concepts + this batch's so far.
-      const avoidList = [...pastConcepts, ...builtInBatch.map((p) => p.replace(/^ONE single 9:16 storyboard grid for ONE video only\.?\s*/i, "").slice(0, 180))].slice(-24);
+      // NO-REPEAT context: last week's concepts (this project) + this batch's so far.
+      const avoidList = [...pastConcepts, ...builtInBatch].slice(-24);
       // Campaign segments deliberately SHARE a look (story continuity) and only
-      // their ACTIONS differ; standalone variations must also differ VISUALLY.
-      const dedupVisual = job.campaign
-        ? ``
-        : ` And make the visual EXECUTION different too — not just the hook: a different setting/location, presenter wardrobe & styling, lighting/time-of-day, camera framing, panel layout and colour mood. Two grids that look ~90% alike get flagged as duplicate content.`;
+      // their ACTIONS differ; standalone grids must also differ VISUALLY.
+      const dedupWhat = job.campaign
+        ? `a different moment of the story — different actions, opening scene, framing and props (the campaign's shared look and presenter stay the same)`
+        : `a different hook, opening scene, setting/location, presenter wardrobe and styling, light/time of day, camera framing, panel layout and colour mood`;
       const dedupSection = avoidList.length
-        ? `\n\n🚫 NO-REPEAT — these storyboard concepts were already used (past 7 days + this batch). Your storyboard MUST be clearly DIFFERENT — a different hook, different opening scene, different framing/props, and a different visual angle.${dedupVisual} Do NOT reuse their hooks or scenes:\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}`
+        ? `\n\n<already_used_concepts>\nThese concepts were already made for this client in the past 7 days or earlier in this batch. TikTok treats look-alike creatives on one account as duplicates and limits their reach, so this storyboard needs ${dedupWhat}. Reusing the same sub-style is fine; reusing a hook, scene or look is not.\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n</already_used_concepts>`
         : ``;
-      // Always-on (standalone only): tell the planner to deliberately
-      // art-direct a distinct look so even the FIRST grid commits to specifics
-      // the next ones can diverge from. The AI CHOOSES the values — nothing is
-      // hardcoded here. Campaigns skip this so segments stay visually coherent.
+      // Always-on (standalone only): the planner art-directs a specific look so
+      // even the FIRST grid commits to choices the next ones can diverge from.
+      // The AI chooses the values — nothing is hardcoded. Campaigns skip this
+      // so segments stay visually coherent.
       const visualDistinct = job.campaign
         ? ``
-        : `\nVISUAL DISTINCTNESS: deliberately art-direct THIS grid's look — choose a specific setting/location, presenter wardrobe & styling, lighting & time-of-day, camera framing, panel layout (e.g. 3×3, 2×3 or 2×4) and colour mood, rather than a default template. Keep ONLY the product packaging/label and the ${avatarUrl ? "locked presenter face" : "presenter"} consistent — everything else about the look should feel freshly chosen.`;
+        : `\n\n<art_direction>\nChoose this grid's look on purpose instead of a default template: a specific setting/location, presenter wardrobe and styling, light and time of day, camera framing, panel layout (for example 3x3, 2x3 or 2x4) and colour mood. Only the product packaging/label and the ${avatarUrl ? "locked presenter face" : "presenter"} stay fixed — everything else should feel freshly chosen.\n</art_direction>`;
 
       const userPrompt =
-        `Product: ${productName || "(unnamed)"}\n` +
-        `Detail: ${productDetail || "(none)"}\n` +
+        `<brief>\nProduct: ${productName || "(unnamed)"}\nDetail: ${productDetail || "(none)"}\n` +
         (job.main === "custom" ? `Client idea: ${customIdea}\n` : `Sub-style: ${job.sub} · Category: ${mainLabel}\n`) +
         avatarLine +
-        `${roleLine}${dedupSection}${visualDistinct}\n` +
-        `Write the storyboard image prompt now.`;
+        `${roleLine}\n</brief>` +
+        `${dedupSection}${visualDistinct}` +
+        STORYBOARD_OUTPUT_FORMAT;
 
       let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${job.main === "custom" ? "custom-concept" : job.sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian talent, product shown clearly with exact label.`;
+      let concept = "";
       try {
-        const llm = await orChat({ modelKey: "model_custom_idea", systemPrompt: sysPrompt, userPrompt, temperature: 0.95, maxTokens: 800 });
-        if (llm.ok && llm.content && llm.content.trim().length > 40) prompt = llm.content.trim();
+        // Sonnet 5.5 plans; a concept too close to an already-used one gets one re-ask.
+        const got = await planStoryboardPrompt({ systemPrompt: sysPrompt, userPrompt, avoidList, productName: productName || "" });
+        if (got) {
+          prompt = got.prompt;
+          concept = got.concept;
+        }
       } catch {
         /* fall back to the default prompt */
       }
-      builtInBatch.push(prompt);
+      if (!concept) concept = conceptOf(prompt);
+      builtInBatch.push(concept);
       // Avatar photos FIRST (so the face-lock is always included even if the
       // provider caps refs), then product images. Cap 5 (provider ceiling).
       // Built BEFORE the locks below so the PRODUCT LOCK's index map ("images
@@ -336,7 +326,11 @@ export async function POST(req: Request) {
       plans.push({ id, prompt, refImages });
       // Persist the planned prompt now so the "saved AI story" exists even
       // before the image renders (and feeds future weeks' dedup).
-      await admin.from("history").update({ prompt }).eq("id", id);
+      {
+        // Save the concept beside the prompt — it is next week's NO-REPEAT memory.
+        const { data: cur } = await admin.from("history").select("metadata").eq("id", id).single();
+        await admin.from("history").update({ prompt, metadata: { ...(cur?.metadata || {}), concept } }).eq("id", id);
+      }
     }
 
     // ── PHASE 2: fire all image generations in PARALLEL.
