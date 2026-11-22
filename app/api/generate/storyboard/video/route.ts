@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 // POST /api/generate/storyboard/video  { history_id }
 //
 // "Generate Video" from a finished storyboard card. Sends the storyboard grid
-// (image 1) + the product photo (image 2) to Omni (gemini, 10s, ingredient)
+// (image 1) + the product photo (image 2) to Omni 1.2 (gemini, 15 s, ingredient → P10)
 // with a FIXED role-split prefix and a DYNAMIC creative-direction line written
 // per the storyboard's sub-style + product. The video lands in the Original
 // Video history grid.
@@ -124,7 +124,7 @@ export async function POST(req: Request) {
     `Use image 2 ONLY as the product identity reference (copy the exact label text, colour, shape and packaging; never redraw or invent the label — if it can't be shown sharply, angle the product away). ` +
     `${creative} ` + tail;
 
-  const defaultCreative = `Create a ${main === "pc" ? "premium cinematic" : "natural UGC-style"} 10-second vertical video for the product, Malaysian presenter and setting.`;
+  const defaultCreative = `Create a ${main === "pc" ? "premium cinematic" : "natural UGC-style"} 15-second vertical video for the product, Malaysian presenter and setting.`;
   const provisionalPrompt = buildPrompt(defaultCreative);
 
   const imageUrls = [storyboardUrl, productImage].filter(Boolean).slice(0, 2);
@@ -153,10 +153,10 @@ export async function POST(req: Request) {
         // cascade pool + rate lookup on Resubmit and at settle.
         model: videoProvider === "gemini-flash" ? "gemini-omni-flash-1.1" : "google/gemini-omni",
         modelChoice: videoProvider,
-        cinemaProvider: videoProvider === "gemini-flash" ? "apipod" : "crun",
+        cinemaProvider: "p10", // Omni 1.2 runs on P10 (gemini_main_slots)
         imageMode: "ingredient",
-        resolution: "1080p",
-        aspectRatio: null,
+        resolution: "720p", // Omni 1.2 on P10 is 720p only
+        aspectRatio: "9:16",
         image_urls: imageUrls,
         sub,
         main,
@@ -183,7 +183,7 @@ export async function POST(req: Request) {
         orChat({
           modelKey: "model_custom_idea",
           systemPrompt:
-            `Write ONE vivid creative-direction sentence (max ~30 words) for a 10-second VERTICAL product video, matched to the given sub-style and product. ` +
+            `Write ONE vivid creative-direction sentence (max ~30 words) for a 15-second VERTICAL product video, matched to the given sub-style and product. ` +
             `Malaysian talent + local setting. Claim-safe (no medical/whitening words). Describe look, talent, lighting, camera motion, mood — NOT a shot list. Output ONLY the sentence.`,
           userPrompt: `Sub-style: ${sub} (${mainLabelOf(main)}). Product: ${productName || "(unnamed)"} — ${productDetail || "(no detail)"}.`,
           temperature: 0.9,

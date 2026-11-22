@@ -4578,7 +4578,8 @@ function HistoryCardInner({
           {/* DONE — image: Transfer (Image tab only) + Edit + Save + Download + Delete */}
           {item.status === "done" && isImage && (
             <>
-              {item.tab === "image" && (
+              {/* StoryBoard cards: no Transfer / Edit Image / Tukar sub-style (owner 2026-11-22) — Generate Video only. */}
+              {item.tab === "image" && !isStoryboard && (
                 <ActionBtn
                   title={transferred ? "Already in Attachments" : "Transfer to Attachments"}
                   onClick={() => !transferred && setShowTransferModal(true)}
@@ -4598,17 +4599,14 @@ function HistoryCardInner({
                   )}
                 </ActionBtn>
               )}
-              <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
-                <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
-              </ActionBtn>
-              {isStoryboard && (
-                <ActionBtn title="Generate Video" onClick={() => setVidPickOpen(true)} bg="linear-gradient(135deg,#3b82f6,#22d3ee)" disabled={videoing}>
-                  {videoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" strokeWidth={2.4} />}
+              {!isStoryboard && (
+                <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
+                  <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
                 </ActionBtn>
               )}
               {isStoryboard && (
-                <ActionBtn title="Tukar sub-style" onClick={() => setTukarOpen(true)} bg="linear-gradient(135deg,#f5c518,#f59e0b)">
-                  <RefreshCw className="w-3.5 h-3.5" strokeWidth={2.4} />
+                <ActionBtn title="Generate Video" onClick={() => setVidPickOpen(true)} bg="linear-gradient(135deg,#3b82f6,#22d3ee)" disabled={videoing}>
+                  {videoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" strokeWidth={2.4} />}
                 </ActionBtn>
               )}
               {/* Save (yellow) hidden on the Image tab — pure image gens are
