@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import AttachmentPicker from "./sections/attachment-picker";
 import { LhSection, LhCard, LhCardHeader, LhLabel, LhButton, LhGrid, LH_FIELD_STYLE, ORANGE } from "./livehost-ui";
 import type { Attachment } from "./sections/attachments";
+import { hideBrand } from "@/lib/hide-brand";
 
 type Row = {
   id: string; status: string; output_url: string | null; reference_url: string | null;
@@ -197,7 +198,7 @@ FINAL RULE: copy ONLY the arm and hand motion; every other pixel of the characte
                   {r.status === "done" && r.output_url ? (
                     <video src={r.output_url + "#t=0.5"} preload="metadata" muted controls controlsList="nofullscreen nodownload noplaybackrate" disablePictureInPicture style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : r.status === "failed" ? (
-                    <span style={{ color: "#f87171", fontSize: 11, padding: 10, textAlign: "center" }}>❌ {r.error_message || "Failed"}</span>
+                    <span style={{ color: "#f87171", fontSize: 11, padding: 10, textAlign: "center" }}>❌ {hideBrand(r.error_message) || "Failed"}</span>
                   ) : r.reference_url ? (
                     <img src={r.reference_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.5 }} />
                   ) : null}

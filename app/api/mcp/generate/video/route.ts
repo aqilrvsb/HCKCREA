@@ -117,7 +117,7 @@ export async function POST(req: Request) {
     imageMode,
     resolution,
     aspectRatio,
-    cinemaProvider: "toapis",
+    cinemaProvider: "p10",
     modelChoice,
     featureType: "original-video",
     image_urls: imgs,

@@ -19,6 +19,7 @@
 // files.toapis.com.
 
 import { getSetting } from "@/lib/settings";
+import { hideBrand } from "@/lib/hide-brand";
 
 export type P10CreateResult =
   | { ok: true; task_id: string; model: string; raw: any; provider: "p10" }
@@ -62,12 +63,15 @@ async function p10Fetch(method: "GET" | "POST", url: string, key: string, body?:
     try { data = JSON.parse(text); } catch { /* non-JSON */ }
     return { ok: r.ok, status: r.status, data, text };
   } catch (e: any) {
-    return { ok: false, status: 0, data: null, text: `ToAPIs network error: ${e?.message || "fetch failed"}` };
+    return { ok: false, status: 0, data: null, text: `P10 network error: ${e?.message || "fetch failed"}` };
   }
 }
 
+// Clients only ever see "P10" — never the upstream brand (owner 2026-11-22). Every error this adapter returns goes
+// through hideBrand, including upstream text that names its own site.
+
 const errOf = (data: any, status: number, text: string) =>
-  String(data?.error?.message || data?.message || data?.error || (text && text.slice(0, 200)) || `ToAPIs HTTP ${status}`);
+  hideBrand(String(data?.error?.message || data?.message || data?.error || (text && text.slice(0, 200)) || `P10 HTTP ${status}`));
 
 export async function p10CreateVideo(input: {
   prompt: string;
@@ -79,10 +83,10 @@ export async function p10CreateVideo(input: {
   refVideoUrl?: string;
 }): Promise<P10CreateResult> {
   const { base, key } = await p10Config();
-  if (!key) return { ok: false, error: "toapis_key not configured", provider: "p10" };
+  if (!key) return { ok: false, error: "P10 key not configured", provider: "p10" };
   const kind = p10ModelFor(input.model);
-  if (!kind) return { ok: false, error: `p10 (ToAPIs) serves only Omni 1.2 and Grok 1.5, not "${input.model}"`, provider: "p10" };
-  if (input.refVideoUrl) return { ok: false, error: "p10 (ToAPIs) does not accept a reference video", provider: "p10" };
+  if (!kind) return { ok: false, error: `P10 serves only Omni 1.2 and Grok 1.5, not "${input.model}"`, provider: "p10" };
+  if (input.refVideoUrl) return { ok: false, error: "P10 does not accept a reference video", provider: "p10" };
 
   const refs = (input.imageUrls || []).filter((u) => typeof u === "string" && /^https?:\/\//i.test(u.trim())).map((u) => u.trim());
   const mode = input.imageMode || (refs.length ? "ingredient" : "text");
@@ -141,16 +145,16 @@ export async function p10CreateVideo(input: {
     const { isToapisOutOfCredit, alertToapisOutOfCredit } = await import("@/lib/toapis-balance");
     if (status === 402 || isToapisOutOfCredit(lastErr)) {
       await alertToapisOutOfCredit(lastErr);
-      return { ok: false, error: `ToAPIs: ${lastErr}`, raw: lastRaw, provider: "p10" };
+      return { ok: false, error: `P10: ${lastErr}`, raw: lastRaw, provider: "p10" };
     }
     if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
   }
-  return { ok: false, error: `ToAPIs: ${lastErr} (3 attempts)`, raw: lastRaw, provider: "p10" };
+  return { ok: false, error: `P10: ${lastErr} (3 attempts)`, raw: lastRaw, provider: "p10" };
 }
 
 export async function p10GetStatus(taskId: string): Promise<P10StatusResult> {
   const { base, key } = await p10Config();
-  if (!key) return { status: "pending", error: "toapis_key not configured" };
+  if (!key) return { status: "pending", error: "P10 key not configured" };
   const id = encodeURIComponent(taskId);
   // /v1/tasks/{id} answers for every task type; /v1/videos/generations/{id} is the documented video path. Never
   // /v1/videos/{id} for a Grok task (false 501 "Generation failed").
@@ -165,11 +169,11 @@ export async function p10GetStatus(taskId: string): Promise<P10StatusResult> {
   if (st === "completed" || st === "succeeded" || st === "success") {
     const item = Array.isArray(d?.result?.data) ? d.result.data[0] : null;
     const url = item?.url || item?.fallback_url || d?.video_url || d?.url || "";
-    if (!url) return { status: "failed", error: "ToAPIs completed but returned no video url", raw: d };
+    if (!url) return { status: "failed", error: "P10 completed but returned no video url", raw: d };
     return { status: "succeeded", outputUrl: String(url), raw: d };
   }
   if (st === "failed" || st === "cancelled" || st === "canceled" || st === "error") {
-    return { status: "failed", error: String(d?.error?.message || d?.error || d?.message || `ToAPIs task ${st}`), raw: d };
+    return { status: "failed", error: hideBrand(String(d?.error?.message || d?.error || d?.message || `P10 task ${st}`)), raw: d };
   }
   return { status: st === "in_progress" || st === "processing" || st === "running" ? "running" : "pending", raw: d };
 }

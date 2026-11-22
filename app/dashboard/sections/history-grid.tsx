@@ -16,8 +16,6 @@ import {
   RotateCcw,
   X,
   Copy,
-  GitCompare,
-  AlertTriangle,
   Scissors,
   Undo2,
   Link2 as LinkIcon,
@@ -48,6 +46,7 @@ import MotionResubmitDialog from "./motion-resubmit-dialog";
 import MotionReviewDialog, { type ReviewDraft } from "./motion-review-dialog";
 import VgcAnswerDialog, { type VgcStepView } from "./vgc-answer-dialog";
 import LazyVideo from "@/app/components/lazy-video";
+import { hideBrand } from "@/lib/hide-brand";
 
 export type HistoryItem = {
   id: string;
@@ -160,7 +159,7 @@ function modelLabel(item: HistoryItem): string {
   // Gemini Omni Flash 1.1 — checked BEFORE plain gemini-omni (its id also
   // contains "gemini-omni").
   if (m.includes("gemini-omni-flash")) return "Gemini Flash" + providerSuffix;
-  if (m.includes("gemini-omni")) return "GeminiOmni" + providerSuffix;
+  if (m.includes("gemini-omni")) return "Gemini Omni 1.2" + providerSuffix;
   if (m.includes("veo")) return "Veo 3.1" + providerSuffix;
   return item.type;
 }
@@ -589,12 +588,6 @@ export default function HistoryGrid({
     }
     return { parents, childMap };
   }, [items]);
-
-  // Near-duplicate map — flags cards whose concept is ~the same as another in
-  // the same project + kind (TikTok duplicate-content guard). Memoized on the
-  // full loaded set so cross-page dupes are caught and it recomputes only when
-  // the data changes, not on every render.
-  const dupMap = useMemo(() => computeDupMap(parents), [parents]);
 
   // Save-to-storage status — single batched POST to /api/storage/status
   // with all parent ids on screen, cached via SWR so a tab re-switch
@@ -1861,7 +1854,6 @@ export default function HistoryGrid({
                 onToggleMerge={
                   supportsMerge ? () => toggleMergeSelection(it.id) : undefined
                 }
-                dupSimilar={dupMap.get(it.id)}
                 allowTransfer
                 editorMode={editorMode}
                 edTextOn={edText.has(it.id)}
@@ -1970,102 +1962,6 @@ const ACTION = {
   retry: "linear-gradient(135deg, #22c55e, #4ade80)",      // green — retry failed
 };
 
-// ── Near-duplicate detection ──────────────────────────────────────────────
-// Flags a card when its CONCEPT matches an EARLIER card in the same project
-// ("profile") and kind — so a client sees which storyboards/videos repeat one
-// they already made, BEFORE TikTok flags them.
-//
-// Deliberately LIGHT + 1-to-1 (per user direction): each card is checked, in
-// chronological order, against the ones BEFORE it, and STOPS at the first match
-// — the earlier card is the "original" (stays unmarked) and only the later copy
-// gets flagged, pointing back to that one original. No all-pairs, no match
-// lists. The shared boilerplate (opener, grid spec, rules, locks) is auto-
-// removed by a document-frequency pass so only distinctive concept words are
-// compared. Memoized on the loaded set → runs once per load, not per render.
-type DupSim = { id: string; name: string; thumb: string | null; score: number };
-type DupInfo = { sig: string; match: DupSim };
-
-const DUP_STOP = new Set(
-  "the a an and or of for with to in on at is are be this that your you our from into video image grid panel frame malaysian talent product presenter storyboard scene shot single only show shows shown same exact label face person people human clean neutral text caption subtitle rule hard must never each every panels vertical seconds"
-    .split(/\s+/)
-);
-// Only flag NEAR-IDENTICAL prompts — distinctive-token Jaccard ≥ 0.95, i.e. the
-// match score shown (jac×100) is 95%+. Per user: detect 95%-and-above only.
-const DUP_THRESHOLD = 0.95;
-
-function dupTokens(prompt: string | null): string[] {
-  if (!prompt) return [];
-  const seen = new Set<string>();
-  for (const w of prompt.toLowerCase().match(/[a-z0-9]{4,}/g) || []) {
-    if (!DUP_STOP.has(w)) seen.add(w);
-  }
-  return [...seen];
-}
-function dupKind(it: HistoryItem): "sb" | "vid" | null {
-  // Motion edits each start from the client's own video — their "prompt" is the
-  // shared edit preset, so comparing it would flag every one as a copy.
-  if (it.tab === "motion" || it.tab === "clipper") return null;
-  if (it.metadata?.feature === "storyboard") return "sb";
-  if (it.type === "video") return "vid";
-  return null;
-}
-function dupName(it: HistoryItem): string {
-  const n = String(it.metadata?.name || "").trim();
-  if (n) return n;
-  const c = String(it.prompt || "")
-    .replace(/^ONE single 9:16 storyboard grid for ONE video only\.?\s*/i, "")
-    .trim();
-  return c.slice(0, 42) || "Untitled";
-}
-function dupThumb(it: HistoryItem): string | null {
-  return it.thumbnail_url || it.output_url || it.reference_url || null;
-}
-function computeDupMap(items: HistoryItem[]): Map<string, DupInfo> {
-  const out = new Map<string, DupInfo>();
-  const groups = new Map<string, HistoryItem[]>();
-  for (const it of items) {
-    const k = dupKind(it);
-    if (!k || !it.prompt) continue;
-    const key = `${it.project_id || "-"}|${k}`;
-    let arr = groups.get(key);
-    if (!arr) { arr = []; groups.set(key, arr); }
-    arr.push(it);
-  }
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
-    // Oldest first — the FIRST occurrence is the "original"; later similar ones
-    // are the duplicates we flag.
-    group.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    // Document frequency → drop boilerplate/common tokens (in >60% of the group).
-    const toks = group.map((it) => dupTokens(it.prompt));
-    const df = new Map<string, number>();
-    toks.forEach((ts) => ts.forEach((t) => df.set(t, (df.get(t) || 0) + 1)));
-    const cap = Math.max(2, Math.floor(group.length * 0.6));
-    const sets = toks.map((ts) => new Set(ts.filter((t) => (df.get(t) || 0) <= cap)));
-    // Each card checks ONLY the earlier ones, and stops at the FIRST match
-    // (1-to-1, lighter). group[j] (earlier) is the original it copied.
-    for (let i = 1; i < group.length; i++) {
-      const A = sets[i];
-      if (A.size < 3) continue; // too little signal to judge
-      for (let j = 0; j < i; j++) {
-        const B = sets[j];
-        if (B.size < 3) continue;
-        const [small, big] = A.size < B.size ? [A, B] : [B, A];
-        let inter = 0;
-        for (const t of small) if (big.has(t)) inter++;
-        const jac = inter / (A.size + B.size - inter);
-        if (jac >= DUP_THRESHOLD) {
-          const score = Math.round(jac * 100);
-          const match: DupSim = { id: group[j].id, name: dupName(group[j]), thumb: dupThumb(group[j]), score };
-          out.set(group[i].id, { sig: `${match.id}:${score}`, match });
-          break; // first match wins — stop checking this card
-        }
-      }
-    }
-  }
-  return out;
-}
-
 // Which generation tab a video came from — shown on Editor cards.
 function sourceTabLabel(item: HistoryItem): string {
   const t = String(item.tab || "").toLowerCase();
@@ -2089,7 +1985,6 @@ function HistoryCardInner({
   mergeSupported,
   mergeSelectedIdx,
   onToggleMerge,
-  dupSimilar,
   allowTransfer,
   editorMode,
   edTextOn,
@@ -2128,7 +2023,6 @@ function HistoryCardInner({
   mergeSupported?: boolean;
   mergeSelectedIdx?: number;
   onToggleMerge?: () => void;
-  dupSimilar?: DupInfo;
   allowTransfer?: boolean;
   editorMode?: boolean;
   edTextOn?: boolean;
@@ -2160,7 +2054,6 @@ function HistoryCardInner({
   dpOn?: boolean;
   onDpToggle?: () => void;
 }) {
-  const [compareOpen, setCompareOpen] = useState(false);
   // Editor: view/edit generated Text (caption + cover title/subtitle) + view cover.
   const [edEditOpen, setEdEditOpen] = useState(false);
   const [edCoverView, setEdCoverView] = useState<string | null>(null);
@@ -3090,10 +2983,9 @@ function HistoryCardInner({
       className="rounded-xl overflow-hidden border flex flex-col h-full"
       style={{
         background: "var(--color-bg-card)",
-        // Near-duplicate cards get a RED border so they stand out in the grid;
-        // a Motion script waiting for the client's review gets a YELLOW one.
-        borderColor: dupSimilar ? "#ef4444" : isMotionReview ? "#facc15" : "var(--color-border)",
-        borderWidth: dupSimilar || isMotionReview ? 2 : undefined,
+        // A Motion script waiting for the client's review gets a YELLOW border.
+        borderColor: isMotionReview ? "#facc15" : "var(--color-border)",
+        borderWidth: isMotionReview ? 2 : undefined,
         position: "relative",
       }}
     >
@@ -3341,66 +3233,6 @@ function HistoryCardInner({
           </div>
         </Portal>
       )}
-      {/* Duplicate-content warning badge (top-left). Tap to compare which
-          other cards this one is ~the same as. */}
-      {!editorMode && dupSimilar && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setCompareOpen(true); }}
-          className="absolute top-2 left-2 z-30 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
-          style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}
-          title="Content hampir sama — tekan untuk banding"
-        >
-          <GitCompare className="w-3 h-3" />
-          {dupSimilar.match.score}% serupa
-        </button>
-      )}
-      {compareOpen && dupSimilar && (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[210] flex items-center justify-center p-4"
-            style={{ background: "rgba(0,0,0,0.72)" }}
-            onClick={() => setCompareOpen(false)}
-          >
-            <div
-              className="w-full max-w-md rounded-2xl p-5 max-h-[85vh] overflow-y-auto"
-              style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <AlertTriangle className="w-4 h-4 text-red-500" />
-                <div className="text-[13px] font-extrabold text-[var(--color-text-primary)]">Content hampir sama</div>
-              </div>
-              <div className="text-[11px] text-[var(--color-text-muted)] mb-3">
-                TikTok boleh flag video/gambar yang ~90% serupa. Ubah hook / scene / flow sebelum post.
-              </div>
-              <div className="flex items-center gap-2 mb-3 p-2 rounded-lg" style={{ background: "var(--color-bg)" }}>
-                {dupThumb(item) && <img src={dupThumb(item)!} className="w-12 h-12 rounded-lg object-cover" alt="" />}
-                <div className="text-[11px] font-bold text-[var(--color-text-primary)]">Kad ini: {dupName(item)}</div>
-              </div>
-              <div className="text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-2">
-                Serupa dengan (asal):
-              </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg" style={{ border: "1px solid var(--color-border)" }}>
-                {dupSimilar.match.thumb && <img src={dupSimilar.match.thumb} className="w-10 h-10 rounded object-cover flex-shrink-0" alt="" />}
-                <div className="flex-1 text-[11px] text-[var(--color-text-primary)] truncate">{dupSimilar.match.name}</div>
-                <span
-                  className="text-[10px] font-extrabold px-2 py-0.5 rounded-full text-white flex-shrink-0"
-                  style={{ background: dupSimilar.match.score >= 80 ? "#dc2626" : "#f59e0b" }}
-                >
-                  {dupSimilar.match.score}%
-                </span>
-              </div>
-              <button
-                onClick={() => setCompareOpen(false)}
-                className="mt-4 w-full py-2 rounded-xl text-[12px] font-bold"
-                style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        </Portal>
-      )}
       {tukarOpen && isStoryboard && (
         <StoryboardReplaceModal historyId={item.id} subPage={((item.metadata as any)?.sub_page === 2 ? 2 : (item.metadata as any)?.sub_page === 3 ? 3 : 1)} onClose={() => setTukarOpen(false)} />
       )}
@@ -3644,7 +3476,7 @@ function HistoryCardInner({
             <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 text-xs font-bold gap-2 px-3 text-center">
               <XCircle className="w-5 h-5" />
               <span className="line-clamp-2">
-                {/^Stale\b/i.test(item.error_message || "") ? "Failed" : (item.error_message || "Failed")}
+                {/^Stale\b/i.test(item.error_message || "") ? "Failed" : (hideBrand(item.error_message) || "Failed")}
               </span>
               {/* Full prompt + inline editor. Click Edit to modify
                   before clicking Resubmit. Edited prompt is sent to
@@ -4413,10 +4245,12 @@ function HistoryCardInner({
               // badge → choose P2 A/B or P6 A/B → Resubmit forces that
               // provider (cascade still recovers it on failure).
               const canPickSlot =
-                item.status === "failed" && item.tab === "original-video";
+                item.status === "failed" &&
+                item.tab === "original-video" &&
+                !Array.isArray(item.metadata?.merged_from); // a merge has no provider — Resubmit just re-merges
               // Since 2026-11-20 every Original Video model runs on ToAPIs (p10) — the only provider to force.
               const SLOT_OPTS = [
-                { slot: "p10", label: "ToAPIs" },
+                { slot: "p10", label: "P10" }, // never show the upstream brand to clients
               ];
               const pickedLabel = pickedSlot
                 ? SLOT_OPTS.find((o) => o.slot === pickedSlot)?.label
@@ -5107,7 +4941,6 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.transferred === next.transferred &&
     prev.mergeSupported === next.mergeSupported &&
     prev.mergeSelectedIdx === next.mergeSelectedIdx &&
-    prev.dupSimilar?.sig === next.dupSimilar?.sig &&
     prev.editorMode === next.editorMode &&
     prev.edTextOn === next.edTextOn &&
     prev.edCoverOn === next.edCoverOn &&

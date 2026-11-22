@@ -150,6 +150,13 @@ export async function GET(req: Request) {
     const meta = (row.metadata || {}) as Record<string, any>;
     const autoCount = Number(meta.auto_resubmit_count || 0);
 
+    // A failed MERGE row is not a generation — its prompt is just "Merge of N clips". Re-firing it through the video
+    // cascade made an unrelated AI clip (2026-11-22). Only the manual Resubmit re-runs a merge (/api/history/retry).
+    if (Array.isArray(meta.merged_from)) {
+      summary.ineligible += 1;
+      continue;
+    }
+
     // CREDIT LOCK — enforced at FIRE time (reserve-at-fire), not here. Each
     // branch below atomically HOLDS the row's cost right before it fires the
     // cascade; if the client can't afford it the reserve fails and the row is

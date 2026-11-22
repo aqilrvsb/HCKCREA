@@ -1,8 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { falMergeVideos } from "@/lib/fal";
-import { rehostToContent, type StorageType } from "@/lib/b2";
+import { runMergeJob, loadMergeSources, inheritedFrom } from "@/lib/merge-videos";
 
 // POST /api/merge/videos — combine N existing video clips into one.
 //
@@ -56,38 +55,9 @@ export async function POST(req: Request) {
   // caption / cover_title / cover_subtitle / tiktok_product_id / product_name
   // from the first source — needed by the extension's auto-post step.
   const admin = createAdminClient();
-  const { data: sources, error: srcErr } = await admin
-    .from("history")
-    .select(
-      "id, user_id, tab, status, output_url, project_id, duration, caption, metadata"
-    )
-    .in("id", ids);
-
-  if (srcErr || !sources || sources.length !== ids.length) {
-    return NextResponse.json(
-      { error: "One or more source clips not found" },
-      { status: 404 }
-    );
-  }
-  for (const s of sources) {
-    if (s.user_id !== user.id) {
-      return NextResponse.json(
-        { error: "Source clip does not belong to you" },
-        { status: 403 }
-      );
-    }
-    if (s.status !== "done" || !s.output_url) {
-      return NextResponse.json(
-        { error: "All source clips must be finished before merging" },
-        { status: 400 }
-      );
-    }
-  }
-
-  // Preserve source order from the request (important for concat sequence).
-  // Map for fast lookup since .in() doesn't preserve order.
-  const sourceMap = new Map(sources.map((s) => [s.id, s]));
-  const ordered = ids.map((id) => sourceMap.get(id)!).filter(Boolean);
+  const loaded = await loadMergeSources(admin, ids, user.id);
+  if (!loaded.ok) return NextResponse.json({ error: loaded.error }, { status: loaded.status });
+  const ordered = loaded.ordered;
   const sourceUrls = ordered.map((s) => s.output_url as string);
   const totalDuration = ordered.reduce(
     (sum, s) => sum + (Number(s.duration) || 8),
@@ -103,12 +73,8 @@ export async function POST(req: Request) {
   // carry caption + cover_title/subtitle + tiktok_product_id + product_name
   // (stamped at master-plan generation time); merge would otherwise drop
   // those, breaking the extension's auto-post step.
-  const firstMeta = (ordered[0].metadata || {}) as Record<string, any>;
   const inheritedCaption = String(ordered[0].caption || "").trim();
-  const inheritedCoverTitle = firstMeta.cover_title || null;
-  const inheritedCoverSubtitle = firstMeta.cover_subtitle || null;
-  const inheritedProductId = firstMeta.tiktok_product_id || null;
-  const inheritedProductName = firstMeta.product_name || null;
+  const inherited = inheritedFrom(ordered[0]);
 
   // Insert merged placeholder NOW. status='pending', task_id stays null
   // because there's no Crun task — fal merge happens inline in after().
@@ -133,10 +99,7 @@ export async function POST(req: Request) {
         merged_from: ids,
         merge_count: ordered.length,
         merge_status: "queued",
-        cover_title: inheritedCoverTitle,
-        cover_subtitle: inheritedCoverSubtitle,
-        tiktok_product_id: inheritedProductId,
-        product_name: inheritedProductName,
+        ...inherited,
       },
     })
     .select("id")
@@ -151,78 +114,7 @@ export async function POST(req: Request) {
 
   const historyId = hist.id;
 
-  after(async () => {
-    try {
-      const mergeRes = await falMergeVideos(sourceUrls);
-      if (!mergeRes.ok || !mergeRes.url) {
-        await admin
-          .from("history")
-          .update({
-            status: "failed",
-            error_message: mergeRes.error || "Merge failed",
-            metadata: {
-              merged_from: ids,
-              merge_count: ordered.length,
-              merge_status: "failed",
-              cover_title: inheritedCoverTitle,
-              cover_subtitle: inheritedCoverSubtitle,
-              tiktok_product_id: inheritedProductId,
-              product_name: inheritedProductName,
-            },
-          })
-          .eq("id", historyId);
-        return;
-      }
-      // Rehost the fal merge output to peninglab-content so the user-merged
-      // clip lives on our B2 with cache-control + S3 URL, same as every other
-      // generation. Falls back to fal URL if rehost fails.
-      const sType: StorageType =
-        tab === "auto" ? "auto" : tab === "cinema" ? "cinema" : "ugc";
-      const rehosted = await rehostToContent({
-        url: mergeRes.url,
-        userId: user.id,
-        historyId,
-        type: sType,
-        fallbackExt: "mp4",
-      });
-      await admin
-        .from("history")
-        .update({
-          status: "done",
-          output_url: rehosted,
-          merged_url: rehosted,
-          thumbnail_url: rehosted,
-          metadata: {
-            merged_from: ids,
-            merge_count: ordered.length,
-            merge_status: "done",
-            merged_at: new Date().toISOString(),
-            cover_title: inheritedCoverTitle,
-            cover_subtitle: inheritedCoverSubtitle,
-            tiktok_product_id: inheritedProductId,
-            product_name: inheritedProductName,
-          },
-        })
-        .eq("id", historyId);
-    } catch (e: any) {
-      await admin
-        .from("history")
-        .update({
-          status: "failed",
-          error_message: e?.message || "Background merge error",
-          metadata: {
-            merged_from: ids,
-            merge_count: ordered.length,
-            merge_status: "failed",
-            cover_title: inheritedCoverTitle,
-            cover_subtitle: inheritedCoverSubtitle,
-            tiktok_product_id: inheritedProductId,
-            product_name: inheritedProductName,
-          },
-        })
-        .eq("id", historyId);
-    }
-  });
+  after(() => runMergeJob(admin, { historyId, userId: user.id, tab, ids, sourceUrls, inherited }));
 
   return NextResponse.json({
     ok: true,

@@ -19,6 +19,7 @@ import AutoContentTab from "../tabs/auto-content";
 import ImageTab from "../tabs/image";
 import VideoTab from "../tabs/video";
 import CloneTab from "../tabs/clone";
+import { hideBrand } from "@/lib/hide-brand";
 
 type TabKey = "auto" | "image" | "video" | "clone";
 
@@ -299,7 +300,7 @@ function HistoryCard({ item }: { item: HistoryItem }) {
         {item.status === "failed" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-red-600 text-xs font-semibold gap-2 px-3 text-center">
             <XCircle className="w-5 h-5" />
-            <span className="line-clamp-2">{item.error_message || "Failed"}</span>
+            <span className="line-clamp-2">{hideBrand(item.error_message) || "Failed"}</span>
           </div>
         )}
         {item.status === "done" && item.output_url && (

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
@@ -7,6 +7,7 @@ import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { recoverFlaggedImage } from "@/lib/flagged-image";
 import { reserveCredit, refundReserved, reasonForRow } from "@/lib/deduct";
+import { runMergeJob, loadMergeSources, inheritedFrom } from "@/lib/merge-videos";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -153,6 +154,40 @@ export async function POST(req: Request) {
   const cfg = await getP2Config();
   const meta = (row.metadata || {}) as Record<string, any>;
   const refImage = row.reference_url || "";
+
+  // A failed MERGE row ("Merge of N clips") re-runs the MERGE — never the AI video cascade. Sending its prompt to the
+  // cascade made an unrelated Grok clip and charged for it (yasierboys, 2026-11-22). Free, like the first run.
+  if (Array.isArray(meta.merged_from) && meta.merged_from.length >= 2) {
+    const ids = meta.merged_from.map(String);
+    const loaded = await loadMergeSources(admin, ids, row.user_id);
+    if (!loaded.ok) {
+      await admin.from("history").update({ status: "failed", error_message: loaded.error }).eq("id", row.id);
+      return NextResponse.json({ error: loaded.error }, { status: loaded.status });
+    }
+    const inherited = inheritedFrom(loaded.ordered[0]);
+    await admin
+      .from("history")
+      .update({
+        metadata: {
+          ...meta,
+          merge_status: "queued",
+          retried_at: new Date().toISOString(),
+          retry_count: Number(meta.retry_count || 0) + 1,
+        },
+      })
+      .eq("id", row.id);
+    after(() =>
+      runMergeJob(admin, {
+        historyId: row.id,
+        userId: row.user_id,
+        tab: row.tab,
+        ids,
+        sourceUrls: loaded.ordered.map((s: any) => String(s.output_url)),
+        inherited,
+      })
+    );
+    return NextResponse.json({ ok: true, history_id: row.id, task_id: null, merge: true });
+  }
 
   // Auto UGC rows that failed BEFORE their Banana start frame existed can't
   // retry through the video cascade (Grok i2v needs the frame). Hand them
