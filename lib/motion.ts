@@ -293,7 +293,9 @@ async function accountUp(a: MotionAccount): Promise<boolean> {
       signal: AbortSignal.timeout(6_000),
     });
     const text = r.ok ? "" : await r.text().catch(() => "");
-    ok = r.status < 500 && !/workspace .* is disabled|app .* (?:not found|stopped)/i.test(text);
+    // 429 "Input rate limit (0/s) exceeded" = Modal has throttled the whole workspace to zero (2026-11-24: main + acc2,
+    // CLIPPER failed "Modal HTTP 429" because acc2 was its only account) — treat it as down so the others take the job.
+    ok = r.status < 500 && r.status !== 429 && !/workspace .* is disabled|app .* (?:not found|stopped)|rate limit \(0\/s\)/i.test(text);
   } catch {
     ok = true; // a timeout is a cold start more often than a dead workspace
   }
@@ -393,9 +395,12 @@ export async function motionStart(payload: Record<string, any>): Promise<{ ok: t
   const renderer = payload.renderer === "hyperframes" || payload.renderer === "remotion"
     ? payload.renderer
     : hf ? "hyperframes" : "remotion";
-  // the least-busy account first; if it can't start the job, the others in turn
+  // the least-busy account first; if it can't start the job, the others in turn — and when every account for this work
+  // refuses (e.g. CLIPPER's only account throttled by Modal), the other work's accounts that are up take it, so the
+  // client never gets an error while one workspace still runs
+  const others = (await upAccounts(await getMotionAccounts())).filter((a) => !accounts.some((x) => x.id === a.id));
   let lastErr = "";
-  for (const acc of [first, ...accounts.filter((a) => a.id !== first.id)]) {
+  for (const acc of [first, ...accounts.filter((a) => a.id !== first.id), ...others]) {
     try {
       const r = await fetch(`${acc.api_url}/start`, {
         method: "POST",
